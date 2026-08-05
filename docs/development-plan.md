@@ -1,0 +1,227 @@
+# Plan de desarrollo — Audiology AI Assistant
+
+Fases pequeñas y verificables. Cada fase termina en un estado
+funcionalmente probable de commitear (build verde, tests pasando) antes de
+pasar a la siguiente. No se empieza una fase sin que la anterior esté
+completa y coherente con la documentación.
+
+## Fase 0 — Documentación fundacional (completada)
+
+**Entregable**: README.md, CLAUDE.md y los documentos en `docs/`,
+coherentes entre sí, incluidas las decisiones cerradas el 2026-08-05 (ver
+[product-requirements.md](product-requirements.md) §8-9).
+**Criterio de aceptación**: cumplido — el usuario validó el alcance, la
+arquitectura y cerró todas las preguntas abiertas antes de arrancar la
+Fase 1.
+
+## Fase 1 — Esqueleto técnico del proyecto
+
+Alcance exacto de esta fase (nada de pacientes, sesiones, audio,
+transcripción ni IA todavía — eso empieza en la Fase 2):
+
+**Estructura general**
+- Monorepositorio: `backend/`, `frontend/`, `docs/` (ya existente),
+  `infra/` (para artefactos de infraestructura local que no encajen en
+  `docker-compose.yml` raíz).
+- `.gitignore`, `.editorconfig`, `.env.example` en la raíz. Ningún secreto
+  real versionado.
+- README.md actualizado con instrucciones reales de instalación/ejecución.
+
+**Backend**
+- Python 3.12, FastAPI, `core/config.py` con Pydantic Settings (lee de
+  variables de entorno, sin defaults inseguros para entornos no locales).
+- SQLAlchemy 2 configurado (`core/db.py`); Alembic inicializado y listo
+  para generar migraciones (sin modelos de dominio todavía: `patients` y
+  el resto llegan en la Fase 2).
+- Estructura de carpetas coherente con [architecture.md](architecture.md)
+  §2 (`app/core/`, módulos vacíos o ausentes hasta que tengan contenido
+  real — no se crean paquetes vacíos "por si acaso").
+- `GET /health`: liveness, sin dependencias externas.
+- `GET /ready`: comprueba conexión real a PostgreSQL.
+- Manejo global de errores (exception handlers FastAPI) con respuesta JSON
+  estructurada y consistente.
+- Logging estructurado (JSON) que **nunca** registra cuerpos de petición
+  ni datos clínicos.
+- Ruff + Black configurados; Pytest con tests de `/health` y `/ready`.
+
+**Frontend**
+- React + TypeScript + Vite, ESLint + Prettier.
+- Página mínima: nombre provisional del producto, estado del frontend,
+  resultado de consultar `/health` (con estado de carga y de error de
+  conexión visibles).
+- Sin navegación clínica, formularios ni diseño definitivo todavía.
+
+**Infraestructura local**
+- `docker-compose.yml`: `db` (PostgreSQL), `backend`, `frontend`.
+- Healthchecks razonables en los tres servicios.
+- Volumen persistente para PostgreSQL, red interna dedicada.
+- Todas las variables usadas documentadas en `.env.example`.
+- Comandos sencillos (Makefile) para levantar, parar, migrar y testear.
+
+**Seguridad básica**
+- CORS restrictivo basado en variable de entorno (lista blanca de
+  orígenes); nunca `*` fuera de desarrollo local.
+- No se registran cuerpos de petición en logs.
+- Sin credenciales por defecto inseguras para entornos distintos de local
+  (local puede tener valores de ejemplo evidentes, p. ej.
+  `CHANGE_ME_LOCAL_ONLY`).
+- Configuración claramente separada por entorno (`development`, `test`,
+  `production`) vía `ENVIRONMENT` + Pydantic Settings.
+
+**Criterios de aceptación** (los 10 deben cumplirse):
+1. `docker compose up --build` levanta los tres servicios.
+2. PostgreSQL está disponible (healthcheck en verde).
+3. `/health` responde correctamente.
+4. `/ready` confirma conectividad real con la base de datos.
+5. El frontend consulta `/health` y muestra su estado (ok/cargando/error).
+6. Los tests del backend pasan.
+7. Lint y formateo pasan en backend y frontend.
+8. El README permite reproducir el entorno desde cero.
+9. No existe ninguna integración con servicios externos.
+10. No se han usado datos reales en ningún punto.
+
+Nada de lo anterior incluye `patients`, `clinical_sessions`, `audio`,
+`transcription`, `anamnesis`, `session_notes`, `clinical_flags` ni ningún
+proveedor mock funcional — esos módulos quedan vacíos de lógica de negocio
+hasta la Fase 2 en adelante.
+
+## Fase 2 — `users` + autenticación + `patients`
+
+- Modelo `users`, hashing de contraseña, login JWT, `GET /auth/me`.
+- Modelo `patients` (CRUD completo), forzando `is_fictional = true`.
+- Migraciones Alembic para ambos.
+- Tests Pytest de dominio (validaciones) y de API (CRUD, auth requerida).
+- Pantallas frontend: login, listado y alta de pacientes.
+
+**Criterio de aceptación**: se puede iniciar sesión, crear un paciente
+ficticio y verlo listado, todo end-to-end contra la API real (sin mocks de
+red en el frontend).
+
+## Fase 3 — `clinical_sessions` + `audio`
+
+- Modelo y endpoints de `clinical_sessions` (crear, listar por paciente,
+  detalle, `status` agregado según `ProcessingStatus`).
+- Módulo `audio`: interfaz `AudioStorage` + `LocalAudioStorage`; subida
+  multipart; validación de tamaño/duración/extensión/MIME
+  (`AUDIO_MAX_SIZE_MB`, `AUDIO_MAX_DURATION_MINUTES`); metadatos y
+  checksum en `audio_recordings` (sin blob en PostgreSQL).
+- Pantallas: crear sesión desde ficha de paciente, subir audio con
+  feedback de validación.
+
+**Criterio de aceptación**: desde un paciente se crea una sesión y se le
+sube un audio ficticio de prueba; el audio pasa por
+`uploaded → validating → ready` (o `failed` si no cumple los límites).
+
+## Fase 4 — `transcription` (mock)
+
+- Interfaz `TranscriptionProvider` + `MockTranscriptionProvider`
+  (transcripción determinista/fixture, sin IA real).
+- Endpoint para disparar transcripción y consultar resultado; exige audio
+  en `ready`.
+- Pantalla: ver transcripción de una sesión.
+
+**Criterio de aceptación**: al disparar la transcripción de un audio
+`ready`, se obtiene y persiste un texto de ejemplo determinista; el audio
+progresa `transcribing → transcribed`.
+
+## Fase 5 — `anamnesis`, `session_notes`, `clinical_flags` (generación mock)
+
+- Interfaz `LanguageModelProvider` + `MockLanguageModelProvider` que, a
+  partir de fixtures de transcripción, genera anamnesis estructurada
+  (todos los campos y estados de [data-model.md](data-model.md) §3, con
+  `schema_version`), resumen de sesión, respetando el lenguaje de
+  [clinical-safety.md](clinical-safety.md).
+- Interfaz `ClinicalFlagRuleset` + `DemoClinicalFlagRuleset` (checklist
+  genérico no validado clínicamente, ver
+  [clinical-safety.md](clinical-safety.md) §7), aislada del
+  `LanguageModelProvider`.
+- Endpoints de generación y consulta para los tres módulos
+  (`generating → review_pending`/`failed`).
+- Tests que verifiquen: ausencia de lenguaje prohibido, presencia del
+  aviso obligatorio (y del aviso específico del checklist demo), y que
+  ningún campo se marque `informado` sin fragmento de respaldo.
+- Pantallas: ver anamnesis generada, resumen generado, lista de señales de
+  alerta con ambos avisos — todo en modo solo lectura por ahora (la
+  edición llega en Fase 6).
+
+**Criterio de aceptación**: a partir de una transcripción de prueba se
+generan los tres documentos, visibles en la UI con los avisos de IA y de
+checklist no validado.
+
+## Fase 6 — Revisión, edición, aprobación, versionado, `audit_log`
+
+- `document_versions` funcionando para anamnesis y resumen.
+- Endpoints `PUT` (guardar edición) y `POST /approve` para ambos, con la
+  transición `approved → review_pending` al editar tras aprobar.
+- Borrado lógico (`DELETE`) de anamnesis/resumen/sesión: `status →
+  deleted`, nunca borrado físico.
+- Módulo `audit_log`: registro de las acciones listadas en
+  [privacy-and-security.md](privacy-and-security.md) §6, incluidos fallos
+  y borrados.
+- Pantalla: edición inline de anamnesis/resumen, botón de aprobación
+  explícita, vista de historial de versiones, vista de auditoría (rol
+  admin) para una sesión.
+- Endpoint y pantalla para cambiar estado de `clinical_flags`
+  (confirmar/descartar).
+
+**Criterio de aceptación**: se puede editar un campo de la anamnesis,
+guardar (queda `review_pending`, se crea versión nueva), y aprobar
+explícitamente (queda `approved`, con usuario y fecha visibles). Editar de
+nuevo tras aprobar exige nueva aprobación. El historial muestra la versión
+original de IA y la versión editada.
+
+## Fase 7 — Exportación
+
+- Interfaz `DocumentExporter` con `PdfDocumentExporter` y
+  `TextDocumentExporter`.
+- Endpoints de exportación, bloqueados si el documento no está `approved`.
+- Pantalla: botón de exportar (PDF/texto) visible solo cuando corresponde.
+
+**Criterio de aceptación**: un documento aprobado se descarga como PDF y
+como texto plano con formato legible; un documento no aprobado devuelve
+error controlado y la UI no ofrece la opción.
+
+## Fase 8 — `integrations` (interfaces + mocks), `consents`, retención
+
+- Interfaces `PatientRecordIntegration` y `CalendarIntegration` +
+  `Mock*`, sin llamadas de red reales.
+- Endpoints de configuración de integraciones (`GET/PATCH /integrations`).
+- Modelo y endpoints de `consents`.
+- Interfaz `RetentionCleanupService` (`find_expired_audio`, `purge`) y
+  endpoints manuales de retención (`GET/POST /retention/expired-audio...`)
+  usando `RETENTION_DAYS_DEFAULT` (30 días); sin scheduler todavía.
+- Pantalla mínima de administración de integraciones y retención (solo
+  lectura del estado mock + registro de consentimiento en la ficha de
+  paciente + listado/purga manual de audio expirado).
+
+**Criterio de aceptación**: el estado de integraciones es consultable y
+configurable a nivel de aplicación, sin que exista código que llame a un
+servicio externo real. Se puede registrar consentimiento para un paciente
+y purgar manualmente audio que supere la retención configurada.
+
+## Fase 9 — RBAC más fino, scheduler de retención, hardening
+
+- Revisión de permisos por endpoint según
+  [privacy-and-security.md](privacy-and-security.md).
+- Automatización opcional (scheduler/cron) sobre el
+  `RetentionCleanupService` ya existente desde la Fase 8 — el servicio no
+  cambia, solo se añade quién lo invoca periódicamente.
+- Revisión de seguridad general (dependencias, cabeceras HTTP, límites de
+  tamaño de subida, rate limiting básico si el tiempo lo permite).
+
+**Criterio de aceptación**: checklist de
+[privacy-and-security.md](privacy-and-security.md) revisado punto por
+punto contra el estado real del código, con desviaciones documentadas
+explícitamente si las hay.
+
+## Fuera de las fases del MVP
+
+Cualquier integración real (Noah, calendario, proveedor de transcripción o
+LLM de pago), multi-tenant, selector de idioma en tiempo de ejecución
+(más allá de centralizar textos para prepararlo, ver
+[architecture.md](architecture.md) §8), grabación en vivo, scheduler
+automático de retención (Fase 8 solo prepara la interfaz, Fase 9 la
+automatiza si el tiempo lo permite) o firma electrónica avanzada quedan
+fuera de este plan (ver [product-requirements.md](product-requirements.md)
+§4) y requerirían un nuevo ciclo de análisis de alcance antes de
+planificarse.
