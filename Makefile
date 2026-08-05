@@ -1,4 +1,4 @@
-.PHONY: up down build logs migrate test lint format
+.PHONY: up down build logs migrate seed test test-frontend lint format
 
 up:
 	docker compose up --build
@@ -15,8 +15,14 @@ logs:
 migrate:
 	docker compose run --rm backend alembic upgrade head
 
+seed:
+	docker compose run --rm backend python -m app.seed
+
 test:
 	docker compose run --rm backend pytest
+
+test-frontend:
+	docker compose run --rm frontend npm test
 
 lint:
 	docker compose run --rm backend ruff check .

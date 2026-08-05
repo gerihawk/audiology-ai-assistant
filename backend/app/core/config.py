@@ -26,6 +26,14 @@ class Settings(BaseSettings):
 
     backend_cors_origins: str = ""
 
+    # Resuelto por FakeCurrentUserProvider si no se envía la cabecera
+    # X-Dev-User-Id. Sin efecto alguno en production (el proveedor
+    # simulado se rechaza antes de leer este valor).
+    dev_default_user_id: str | None = None
+
+    pagination_default_limit: int = 20
+    pagination_max_limit: int = 100
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

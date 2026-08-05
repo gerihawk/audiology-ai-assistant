@@ -45,10 +45,26 @@ no importa nada de infraestructura ni de presentación.
 ```
 backend/
   app/
+    clinics/
+      domain/          # entidad Clinic (dataclass, sin SQLAlchemy)
+      infrastructure/  # ORM + repositorio; sin API propia en la Fase 2
+    users/
+      domain/          # entidad User, enum Role
+      infrastructure/  # ORM + repositorio; sin API propia en la Fase 2
+    audit_log/
+      domain/          # entidad AuditLogEntry
+      infrastructure/  # ORM (tabla audit_logs) + repositorio
     patients/
       domain/
+        entities.py     # Patient (dataclass), Sex (enum)
+        repository.py   # interfaz PatientRepository (puerto)
       infrastructure/
+        orm.py           # PatientORM (SQLAlchemy)
+        repository.py    # SqlAlchemyPatientRepository
+      service.py         # PatientService: autoriza → opera → audita → commit
       api/
+        schemas.py        # Pydantic, separados del ORM
+        router.py          # /api/v1/patients/*
     clinical_sessions/
     audio/
       domain/
@@ -65,8 +81,6 @@ backend/
         clinical_flag_ruleset.py     # interfaz ClinicalFlagRuleset (puerto)
       infrastructure/
         demo_clinical_flag_ruleset.py # checklist genérico, no validado
-    users/
-    audit_log/
     integrations/
       domain/            # interfaces abstractas compartidas
         transcription_provider.py
@@ -81,8 +95,15 @@ backend/
         mock_calendar_integration.py
     core/
       config.py           # settings desde variables de entorno
-      security.py          # auth, hashing, RBAC
-      db.py                 # engine/session SQLAlchemy
+      db.py                 # Base declarativa + engine/session SQLAlchemy
+      logging.py             # logging estructurado
+      errors.py               # excepciones de dominio → respuestas HTTP
+      exceptions.py            # NotFoundError, ConflictError, ForbiddenError, UnauthenticatedError
+      pagination.py             # Page[T], parámetros de paginación compartidos
+      context.py                 # middleware de request_id / correlation ID
+      current_user.py             # CurrentUser, CurrentUserProvider, FakeCurrentUserProvider
+      authorization.py             # matriz de permisos centralizada (ver §9)
+      deps.py                       # dependencias FastAPI (sesión, current_user, servicios)
       processing_status.py  # ProcessingStatus compartido + transiciones válidas
       messages/
         es.py                # textos, etiquetas y prompts centralizados (i18n-ready)
@@ -103,15 +124,16 @@ calendario) más el exportador de documentos.
 
 | Módulo | Responsabilidad |
 |---|---|
-| `patients` | Identidad mínima del paciente (ficticio). No contiene contenido clínico. |
+| `clinics` | Entidad `Clinic` mínima; sistema multi-clínica desde el modelo, sin gestión completa desde el frontend en el MVP (Fase 2). |
+| `users` | Usuarios internos (`admin`/`audiologist`/`viewer`) por clínica. Sin autenticación real: solo resolución vía `CurrentUserProvider` (Fase 2). |
+| `patients` | Identidad y datos administrativos mínimos del paciente (ficticio), aislados por clínica. No contiene contenido clínico. |
 | `clinical_sessions` | Ciclo de vida de una sesión clínica asociada a un paciente y un profesional. |
 | `audio` | Subida, validación (tamaño/duración/extensión/MIME) y almacenamiento de la grabación vía `AudioStorage`, incluida su eliminación física conforme a retención. |
 | `transcription` | Orquesta la llamada a `TranscriptionProvider` y persiste el resultado. |
 | `anamnesis` | Genera (vía `LanguageModelProvider`) y gestiona el ciclo de vida del documento de anamnesis, con versionado, `schema_version` y borrado lógico si está aprobado. |
 | `session_notes` | Resumen profesional de la sesión, mismo ciclo de vida que anamnesis (versionado, borrado lógico). |
 | `clinical_flags` | Señales de alerta / posibles motivos de derivación, generadas por un `ClinicalFlagRuleset` sustituible (MVP: checklist de demostración no validado clínicamente), con estado de revisión humana. |
-| `users` | Usuarios internos, roles, autenticación. |
-| `audit_log` | Registro append-only de acciones relevantes sobre pacientes, sesiones y documentos. |
+| `audit_log` | Registro append-only (tabla `audit_logs`) de acciones relevantes sobre pacientes, sesiones y documentos, escrito en la misma transacción que la entidad auditada. |
 | `integrations` | Interfaces abstractas + mocks para proveedores externos (transcripción, LLM, Noah, calendario) y exportadores de documentos. |
 
 ## 4. Interfaces abstractas obligatorias
@@ -253,7 +275,62 @@ alcance del MVP, ver [product-requirements.md](product-requirements.md)),
 solo evita que una futura internacionalización requiera reescribir código
 de dominio o de UI.
 
-## 9. Decisiones de arquitectura y por qué
+## 9. `CurrentUserProvider` y autorización centralizada (Fase 2)
+
+Sin autenticación real todavía. `CurrentUserProvider` es el puerto que
+resuelve "quién hace esta petición":
+
+```python
+class CurrentUserProvider(Protocol):
+    async def get_current_user(self, request: Request, session: AsyncSession) -> CurrentUser: ...
+```
+
+MVP: única implementación `FakeCurrentUserProvider` (`core/current_user.py`).
+Lee un identificador de usuario de la cabecera de desarrollo
+`X-Dev-User-Id` (o, si no está presente, de `DEV_DEFAULT_USER_ID` en la
+configuración) y **lo resuelve contra la tabla `users`** — nunca construye
+un `CurrentUser` a partir de datos enviados por el cliente sin
+verificarlos en base de datos. Si el usuario no existe o está inactivo,
+la petición se rechaza como no autenticada (401).
+
+**Bloqueo en producción**: `FakeCurrentUserProvider` lanza `RuntimeError`
+en su propio constructor si `settings.is_production` es verdadero. La
+fábrica que construye el proveedor (`core/deps.py`) se invoca de forma
+eager en el arranque de la aplicación (`lifespan`), de modo que un
+despliegue mal configurado con `ENVIRONMENT=production` falla al arrancar,
+no en la primera petición de un usuario real. Mientras no exista un
+proveedor real, **la API no puede ejecutarse en producción** — es la
+consecuencia deliberada de no implementar autenticación real todavía.
+
+**Autorización centralizada**: `core/authorization.py` define, por
+recurso, una matriz `{Role: {Action, ...}}` y una función
+`authorize_<recurso>_action(current_user, action)` que la consulta. Cada
+método de cada `*Service` llama a esta función como primer paso; ningún
+router ni repositorio implementa comprobaciones de rol propias. Esto
+evita el riesgo de "comprobaciones de permisos dispersas" — toda la
+lógica de quién puede hacer qué vive en un único módulo, fácil de auditar
+y de testear de forma aislada. Ver matriz completa de `patients` en
+[api-specification.md](api-specification.md) §Autorización.
+
+## 10. Aislamiento multi-clínica
+
+Ninguna consulta de lectura o escritura puede aceptar un `clinic_id`
+enviado por el cliente: siempre se deriva de `current_user.clinic_id`,
+resuelto por `CurrentUserProvider` contra la base de datos. Los
+repositorios exponen únicamente operaciones que exigen `clinic_id` como
+parámetro obligatorio (p. ej. `get_by_id(session, clinic_id, entity_id)`),
+de modo que es estructuralmente imposible consultar una entidad sin
+acotar por clínica.
+
+**Un UUID de otra clínica se trata como recurso inexistente (404), nunca
+como acceso prohibido (403)**: la consulta `WHERE id = :id AND clinic_id =
+:clinic_id` devuelve `None` tanto si el recurso no existe como si
+pertenece a otra clínica, y el servicio traduce ambos casos al mismo
+`NotFoundError`. Esto evita que la aplicación revele, ni siquiera
+indirectamente mediante un código de error distinto, la existencia de
+datos de otra clínica.
+
+## 11. Decisiones de arquitectura y por qué
 
 - **Interfaces abstractas para todo proveedor externo**: requisito
   explícito del producto y salvaguarda para no acoplar el dominio clínico a
@@ -284,3 +361,13 @@ de dominio o de UI.
   sesión de forma consistente en todos los módulos y para que ninguna
   transición inválida (p. ej. aprobar un documento sin generarlo antes)
   dependa solo de que el frontend "se porte bien".
+- **`CurrentUserProvider` como puerto, no como parámetro implícito**: aísla
+  todo el código de negocio de cómo se resuelve la identidad. La Fase 2
+  usa una implementación simulada; sustituirla por autenticación real más
+  adelante no debería tocar ningún `*Service` ni router, solo la
+  implementación concreta inyectada.
+- **Filtrado por clínica en la firma de los repositorios, no como
+  comprobación aparte**: hacer `clinic_id` un parámetro obligatorio de
+  cada método de repositorio (en vez de confiar en que cada servicio
+  "recuerde" añadir el filtro) hace estructuralmente difícil introducir
+  una fuga de datos entre clínicas por un descuido puntual.

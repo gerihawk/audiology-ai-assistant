@@ -9,16 +9,25 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError
+
 logger = logging.getLogger("app.errors")
 
 
-def _strip_input_values(errors: list[dict]) -> list[dict]:
-    """Elimina el valor enviado por el cliente del detalle del error.
+_UNSAFE_ERROR_KEYS = frozenset({"input", "ctx", "url"})
 
-    Evita reflejar en la respuesta contenido potencialmente sensible del
-    cuerpo de la petición.
+
+def _strip_input_values(errors: list[dict]) -> list[dict]:
+    """Elimina el valor enviado por el cliente y detalles internos del error.
+
+    - `input`: evita reflejar contenido potencialmente sensible del cuerpo
+      de la petición.
+    - `ctx`: puede contener la excepción Python original (no serializable
+      a JSON) detrás de un `field_validator` que lanza `ValueError`; el
+      mensaje legible ya está en `msg`.
+    - `url`: enlace a la documentación de Pydantic, ruido innecesario.
     """
-    return [{k: v for k, v in error.items() if k != "input"} for error in errors]
+    return [{k: v for k, v in error.items() if k not in _UNSAFE_ERROR_KEYS} for error in errors]
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -42,6 +51,38 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": "http_error", "message": str(exc.detail)}},
+        )
+
+    @app.exception_handler(NotFoundError)
+    async def handle_not_found(request: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": {"code": "not_found", "message": str(exc) or "Recurso no encontrado."}
+            },
+        )
+
+    @app.exception_handler(ConflictError)
+    async def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": {"code": "conflict", "message": str(exc), "field": exc.field}},
+        )
+
+    @app.exception_handler(ForbiddenError)
+    async def handle_forbidden(request: Request, exc: ForbiddenError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"error": {"code": "forbidden", "message": str(exc) or "No autorizado."}},
+        )
+
+    @app.exception_handler(UnauthenticatedError)
+    async def handle_unauthenticated(request: Request, exc: UnauthenticatedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={
+                "error": {"code": "unauthenticated", "message": str(exc) or "No autenticado."}
+            },
         )
 
     @app.exception_handler(Exception)

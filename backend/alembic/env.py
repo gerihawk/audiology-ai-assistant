@@ -5,7 +5,9 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
+from app.core import orm_registry  # noqa: F401  (registra los modelos ORM)
 from app.core.config import get_settings
+from app.core.db import Base
 
 config = context.config
 
@@ -14,10 +16,7 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
-# Sin modelos de dominio todavía (Fase 1). Cuando existan (Fase 2 en
-# adelante), target_metadata debe apuntar al metadata declarativo compartido
-# para habilitar autogenerate.
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

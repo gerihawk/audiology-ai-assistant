@@ -1,32 +1,118 @@
 # Especificación de API — Audiology AI Assistant (MVP)
 
-API REST bajo `/api/v1`. Autenticación mediante JWT (Bearer). Todas las
-rutas salvo `/auth/login` requieren usuario autenticado; las marcadas
-`admin` requieren rol `admin`. Respuestas de error siguen el formato
-estándar de FastAPI (`{"detail": ...}`).
+API REST bajo `/api/v1`. **Sin autenticación real todavía** (ver
+[architecture.md](architecture.md) §9): la identidad del usuario se
+resuelve mediante `CurrentUserProvider`; en el MVP, `FakeCurrentUserProvider`
+la obtiene de la cabecera de desarrollo `X-Dev-User-Id` (UUID de un
+usuario existente y activo en `users`) o, si no se envía, de
+`DEV_DEFAULT_USER_ID`. Esta cabecera **no sustituye** a un mecanismo de
+autenticación real y se rechaza (arranque fallido) si
+`ENVIRONMENT=production`. Todas las rutas de negocio requieren un
+`CurrentUser` resuelto (401 si no); las marcadas con un rol exigen que
+`current_user.role` tenga permiso para la acción, según la matriz de
+autorización de cada recurso (ver más abajo). El acceso está siempre
+acotado a `current_user.clinic_id`; nunca se acepta un `clinic_id` desde
+el cliente.
+
+Respuestas de error usan el formato `{"error": {"code": ..., "message":
+..., ...}}` (ver [architecture.md](architecture.md), manejo global de
+errores).
 
 Esta especificación es de alto nivel (contratos y propósito). El detalle
 fino de esquemas Pydantic se define en el código durante la implementación
 de cada módulo, siguiendo esta forma.
 
-## Auth / Users
+**Estado de implementación**: solo la sección **Patients** (y sus rutas de
+apoyo `/me`, `/dev/users`) están implementadas, desde la Fase 2. El resto
+de secciones de este documento describen el diseño objetivo de fases
+futuras y no tienen código todavía (ver
+[development-plan.md](development-plan.md)).
+
+## Dev tools (solo desarrollo, ausentes en producción)
+
+No forman parte del alcance mínimo pedido para `patients`, pero son
+necesarias para poder ejercitar `CurrentUserProvider` desde el frontend
+sin autenticación real. Estas rutas **no se registran** cuando
+`ENVIRONMENT=production` (no existen, no devuelven 403: menor superficie).
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| POST | `/auth/login` | público | Devuelve JWT dado email + contraseña |
-| GET | `/auth/me` | autenticado | Datos del usuario actual |
-| GET | `/users` | admin | Lista usuarios |
-| POST | `/users` | admin | Crea usuario |
-| PATCH | `/users/{user_id}` | admin | Activa/desactiva, cambia rol |
+| GET | `/dev/users` | público (solo no-producción) | Lista `{id, display_name, role, clinic_id}` de todos los usuarios, para poblar un selector de "usuario activo" en el frontend de desarrollo |
+| GET | `/me` | autenticado | Datos del `CurrentUser` resuelto (id, clinic_id, email, display_name, role) |
 
 ## Patients
 
-| Método | Ruta | Rol | Descripción |
+Recurso implementado en la Fase 2. Todas las rutas requieren un
+`CurrentUser` resuelto y operan exclusivamente sobre `current_user.clinic_id`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/patients` | Crea un paciente ficticio en la clínica del usuario actual |
+| GET | `/patients` | Lista paginada, con búsqueda y filtro de archivados (ver Listado) |
+| GET | `/patients/{patient_id}` | Detalle; `404` si no existe o pertenece a otra clínica |
+| PATCH | `/patients/{patient_id}` | Actualización parcial; `409` si el paciente está archivado |
+| POST | `/patients/{patient_id}/archive` | Archiva (idempotente); ver Autorización |
+| POST | `/patients/{patient_id}/restore` | Restaura (idempotente); ver Autorización |
+
+### Autorización (matriz de permisos)
+
+Centralizada en `core/authorization.py` (ver
+[architecture.md](architecture.md) §9); ningún endpoint implementa
+comprobaciones de rol propias.
+
+| Acción | admin | audiologist | viewer |
+|---|:---:|:---:|:---:|
+| Crear (`POST /patients`) | ✅ | ✅ | ❌ |
+| Leer (`GET /patients`, `GET /patients/{id}`) | ✅ | ✅ | ✅ |
+| Actualizar (`PATCH /patients/{id}`) | ✅ | ✅ | ❌ |
+| Archivar (`POST .../archive`) | ✅ | ✅ | ❌ |
+| Restaurar (`POST .../restore`) | ✅ | ❌ | ❌ |
+
+`audiologist` puede archivar pero no restaurar — la fase no especifica el
+permiso de restauración para este rol de forma explícita, así que se
+adopta la regla más conservadora (restaurar queda reservado a `admin`),
+documentada aquí como decisión cerrada.
+
+Un intento sin permiso devuelve `403`. Un `patient_id` válido de otra
+clínica devuelve `404`, nunca `403` (ver
+[architecture.md](architecture.md) §10) — no debe ser posible distinguir
+"no tienes permiso" de "no existe" para recursos ajenos a la propia
+clínica.
+
+### Listado (`GET /patients`)
+
+Parámetros de query:
+
+| Parámetro | Tipo | Default | Notas |
 |---|---|---|---|
-| GET | `/patients` | clinician/admin | Lista pacientes (filtrable por nombre/referencia) |
-| POST | `/patients` | clinician/admin | Crea paciente ficticio (`is_fictional` forzado a `true`) |
-| GET | `/patients/{patient_id}` | clinician/admin | Detalle de identidad del paciente |
-| PATCH | `/patients/{patient_id}` | clinician/admin | Edita datos identificativos |
+| `search` | string, opcional | — | Coincidencia parcial (case-insensitive) contra `internal_code` o `display_name` |
+| `include_archived` | bool | `false` | Si es `false`, excluye pacientes con `is_archived = true` |
+| `limit` | int | `20` | Máximo `PAGINATION_MAX_LIMIT` (configurable, default 100); `422` si se supera |
+| `offset` | int | `0` | |
+
+Orden estable: `created_at ASC, id ASC`. Respuesta:
+`{"items": [...], "total": N, "limit": L, "offset": O}`.
+
+### Validaciones (`POST` / `PATCH`)
+
+- `internal_code`: obligatorio en creación, `1-64` caracteres tras
+  normalizar (recorte de espacios), patrón `[A-Za-z0-9._-]+`. Conflicto
+  (`409`, con `field: "internal_code"`) si ya existe otro paciente con el
+  mismo código en la misma clínica.
+- `display_name`: opcional, hasta 200 caracteres, espacios internos
+  colapsados.
+- `birth_year`: opcional, entero entre 1900 y el año actual.
+- `sex`: opcional, uno de `female`, `male`, `other`, `unspecified`.
+- `preferred_language`: opcional en creación (default `es`); único valor
+  aceptado en el MVP es `es`.
+- `notes`: opcional, hasta 2000 caracteres, exclusivamente administrativas.
+- Cualquier campo no reconocido en el cuerpo (incluidos `clinic_id`,
+  `created_by`, `updated_by`, `created_at`, `updated_at`, `id`,
+  `schema_version`) se **rechaza con `422`** — estos campos ni siquiera
+  existen en los esquemas de entrada, no se filtran en tiempo de
+  ejecución.
+- `PATCH` sobre un paciente archivado devuelve `409` (debe restaurarse
+  primero).
 
 ## Clinical sessions
 

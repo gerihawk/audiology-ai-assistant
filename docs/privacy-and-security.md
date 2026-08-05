@@ -4,8 +4,13 @@
 
 Durante todo el desarrollo del MVP se usan exclusivamente pacientes, audios
 y conversaciones **ficticios**. No se introducen datos sanitarios reales
-bajo ninguna circunstancia. `patients.is_fictional` se fuerza a `true` a
-nivel de aplicación en el MVP.
+bajo ninguna circunstancia. Esto es una política de proceso (seed
+controlado, revisión antes de cualquier commit, sin conexión a sistemas
+reales) más que un campo de base de datos: `patients` no incluye un
+campo `is_fictional` — el modelo de la Fase 2 solo contiene identidad y
+datos administrativos mínimos, deliberadamente sin ningún campo que
+pudiera sugerir contenido clínico o sanitario real (ver
+[data-model.md](data-model.md)).
 
 Aun así, el sistema se diseña como si fuera a manejar datos reales en el
 futuro (privacidad desde el diseño), para no tener que rediseñar el modelo
@@ -14,9 +19,15 @@ cuando eso ocurra.
 ## 2. Minimización de datos
 
 - `patients` almacena solo lo estrictamente necesario para distinguir un
-  paciente en la UI (nombre, fecha de nacimiento, referencia interna).
-- `audit_log.metadata` nunca contiene el contenido clínico completo, solo
-  identificadores y una descripción breve de la acción.
+  paciente en la UI (nombre para mostrar, año de nacimiento, código
+  interno). Explícitamente **sin** DNI, número de seguridad social,
+  dirección, teléfono, email personal, historia clínica, diagnóstico,
+  audiometrías, anamnesis ni contenido de sesiones — esos campos no
+  existen en el modelo, no se ocultan a posteriori.
+- `audit_logs.metadata` nunca contiene el contenido clínico completo, ni
+  siquiera en las actualizaciones: solo los **nombres** de los campos
+  modificados, nunca sus valores anteriores ni nuevos (ver
+  [data-model.md](data-model.md) §2 `audit_logs`).
 - No se solicitan campos "por si acaso"; cada campo del modelo de datos
   tiene un uso identificado en [data-model.md](data-model.md).
 
@@ -40,30 +51,58 @@ cuando eso ocurra.
   como excepción explícita, nunca como el modo de producción.
 - **En reposo**: se diseña para poder activar cifrado a nivel de disco/volumen
   y, para campos especialmente sensibles (p. ej. `patients.display_name`,
-  `patients.date_of_birth`), se deja preparada la posibilidad de cifrado a
+  `patients.birth_year`), se deja preparada la posibilidad de cifrado a
   nivel de aplicación (columna) como mejora futura — **no implementado
   todavía en el MVP**, documentado como deuda consciente.
 - Los ficheros de audio se almacenan fuera del control de versiones, en un
   volumen/almacenamiento dedicado con acceso restringido al backend.
 
-## 5. Control de acceso basado en roles (RBAC)
+## 5. Control de acceso basado en roles (RBAC) y aislamiento multi-clínica
 
-Roles del MVP: `admin`, `clinician`. Ver matriz completa de permisos por
-endpoint en [api-specification.md](api-specification.md). Reglas generales:
+Roles del MVP (desde la Fase 2): `admin`, `audiologist`, `viewer`. Matriz
+completa de permisos sobre `patients` en
+[api-specification.md](api-specification.md) §Autorización, centralizada
+en `core/authorization.py` (ver [architecture.md](architecture.md) §9) —
+ningún endpoint implementa su propia comprobación de rol.
 
-- Un `clinician` solo puede generar/editar/aprobar documentos de sesiones
-  donde figura como `clinician_id` responsable (a definir en Fase 7 si se
-  permite acceso cruzado entre profesionales; por defecto, **no**).
-- Solo `admin` accede a `audit_log` y a la gestión de usuarios.
+- **Aislamiento por clínica** (`clinic_id`): estructural, no una
+  comprobación añadida — todo método de repositorio exige `clinic_id`
+  como parámetro y lo deriva siempre de `current_user.clinic_id`, nunca
+  del cliente. Un usuario nunca puede consultar ni inferir la existencia
+  de datos de otra clínica: un identificador válido de otra clínica
+  devuelve `404` (recurso no encontrado), no `403` (prohibido) — ver
+  [architecture.md](architecture.md) §10.
+- Sin autenticación real todavía: la identidad se resuelve vía
+  `CurrentUserProvider` (ver §12 más abajo). Todas las reglas de RBAC se
+  aplican igualmente sobre el usuario simulado que resuelva ese proveedor.
 - La exportación de un documento no aprobado está bloqueada a nivel de API,
-  no solo de UI.
+  no solo de UI (aplica a fases futuras de documentos clínicos).
+- Un `audiologist` solo podrá generar/editar/aprobar documentos de
+  sesiones donde figure como responsable (a definir en la fase que
+  implemente `clinical_sessions`; por defecto, **no** habrá acceso
+  cruzado entre profesionales de la misma clínica salvo para `admin`).
 
 ## 6. Registro de auditoría
 
-`audit_log` es append-only (sin `UPDATE` ni `DELETE` desde la aplicación).
-Se registra, como mínimo:
+La tabla `audit_logs` (módulo `audit_log`) es append-only (sin `UPDATE` ni
+`DELETE` desde la aplicación). Implementada desde la Fase 2 para
+`patients`: `patient.created`, `patient.updated`, `patient.archived`,
+`patient.restored`. Cada entrada incluye `clinic_id`, `actor_user_id`,
+`request_id` (correlation ID de la petición HTTP, ver
+[architecture.md](architecture.md) §9) y, para `*.updated`, únicamente los
+**nombres** de los campos modificados en `metadata.changed_fields` —
+nunca sus valores.
 
-- creación/edición de pacientes y sesiones;
+**Transaccionalidad**: la escritura de la entidad (`patients`, y en fases
+futuras `clinical_sessions`/documentos) y su entrada de `audit_logs` se
+realizan dentro de la misma transacción de base de datos y se confirman
+con un único `commit`. Si cualquiera de las dos falla, ambas se revierten
+(`rollback`) — nunca debe poder existir un cambio persistido sin su
+auditoría correspondiente, ni una entrada de auditoría sin el cambio que
+la originó. Ver `PatientService` en [architecture.md](architecture.md).
+
+Registro previsto para fases futuras (diseño, no implementado):
+
 - subida de audio y resultado de su validación (`ready`/`failed`);
 - solicitud de transcripción y su resultado;
 - generación de documentos IA y su resultado;
@@ -75,7 +114,7 @@ Se registra, como mínimo:
   `RetentionCleanupService`);
 - cualquier transición a `failed` (con `failure_reason`);
 - cambios de configuración de integraciones;
-- accesos de administrador al propio `audit_log` (opcional, evaluar en
+- accesos de administrador al propio `audit_logs` (opcional, evaluar en
   Fase 9).
 
 Regla general: toda operación relevante debe poder asociarse a una
@@ -131,13 +170,13 @@ MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
 
 ## 10. Gestión de secretos
 
-- Todo secreto (credenciales de base de datos, futuras claves de API,
-  `SECRET_KEY` de JWT) se lee exclusivamente de variables de entorno.
+- Todo secreto (credenciales de base de datos, futuras claves de API o de
+  autenticación) se lee exclusivamente de variables de entorno.
 - Se mantiene un `.env.example` versionado con las claves necesarias y
   valores de ejemplo no funcionales; `.env` real nunca se versiona
   (incluido en `.gitignore` desde el primer commit del esqueleto de
   proyecto).
-- Nunca se registran secretos en logs ni en `audit_log.metadata`.
+- Nunca se registran secretos en logs ni en `audit_logs.metadata`.
 - Revisión obligatoria antes de cualquier commit: que no se haya
   incrustado ninguna clave, token o contraseña en código o configuración.
 
@@ -145,12 +184,35 @@ MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
 
 | Amenaza | Mitigación en el MVP |
 |---|---|
-| Fuga de identidad de paciente vía logs/errores | Identidad separada del contenido clínico; `audit_log.metadata` sin contenido clínico completo |
-| Acceso no autorizado a documentos clínicos | JWT + RBAC por endpoint |
+| Fuga de identidad de paciente vía logs/errores | Identidad separada del contenido clínico; `audit_logs.metadata` sin contenido clínico completo |
+| Acceso no autorizado a recursos de una clínica | RBAC centralizado + filtrado obligatorio por `clinic_id` en cada repositorio (ver [architecture.md](architecture.md) §9-10) |
+| Fuga de existencia de datos de otra clínica | UUID de otra clínica devuelve `404`, nunca `403` |
+| Suplantación de usuario vía cabecera de desarrollo | `X-Dev-User-Id` se valida contra `users` (existencia + `is_active`); `FakeCurrentUserProvider` se rechaza si `ENVIRONMENT=production` |
 | Exportación de documento no revisado | Bloqueo a nivel de API si `status != approved` |
 | Secretos filtrados en el repositorio | Solo variables de entorno, `.env` en `.gitignore`, revisión previa a commit |
 | Envío accidental a proveedor de pago real | Solo implementaciones `Mock*` disponibles en el MVP; activar un proveedor real requiere cambio explícito de configuración |
-| Pérdida de trazabilidad de cambios clínicos | `document_versions` + `audit_log` obligatorios en cada escritura |
-| Borrado accidental de un documento aprobado | Borrado lógico obligatorio en dominio/servicio; no existe operación de borrado físico expuesta para `anamnesis_documents`/`session_notes` |
+| Pérdida de trazabilidad de cambios clínicos o administrativos | `document_versions`/`audit_logs` obligatorios y transaccionales en cada escritura |
+| Borrado accidental de un documento aprobado o de un paciente | Borrado lógico obligatorio en dominio/servicio; no existe operación de borrado físico expuesta para `patients`, `anamnesis_documents`/`session_notes` |
 | Audio ficticio acumulado indefinidamente | Retención configurable (30 días por defecto) + `RetentionCleanupService`, purgable manualmente |
 | Subida de audio malicioso/con formato no soportado | Validación de tamaño, duración, extensión y tipo MIME contra lista blanca antes de pasar a `ready` |
+
+## 12. `CurrentUserProvider`: alcance y limitaciones (Fase 2)
+
+`FakeCurrentUserProvider` es una herramienta de desarrollo, **no** un
+mecanismo de autenticación:
+
+- No verifica contraseña, posesión de dispositivo ni ningún factor real —
+  solo confirma que el `id` recibido corresponde a un usuario existente y
+  activo en la base de datos.
+- Cualquiera con acceso a la API de desarrollo puede actuar como
+  cualquier usuario simplemente enviando su UUID en `X-Dev-User-Id`. Esto
+  es aceptable únicamente porque no hay datos reales ni exposición
+  pública durante el MVP.
+- Se rechaza estructuralmente en `ENVIRONMENT=production` (la aplicación
+  falla al arrancar si es la única implementación disponible, ver
+  [architecture.md](architecture.md) §9): **la API no tiene, todavía, un
+  modo de funcionamiento válido en producción**. Esa es una limitación
+  conocida y deliberada de la Fase 2, no un descuido — implementar
+  autenticación real es trabajo de una fase futura no planificada aún.
+- El endpoint de apoyo `/dev/users` (que lista usuarios para poblar el
+  selector del frontend) tampoco existe cuando `ENVIRONMENT=production`.

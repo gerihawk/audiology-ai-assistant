@@ -9,7 +9,7 @@
 
 body {
   margin: 2rem auto;
-  max-width: 640px;
+  max-width: 900px;
   padding: 0 1rem;
   line-height: 1.5;
 }
@@ -20,4 +20,45 @@ section {
 
 code {
   word-break: break-all;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border: 1px solid currentColor;
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+
+form div {
+  margin-bottom: 0.75rem;
+}
+
+form label {
+  display: block;
+  font-weight: 600;
+}
+
+.patient-list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

@@ -85,17 +85,58 @@ Nada de lo anterior incluye `patients`, `clinical_sessions`, `audio`,
 proveedor mock funcional — esos módulos quedan vacíos de lógica de negocio
 hasta la Fase 2 en adelante.
 
-## Fase 2 — `users` + autenticación + `patients`
+## Fase 2 — `clinics`, `users`, `patients`, `audit_log` (completada)
 
-- Modelo `users`, hashing de contraseña, login JWT, `GET /auth/me`.
-- Modelo `patients` (CRUD completo), forzando `is_fictional = true`.
-- Migraciones Alembic para ambos.
-- Tests Pytest de dominio (validaciones) y de API (CRUD, auth requerida).
-- Pantallas frontend: login, listado y alta de pacientes.
+Objetivo: validar el patrón arquitectónico completo (dominio →
+persistencia → migraciones → repositorio → servicio → autorización → API
+→ auditoría → frontend → tests) con un primer módulo funcional real,
+**sin** autenticación real y **sin** ninguna entidad clínica todavía.
+Decisiones cerradas en [product-requirements.md](product-requirements.md)
+§10.
 
-**Criterio de aceptación**: se puede iniciar sesión, crear un paciente
-ficticio y verlo listado, todo end-to-end contra la API real (sin mocks de
-red en el frontend).
+- `clinics`, `users`, `audit_log`: dominio + ORM + repositorio mínimo, sin
+  API propia (soportan `patients` y el seed).
+- `patients`: dominio, ORM, repositorio, `PatientService` (autoriza →
+  opera → audita → commit transaccional), esquemas Pydantic separados del
+  ORM, router `/api/v1/patients` con los 6 endpoints mínimos + `/me` +
+  `/dev/users`.
+- `core`: excepciones de dominio → HTTP, paginación, `request_id` por
+  middleware, `CurrentUser`/`CurrentUserProvider`/`FakeCurrentUserProvider`,
+  `authorization.py` centralizado.
+- Una migración Alembic para `clinics`/`users`/`patients`/`audit_logs` con
+  sus índices.
+- Script de seed idempotente (clínica + 3 usuarios + pacientes
+  ficticios), bloqueado en producción.
+- Frontend: selector de usuario ficticio activo, listado con
+  búsqueda/paginación/filtro de archivados, crear/editar, detalle,
+  archivar/restaurar.
+- Tests backend (aislamiento por clínica, permisos por rol, auditoría
+  transaccional, bloqueo del proveedor fake en producción) y tests
+  frontend (Vitest + Testing Library).
+
+**Criterios de aceptación**:
+1. Las migraciones se ejecutan correctamente desde una base vacía.
+2. El seed ficticio es reproducible (idempotente).
+3. Los 8 endpoints (`patients` × 6 + `/me` + `/dev/users`) funcionan y
+   están documentados en [api-specification.md](api-specification.md).
+4. El aislamiento por clínica está cubierto por tests (UUID de otra
+   clínica → 404).
+5. Los tres roles (`admin`/`audiologist`/`viewer`) respetan la matriz de
+   permisos documentada.
+6. La auditoría (`patient.created/updated/archived/restored`) se genera
+   de forma transaccional junto con la entidad.
+7. No se registran valores sensibles en auditoría ni en logs (solo
+   nombres de campos modificados).
+8. El frontend permite probar el ciclo completo del paciente ficticio
+   (crear, buscar, editar, archivar, restaurar) cambiando de usuario
+   ficticio activo.
+9. Tests, lint, format y build pasan en backend y frontend.
+10. `docker compose up --build` sigue levantando los tres servicios.
+11. No se implementa nada de `clinical_sessions`, `audio`,
+    `transcription`, `anamnesis`, `session_notes`, `clinical_flags`,
+    integraciones ni autenticación real.
+12. No se usan datos reales en ningún punto (seed y tests, exclusivamente
+    ficticios).
 
 ## Fase 3 — `clinical_sessions` + `audio`
 

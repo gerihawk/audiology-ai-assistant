@@ -6,9 +6,11 @@ anamnesis estructurada y un resumen profesional, y señala información ausente
 o posibles motivos de derivación — siempre como borrador que el profesional
 debe revisar y aprobar.
 
-> **Estado: Fase 1 completada.** Esqueleto técnico funcional (backend,
-> frontend, PostgreSQL, Docker Compose). Sin funcionalidad clínica todavía
-> — eso empieza en la Fase 2 (ver
+> **Estado: Fase 2 completada.** Módulo administrativo funcional de
+> clínicas/usuarios/pacientes ficticios, con auditoría, autorización por
+> rol y aislamiento multi-clínica. Sin autenticación real ni ninguna
+> entidad clínica todavía (sesiones, audio, transcripción, anamnesis) —
+> eso empieza en la Fase 3 (ver
 > [docs/development-plan.md](docs/development-plan.md)).
 
 ## Qué NO es este proyecto
@@ -47,8 +49,9 @@ Ver [docs/clinical-safety.md](docs/clinical-safety.md).
 
 ## Datos de desarrollo
 
-Solo se utilizan pacientes, audios y transcripciones **ficticios**. Nunca
-introduzcas datos sanitarios reales, ni siquiera para pruebas rápidas.
+Solo se utilizan clínicas, usuarios, pacientes, audios y transcripciones
+**ficticios**. Nunca introduzcas datos sanitarios reales, ni siquiera para
+pruebas rápidas.
 
 ## Estructura del repositorio
 
@@ -89,9 +92,90 @@ de PostgreSQL persisten en el volumen).
 | `make down` | Detiene los servicios |
 | `make logs` | Sigue los logs de todos los servicios |
 | `make migrate` | Ejecuta las migraciones de Alembic (`alembic upgrade head`) |
+| `make seed` | Crea la clínica y los usuarios/pacientes ficticios de desarrollo (idempotente) |
 | `make test` | Ejecuta los tests del backend (Pytest) dentro de Docker |
+| `make test-frontend` | Ejecuta los tests del frontend (Vitest) dentro de Docker |
 | `make lint` | Ejecuta Ruff, Black --check, ESLint y Prettier --check |
 | `make format` | Aplica Ruff --fix, Black y Prettier |
+
+### Migraciones (Alembic)
+
+```bash
+make migrate
+# equivalente a: docker compose run --rm backend alembic upgrade head
+```
+
+Crea las tablas `clinics`, `users`, `patients` y `audit_logs` (una única
+migración inicial, `5bc62034fa75`). Se puede ejecutar repetidamente sin
+efecto si ya está al día. Para revertirla por completo (borra esas
+tablas):
+
+```bash
+docker compose run --rm backend alembic downgrade base
+```
+
+### Datos de desarrollo (seed)
+
+```bash
+make seed
+# equivalente a: docker compose run --rm backend python -m app.seed
+```
+
+Crea, si no existen ya (idempotente, localiza por `code`/`email`/
+`internal_code`):
+
+- una clínica ficticia (`DEV-CLINIC`);
+- tres usuarios ficticios, uno por rol (`admin@dev.local`,
+  `audiologist@dev.local`, `viewer@dev.local`);
+- tres pacientes ficticios de ejemplo (`PAT-0001`, `PAT-0002`, `PAT-0003`).
+
+El comando imprime los UUID de los tres usuarios al final, útiles para
+probar la API directamente con `curl`. El seed se niega a ejecutarse si
+`ENVIRONMENT=production`.
+
+### Selección del usuario ficticio (sin autenticación real)
+
+La Fase 2 no implementa login. La identidad se resuelve mediante la
+cabecera de desarrollo `X-Dev-User-Id: <uuid de un usuario existente>`, o
+mediante la variable de entorno `DEV_DEFAULT_USER_ID` si no se envía
+cabecera. Esta cabecera se valida siempre contra la base de datos (nunca
+se confía en el UUID a ciegas) y queda **bloqueada por completo si
+`ENVIRONMENT=production`** — ver
+[docs/privacy-and-security.md](docs/privacy-and-security.md) §12.
+
+- **Frontend**: la app consulta `GET /api/v1/dev/users` al cargar y
+  muestra un selector ("Usuario ficticio activo") con los usuarios
+  creados por el seed; la elección se recuerda en `localStorage`.
+- **API directa**: añade la cabecera a mano, usando uno de los UUID que
+  imprime `make seed` (o consultando `GET /api/v1/dev/users`).
+
+### Ejemplos de llamadas a la API
+
+```bash
+# Descubrir los usuarios de desarrollo disponibles
+curl http://localhost:8000/api/v1/dev/users
+
+ADMIN_ID=<uuid del usuario admin>
+
+# Quién soy
+curl http://localhost:8000/api/v1/me -H "X-Dev-User-Id: $ADMIN_ID"
+
+# Crear un paciente ficticio
+curl -X POST http://localhost:8000/api/v1/patients \
+  -H "X-Dev-User-Id: $ADMIN_ID" -H "Content-Type: application/json" \
+  -d '{"internal_code":"PAT-0100","display_name":"Paciente de prueba","sex":"other"}'
+
+# Listar pacientes (búsqueda + paginación)
+curl "http://localhost:8000/api/v1/patients?search=PAT-01&limit=10&offset=0" \
+  -H "X-Dev-User-Id: $ADMIN_ID"
+
+# Archivar y restaurar
+curl -X POST http://localhost:8000/api/v1/patients/<patient_id>/archive -H "X-Dev-User-Id: $ADMIN_ID"
+curl -X POST http://localhost:8000/api/v1/patients/<patient_id>/restore -H "X-Dev-User-Id: $ADMIN_ID"
+```
+
+Especificación completa de endpoints, validaciones y matriz de
+autorización en [docs/api-specification.md](docs/api-specification.md).
 
 ### Desarrollo sin Docker (opcional)
 
@@ -113,10 +197,25 @@ npm install
 npm run dev
 ```
 
+## Tests
+
+```bash
+make test            # backend: pytest contra una base de datos de test aislada
+                      # (audiology_ai_assistant_test, se crea sola en el primer run)
+make test-frontend   # frontend: vitest + Testing Library
+```
+
+Los tests del backend nunca tocan la base de datos de desarrollo: crean y
+truncan una base de datos separada en el mismo servidor Postgres. No
+requieren el seed ejecutado previamente — cada test crea sus propias
+clínicas/usuarios ficticios.
+
 ## Verificación rápida
 
 - `curl http://localhost:8000/health` → `{"status":"ok"}`
 - `curl http://localhost:8000/ready` → `{"status":"ok","database":"connected"}`
   (una vez PostgreSQL esté disponible)
-- `http://localhost:5173` muestra el estado del frontend y el resultado de
-  consultar `/health` en el backend.
+- `curl http://localhost:8000/api/v1/dev/users` → lista de usuarios ficticios
+  (tras ejecutar `make seed`)
+- `http://localhost:5173` muestra el estado del frontend, el usuario
+  ficticio activo y permite crear/buscar/archivar/restaurar pacientes.

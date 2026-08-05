@@ -14,16 +14,71 @@ no se exponen identificadores secuenciales en ninguna entidad.
 
 ## 2. Entidades
 
-### `patients`
+### `clinics`
+El sistema es **multi-clínica desde el modelo de datos**, aunque durante el
+MVP exista una única clínica de desarrollo (creada por seed, ver
+[development-plan.md](development-plan.md) Fase 2). Toda entidad con datos
+de clínica referencia `clinic_id`; ninguna consulta de listado o detalle
+puede omitir ese filtro (ver `architecture.md` §9 sobre aislamiento por
+clínica).
+
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
-| display_name | string | Nombre ficticio para uso en UI |
-| date_of_birth | date, nullable | Ficticia |
-| internal_reference | string, único | Referencia interna, no un identificador sanitario real |
-| is_fictional | bool, default true | Salvaguarda explícita; el MVP no permite `false` |
+| name | string(200) | |
+| code | string(32), único globalmente | Identificador corto legible, p. ej. `DEV-CLINIC` |
+| is_active | bool, default true | |
 | created_at / updated_at | timestamp | |
+
+### `users`
+Sin autenticación real en el MVP (ver §7 y
+[architecture.md](architecture.md) §10 `CurrentUserProvider`). El email es
+único **globalmente** (no solo por clínica): sirve de identificador de
+login incluso antes de que exista un mecanismo de autenticación real, y
+simplifica la resolución del usuario ficticio de desarrollo.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | UUID PK | |
+| clinic_id | FK clinics.id | |
+| email | string(254), único globalmente | |
+| display_name | string(200) | |
+| role | enum | `admin`, `audiologist`, `viewer` — ver matriz de permisos en [api-specification.md](api-specification.md) §Autorización |
+| is_active | bool, default true | Un usuario inactivo nunca puede resolverse como `CurrentUser` |
+| created_at / updated_at | timestamp | |
+
+Sin campo de contraseña ni tokens: fuera de alcance hasta que exista
+autenticación real (fase futura, no planificada todavía).
+
+### `patients`
+Identidad y datos administrativos mínimos del paciente **ficticio**. Sin
+ningún campo clínico (motivo de consulta, diagnóstico, audiometrías,
+anamnesis, contenido de sesión) ni dato personal sensible más allá de lo
+estrictamente necesario para distinguirlo en la UI — nunca DNI, número de
+seguridad social, dirección, teléfono ni email personal. El contenido
+clínico (`clinical_sessions` y módulos posteriores) referenciará
+`patient_id` sin duplicar estos campos, preservando la separación
+identidad/clínica de §1.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | UUID PK | Identificador público |
+| clinic_id | FK clinics.id | |
+| internal_code | string(64) | Normalizado (recortado, sin espacios internos), patrón `[A-Za-z0-9._-]+`. **Único por clínica**: `UNIQUE (clinic_id, internal_code)` — no globalmente único |
+| display_name | string(200), nullable | Opcional; espacios normalizados |
+| birth_year | int, nullable | Rango razonable: 1900–año actual |
+| sex | enum, nullable | `female`, `male`, `other`, `unspecified` — administrativo, no clínico |
+| preferred_language | string(5), default `es` | Único valor soportado en el MVP (`es`), preparado para más adelante (ver `architecture.md` §8) |
+| notes | string(2000), nullable | Exclusivamente notas administrativas ficticias; nunca contenido clínico |
+| is_archived | bool, default false | Ver §7 Archivado |
 | created_by | FK users.id | |
+| updated_by | FK users.id | |
+| created_at / updated_at | timestamp | `updated_at` con `onupdate` a nivel de base de datos |
+| archived_at | timestamp, nullable | |
+| schema_version | int, default 1 | Versión del esquema fijo de campos de `patients`, análogo a `anamnesis_documents.schema_version` |
+
+Índice único: `UNIQUE (clinic_id, internal_code)`. Índices adicionales en
+§7 (búsqueda por clínica, estado archivado, fechas).
 
 ### `clinical_sessions`
 | Campo | Tipo | Notas |
@@ -131,29 +186,26 @@ ciclo de vida de edición/aprobación).
 | reviewed_at | timestamp, nullable | |
 | created_at | timestamp | |
 
-### `users`
-| Campo | Tipo | Notas |
-|---|---|---|
-| id | UUID PK | |
-| email | string, único | |
-| full_name | string | |
-| role | enum | `admin`, `clinician` |
-| hashed_password | string | Nunca en texto plano; hashing en `core/security.py` |
-| is_active | bool | |
-| created_at | timestamp | |
-
-### `audit_log`
-Append-only, sin `updated_at` ni borrado.
+### `audit_logs`
+Tabla del módulo `audit_log` (nombre de módulo en singular, por convención
+de paquete Python; tabla en plural, por convención SQL del resto del
+esquema). Append-only, sin `updated_at` ni borrado.
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
+| clinic_id | FK clinics.id | Aísla la auditoría por clínica igual que el resto de entidades |
 | actor_user_id | FK users.id | |
-| action | string | p. ej. `patient.created`, `anamnesis.approved`, `audio.uploaded` |
-| entity_type | string | |
+| action | string(64) | p. ej. `patient.created`, `patient.updated`, `patient.archived`, `patient.restored` |
+| entity_type | string(64) | p. ej. `patient` |
 | entity_id | UUID | |
-| metadata | JSONB, nullable | Detalles adicionales, nunca contenido clínico completo |
-| occurred_at | timestamp | |
+| timestamp | timestamp | |
+| request_id | string(64), nullable | Correlation ID de la petición HTTP que originó la acción (ver `architecture.md` §10) |
+| metadata | JSONB, default `{}` | Mínima y segura: para `*.updated`, únicamente la lista de **nombres** de campos modificados (`{"changed_fields": ["display_name"]}`), nunca sus valores. Nunca cuerpos de petición, notas administrativas completas ni contenido clínico |
+
+Nota de implementación: en el ORM, el atributo Python no puede llamarse
+`metadata` (nombre reservado por `DeclarativeBase.metadata`); se mapea
+como `audit_metadata` a la columna `metadata`.
 
 ### `consents`
 | Campo | Tipo | Notas |
@@ -225,6 +277,9 @@ transcripción. Si no hay evidencia textual, el campo queda en
 ## 4. Relaciones (resumen)
 
 ```
+clinics 1───N users
+clinics 1───N patients
+clinics 1───N audit_logs
 patients 1───N clinical_sessions
 clinical_sessions 1───1 audio_recordings   (MVP: un audio por sesión)
 audio_recordings 1───1 transcriptions
@@ -234,7 +289,8 @@ clinical_sessions 1───N clinical_flags
 clinical_sessions 1───N consents
 anamnesis_documents / session_notes 1───N document_versions (por document_type + document_id)
 users 1───N clinical_sessions (como clinician)
-users 1───N audit_log (como actor)
+users 1───N patients (como created_by / updated_by)
+users 1───N audit_logs (como actor)
 ```
 
 ## 5. Notas de diseño
@@ -300,3 +356,43 @@ clinical_sessions (agregado, informativo):
 Un documento en `deleted` no aparece en las vistas por defecto pero
 conserva su fila, `document_versions` y las entradas de `audit_log`
 asociadas — nunca se elimina físicamente si alcanzó `approved`.
+
+## 7. Multi-clínica, archivado de pacientes e índices (Fase 2)
+
+**Multi-clínica desde el modelo, mono-clínica en el MVP.** Todas las
+entidades con datos de negocio llevan `clinic_id` y toda consulta del
+backend filtra explícitamente por la clínica del usuario autenticado
+(`current_user.clinic_id`) — nunca se confía en un `clinic_id` recibido
+del cliente. Ver `architecture.md` §9 (aislamiento por clínica) para el
+mecanismo concreto.
+
+**Archivado, no borrado físico.** `patients` no admite borrado físico vía
+API. `is_archived` + `archived_at` sustituyen al borrado:
+
+- **Archivar**: `is_archived = true`, `archived_at = now()`. Si el
+  paciente ya estaba archivado, la operación es un no-op idempotente (no
+  cambia nada, no genera una nueva entrada de auditoría).
+- **Restaurar**: `is_archived = false`, `archived_at = null`. Si el
+  paciente ya estaba activo, no-op idempotente por el mismo motivo.
+- Un paciente archivado **no admite `PATCH`** salvo para restaurarlo
+  primero (la API rechaza la edición con `409 Conflict`).
+- El listado por defecto excluye archivados; el filtro `include_archived`
+  los incluye explícitamente.
+
+**Índices** (ver migración Alembic correspondiente):
+
+| Índice | Tabla | Propósito |
+|---|---|---|
+| `UNIQUE (clinic_id, internal_code)` | `patients` | Unicidad de código interno por clínica (no global) |
+| `(clinic_id, is_archived)` | `patients` | Listado filtrado por clínica y estado archivado |
+| `(clinic_id, created_at)` | `patients` | Orden estable del listado paginado |
+| `(clinic_id)` | `users` | Resolución de usuarios por clínica (seed, `CurrentUserProvider`) |
+| `UNIQUE (email)` | `users` | Login futuro / resolución del usuario ficticio de desarrollo |
+| `(entity_type, entity_id)` | `audit_logs` | Auditoría por entidad (p. ej. historial de un paciente) |
+| `(actor_user_id)` | `audit_logs` | Auditoría por actor |
+| `(clinic_id, timestamp)` | `audit_logs` | Auditoría por clínica y rango de fechas |
+
+**`schema_version` en `patients`**: mismo patrón que en
+`anamnesis_documents`/`session_notes` — versiona el esquema fijo de campos
+administrativos del paciente para poder evolucionarlo sin migrar filas
+existentes ni introducir formularios configurables por clínica.

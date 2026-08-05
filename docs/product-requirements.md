@@ -181,3 +181,49 @@ Estas decisiones ya están reflejadas de forma coherente en
 [api-specification.md](api-specification.md),
 [privacy-and-security.md](privacy-and-security.md) y
 [clinical-safety.md](clinical-safety.md).
+
+## 10. Decisiones cerradas — Fase 2 (clínicas, usuarios, pacientes, auditoría)
+
+Decisiones tomadas por el usuario el 2026-08-05 para el alcance concreto
+de la Fase 2. El alcance clínico del producto (descrito en §1-§8) **no
+cambia**; esta fase solo construye el módulo administrativo de pacientes
+y su infraestructura transversal (usuarios, clínicas, auditoría).
+
+1. **Multi-clínica desde el modelo, mono-clínica en el MVP.** Se añade la
+   entidad `Clinic`; toda entidad de negocio referencia `clinic_id` y todo
+   acceso se acota a la clínica del usuario actual. Sin gestión completa
+   de clínicas desde el frontend todavía. Ver
+   [data-model.md](data-model.md) §2 y [architecture.md](architecture.md)
+   §10.
+2. **Roles cerrados en `admin`, `audiologist`, `viewer`** (sustituyen al
+   placeholder `admin`/`clinician` de versiones anteriores de este
+   documento). `audiologist` puede archivar pacientes pero no
+   restaurarlos — la fase no fijaba explícitamente esta regla, así que se
+   adopta la opción conservadora (restaurar reservado a `admin`). Matriz
+   completa en [api-specification.md](api-specification.md) §Autorización.
+3. **Sin autenticación real.** `CurrentUserProvider` resuelve la
+   identidad; el MVP solo implementa `FakeCurrentUserProvider` (cabecera
+   de desarrollo `X-Dev-User-Id`, validada contra la base de datos,
+   rechazada en `ENVIRONMENT=production`). Ver
+   [architecture.md](architecture.md) §9 y
+   [privacy-and-security.md](privacy-and-security.md) §12.
+4. **`patients` sin campo `is_fictional`.** El modelo de la Fase 2 fija
+   exactamente los campos administrativos mínimos (identidad, código
+   interno único por clínica, año de nacimiento, sexo administrativo,
+   idioma preferido, notas administrativas, archivado). Ningún campo
+   clínico. La ausencia de datos reales es una política de proceso, no un
+   campo de base de datos. Ver [data-model.md](data-model.md) §2.
+5. **Valores de `sex`**: `female`, `male`, `other`, `unspecified` —
+   administrativos, no clínicos.
+6. **Archivado, no borrado físico**, para `patients`: `is_archived` +
+   `archived_at`, operaciones idempotentes, edición bloqueada mientras
+   está archivado. Ver [data-model.md](data-model.md) §7.
+7. **Auditoría transaccional** de las cuatro acciones sobre `patients`
+   (`created`/`updated`/`archived`/`restored`), con `request_id` y, para
+   actualizaciones, solo los nombres de los campos modificados. Ver
+   [privacy-and-security.md](privacy-and-security.md) §6.
+8. **Endpoints de apoyo `/me` y `/dev/users`**, fuera de la lista mínima
+   original de endpoints de `patients`, añadidos porque son
+   estructuralmente necesarios para que el frontend pueda seleccionar y
+   mostrar el usuario ficticio activo sin autenticación real. Ausentes en
+   producción. Ver [api-specification.md](api-specification.md).
