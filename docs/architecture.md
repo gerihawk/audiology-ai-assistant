@@ -66,6 +66,17 @@ backend/
         schemas.py        # Pydantic, separados del ORM
         router.py          # /api/v1/patients/*
     clinical_sessions/
+      domain/
+        entities.py      # ClinicalSession (dataclass), SessionType, ClinicalSessionStatus (enums)
+        state_machine.py  # transiciones válidas de ClinicalSessionStatus; independiente de ProcessingStatus
+        repository.py      # interfaz ClinicalSessionRepository (puerto)
+      infrastructure/
+        orm.py               # ClinicalSessionORM (SQLAlchemy)
+        repository.py         # SqlAlchemyClinicalSessionRepository
+      service.py              # ClinicalSessionService: autoriza → valida transición → opera → audita → commit
+      api/
+        schemas.py             # Pydantic, separados del ORM
+        router.py                # /api/v1/clinical-sessions/*
     audio/
       domain/
         audio_storage.py        # interfaz AudioStorage (puerto)
@@ -127,7 +138,7 @@ calendario) más el exportador de documentos.
 | `clinics` | Entidad `Clinic` mínima; sistema multi-clínica desde el modelo, sin gestión completa desde el frontend en el MVP (Fase 2). |
 | `users` | Usuarios internos (`admin`/`audiologist`/`viewer`) por clínica. Sin autenticación real: solo resolución vía `CurrentUserProvider` (Fase 2). |
 | `patients` | Identidad y datos administrativos mínimos del paciente (ficticio), aislados por clínica. No contiene contenido clínico. |
-| `clinical_sessions` | Ciclo de vida de una sesión clínica asociada a un paciente y un profesional. |
+| `clinical_sessions` | Entidad central de la consulta: pertenece a una clínica, un paciente y un profesional responsable. Máquina de estados propia (`ClinicalSessionStatus`, Fase 3, diseño en [data-model.md](data-model.md) §8), borrado lógico (`is_archived`) independiente del estado. Base sobre la que se colgarán audio, transcripción, anamnesis, notas, señales clínicas, etc. en fases posteriores. |
 | `audio` | Subida, validación (tamaño/duración/extensión/MIME) y almacenamiento de la grabación vía `AudioStorage`, incluida su eliminación física conforme a retención. |
 | `transcription` | Orquesta la llamada a `TranscriptionProvider` y persiste el resultado. |
 | `anamnesis` | Genera (vía `LanguageModelProvider`) y gestiona el ciclo de vida del documento de anamnesis, con versionado, `schema_version` y borrado lógico si está aprobado. |
@@ -175,15 +186,14 @@ Cada interfaz se selecciona en tiempo de ejecución mediante configuración
 (inyección por variable de entorno / factory), nunca mediante `import`
 directo del módulo consumidor a la implementación concreta.
 
-## 5. Estados de procesamiento (`ProcessingStatus`)
+## 5. Estados de procesamiento (`ProcessingStatus`) y máquinas de estado propias
 
 Se define un enumerado compartido en `core/processing_status.py` con, como
 mínimo: `uploaded`, `validating`, `ready`, `transcribing`, `transcribed`,
-`generating`, `review_pending`, `approved`, `failed`, `deleted` — más
-`created` y `exported` como extensiones necesarias para el estado inicial
-de una sesión y su cierre. Cada entidad con ciclo de vida
-(`clinical_sessions`, `audio_recordings`, `anamnesis_documents`,
-`session_notes`) usa el subconjunto de estados que le aplica.
+`generating`, `review_pending`, `approved`, `failed`, `deleted`. Cada
+entidad con ciclo de vida basado en procesamiento (`audio_recordings`,
+`anamnesis_documents`, `session_notes` — fases futuras, sin implementar
+todavía) usa el subconjunto de estados que le aplica.
 
 Las transiciones válidas (p. ej. `uploaded → validating → ready`, nunca
 `uploaded → approved`) se definen y verifican en la **capa de dominio o
@@ -197,6 +207,21 @@ tocar la base de datos. Detalle completo de estados por entidad en
 (`sugerida_ia` / `confirmada_por_profesional` / `descartada`): no es un
 estado de *procesamiento* sino de *disposición del profesional* ante una
 señal, y no se mezcla con `ProcessingStatus`.
+
+**`clinical_sessions` no usa `ProcessingStatus`.** Tiene su propia máquina
+de estados, `ClinicalSessionStatus` (`scheduled`, `in_progress`,
+`completed`, `review_pending`, `reviewed`, `cancelled`), definida en
+`clinical_sessions/domain/state_machine.py` y documentada en
+[data-model.md](data-model.md) §8. Razón: el vocabulario de
+`ProcessingStatus` (pensado para un pipeline lineal de IA:
+subir→validar→procesar→revisar→aprobar) no expresa bien el ciclo de vida
+real de una consulta clínica — creación directa en varios estados,
+cancelación, o el hecho de que "revisar" aquí no depende de ningún
+proveedor de IA. Mismo principio arquitectónico (transiciones validadas en
+dominio/servicio, nunca solo en el router), vocabulario y reglas propias.
+Esta es una corrección respecto al diseño original de la Fase 0/1, que
+trataba `clinical_sessions` como un agregado informativo de
+`ProcessingStatus`; ver nota en [data-model.md](data-model.md) §6.
 
 ## 6. Flujo end-to-end (secuencia principal)
 
@@ -312,6 +337,18 @@ lógica de quién puede hacer qué vive en un único módulo, fácil de auditar
 y de testear de forma aislada. Ver matriz completa de `patients` en
 [api-specification.md](api-specification.md) §Autorización.
 
+**Autorización con propiedad del recurso (Fase 3):** `patients` solo
+necesitaba `{Role: {Action}}`. `clinical_sessions` añade una segunda
+dimensión: un `audiologist` únicamente puede operar sobre sesiones donde
+`professional_id == current_user.id` ("sus propias sesiones"). Se
+resuelve en la misma función centralizada, no con comprobaciones nuevas
+dispersas: `authorize_clinical_session_action(current_user, action,
+session=None)` consulta primero la matriz de rol y, si el rol es
+`audiologist` y la acción lo requiere, comprueba además la propiedad
+sobre `session` (parámetro obligatorio salvo para `CREATE`/`READ` en
+listado). Matriz completa en
+[api-specification.md](api-specification.md) §Clinical sessions.
+
 ## 10. Aislamiento multi-clínica
 
 Ninguna consulta de lectura o escritura puede aceptar un `clinic_id`
@@ -371,3 +408,20 @@ datos de otra clínica.
   cada método de repositorio (en vez de confiar en que cada servicio
   "recuerde" añadir el filtro) hace estructuralmente difícil introducir
   una fuga de datos entre clínicas por un descuido puntual.
+- **Endpoints explícitos de transición para `clinical_sessions`, no un
+  endpoint genérico `PATCH .../status`**: un endpoint genérico requeriría
+  reimplementar dentro del cuerpo de la petición la propia matriz de
+  transiciones y de permisos (¿quién puede pasar de qué a qué?), perdiendo
+  la ventaja de que cada acción de negocio (`start`, `complete`,
+  `submit-review`, `review`, `cancel`) tenga su propia entrada en la
+  matriz de autorización, su propio nombre en la API, y su propia semántica
+  de idempotencia. Los endpoints explícitos cuestan más superficie de API
+  pero dan claridad, trazabilidad y permisos explícitos — priorizados
+  sobre ellos según lo pedido para esta fase.
+- **`ClinicalSessionStatus` separado de `ProcessingStatus`**: forzar todas
+  las entidades con ciclo de vida a compartir un único enumerado genérico
+  habría acoplado el diseño de `clinical_sessions` a un vocabulario
+  pensado para pipelines de IA. Cada máquina de estados vive en el dominio
+  del módulo al que pertenece; lo que se comparte es el **principio**
+  (transiciones validadas en dominio/servicio, nunca solo en el router),
+  no el vocabulario.

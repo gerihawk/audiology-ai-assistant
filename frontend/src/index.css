@@ -62,3 +62,54 @@ form label {
   white-space: nowrap;
   border: 0;
 }
+
+.clinical-session-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: end;
+}
+
+.clinical-session-filters div {
+  margin-bottom: 0;
+}
+
+.clinical-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.status-badge--scheduled {
+  color: #1d4ed8;
+}
+
+.status-badge--in-progress {
+  color: #b45309;
+}
+
+.status-badge--completed {
+  color: #0f766e;
+}
+
+.status-badge--review-pending {
+  color: #7c3aed;
+}
+
+.status-badge--reviewed {
+  color: #15803d;
+}
+
+.status-badge--cancelled {
+  color: #b91c1c;
+}

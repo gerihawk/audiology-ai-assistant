@@ -12,8 +12,14 @@ from __future__ import annotations
 import asyncio
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from app.clinical_sessions.domain.entities import (
+    ClinicalSession,
+    ClinicalSessionStatus,
+    SessionType,
+)
+from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSessionRepository
 from app.clinics.domain.entities import Clinic
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core import orm_registry  # noqa: F401  (registra los modelos ORM)
@@ -65,6 +71,92 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _dev_sessions(
+    clinic_id: uuid.UUID,
+    patient_ids_by_code: dict[str, uuid.UUID],
+    admin_id: uuid.UUID,
+    audiologist_id: uuid.UUID,
+) -> tuple[ClinicalSession, ...]:
+    """Sesiones clínicas ficticias de ejemplo, en distintos estados.
+
+    Construidas directamente como entidades de dominio (igual que el resto
+    del seed): no pasan por `ClinicalSessionService`, así que no generan
+    entradas de `audit_logs` — coherente con el resto del seed, que
+    tampoco audita la creación de la clínica/usuarios/pacientes.
+    """
+    now = _now()
+    session_started_1_day_ago = now - timedelta(days=1, minutes=30)
+    session_ended_1_day_ago = now - timedelta(days=1)
+    return (
+        ClinicalSession(
+            id=uuid.uuid4(),
+            clinic_id=clinic_id,
+            patient_id=patient_ids_by_code["PAT-0001"],
+            professional_id=admin_id,
+            session_type=SessionType.INITIAL_ASSESSMENT,
+            status=ClinicalSessionStatus.SCHEDULED,
+            scheduled_at=now + timedelta(days=7),
+            started_at=None,
+            ended_at=None,
+            title="Primera visita programada",
+            administrative_notes="Paciente deriva de revisión rutinaria.",
+            reviewed_by=None,
+            reviewed_at=None,
+            created_by=admin_id,
+            updated_by=admin_id,
+            created_at=now,
+            updated_at=now,
+            schema_version=1,
+            is_archived=False,
+            archived_at=None,
+        ),
+        ClinicalSession(
+            id=uuid.uuid4(),
+            clinic_id=clinic_id,
+            patient_id=patient_ids_by_code["PAT-0001"],
+            professional_id=audiologist_id,
+            session_type=SessionType.FOLLOW_UP,
+            status=ClinicalSessionStatus.IN_PROGRESS,
+            scheduled_at=now,
+            started_at=now,
+            ended_at=None,
+            title="Seguimiento en curso",
+            administrative_notes=None,
+            reviewed_by=None,
+            reviewed_at=None,
+            created_by=audiologist_id,
+            updated_by=audiologist_id,
+            created_at=now,
+            updated_at=now,
+            schema_version=1,
+            is_archived=False,
+            archived_at=None,
+        ),
+        ClinicalSession(
+            id=uuid.uuid4(),
+            clinic_id=clinic_id,
+            patient_id=patient_ids_by_code["PAT-0002"],
+            professional_id=audiologist_id,
+            session_type=SessionType.HEARING_AID_FITTING,
+            status=ClinicalSessionStatus.COMPLETED,
+            scheduled_at=session_ended_1_day_ago,
+            started_at=session_started_1_day_ago,
+            ended_at=session_ended_1_day_ago,
+            title="Adaptación de audífonos completada",
+            administrative_notes="Pendiente de enviar a revisión.",
+            reviewed_by=None,
+            reviewed_at=None,
+            created_by=audiologist_id,
+            updated_by=audiologist_id,
+            created_at=now,
+            updated_at=now,
+            schema_version=1,
+            is_archived=False,
+            archived_at=None,
+        ),
+    )
+
+
 async def run_seed() -> None:
     settings = get_settings()
     if settings.is_production:
@@ -78,6 +170,7 @@ async def run_seed() -> None:
     clinic_repository = SqlAlchemyClinicRepository()
     user_repository = SqlAlchemyUserRepository()
     patient_repository = SqlAlchemyPatientRepository()
+    clinical_session_repository = SqlAlchemyClinicalSessionRepository()
 
     async with session_factory() as session:
         clinic = await clinic_repository.get_by_code(session, DEV_CLINIC_CODE)
@@ -122,6 +215,7 @@ async def run_seed() -> None:
                 )
 
         admin_id = user_ids_by_role[Role.ADMIN]
+        patient_ids_by_code: dict[str, uuid.UUID] = {}
         for spec in DEV_PATIENTS:
             existing_patient = await patient_repository.get_by_internal_code(
                 session, clinic.id, spec["internal_code"]
@@ -146,9 +240,34 @@ async def run_seed() -> None:
                 )
                 await patient_repository.add(session, patient)
                 await session.commit()
+                patient_ids_by_code[spec["internal_code"]] = patient.id
                 print(f"[creado]     paciente {spec['internal_code']}")
             else:
+                patient_ids_by_code[spec["internal_code"]] = existing_patient.id
                 print(f"[existente]  paciente {spec['internal_code']}")
+
+        audiologist_id = user_ids_by_role[Role.AUDIOLOGIST]
+        for spec in _dev_sessions(clinic.id, patient_ids_by_code, admin_id, audiologist_id):
+            existing_matches, _ = await clinical_session_repository.list(
+                session,
+                clinic.id,
+                patient_id=spec.patient_id,
+                professional_id=None,
+                status=None,
+                session_type=None,
+                scheduled_from=None,
+                scheduled_to=None,
+                search=spec.title,
+                include_archived=True,
+                limit=1,
+                offset=0,
+            )
+            if existing_matches:
+                print(f"[existente]  sesión clínica {spec.title!r}")
+                continue
+            await clinical_session_repository.add(session, spec)
+            await session.commit()
+            print(f"[creada]     sesión clínica {spec.title!r} ({spec.status.value})")
 
     print("\nSeed completado. Cabecera de desarrollo para probar la API:")
     for role, user_id in user_ids_by_role.items():

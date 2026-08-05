@@ -138,22 +138,120 @@ Decisiones cerradas en [product-requirements.md](product-requirements.md)
 12. No se usan datos reales en ningún punto (seed y tests, exclusivamente
     ficticios).
 
-## Fase 3 — `clinical_sessions` + `audio`
+## Fase 3 — `clinical_sessions` (diseño cerrado, backend en implementación)
 
-- Modelo y endpoints de `clinical_sessions` (crear, listar por paciente,
-  detalle, `status` agregado según `ProcessingStatus`).
+**Cambio respecto al plan anterior**: esta fase estaba fusionada con
+`audio`. Se separan: `clinical_sessions` es ahora una fase propia,
+centrada exclusivamente en la sesión clínica como entidad administrativa;
+`audio` pasa a ser la Fase 4. El resto de fases se renumeran en cascada
+(antigua Fase 4 → 5, … antigua Fase 9 → 10).
+
+**Diseño cerrado el 2026-08-05, decisiones finales cerradas el mismo día**
+— modelo de dominio, máquina de estados (`ClinicalSessionStatus`),
+matriz de permisos, modelo de datos (incluidas las columnas
+`reviewed_by`/`reviewed_at`), índices, endpoints y auditoría
+documentados en [data-model.md](data-model.md) §8-9,
+[api-specification.md](api-specification.md) §Clinical sessions,
+[architecture.md](architecture.md) §5 y §9, y
+[privacy-and-security.md](privacy-and-security.md) §5-6. Todas las
+decisiones cerradas en [product-requirements.md](product-requirements.md)
+§11 — sin preguntas abiertas pendientes.
+
+**Alcance de esta ronda de implementación: solo backend.** El frontend de
+`clinical_sessions` queda para una ronda posterior (no se implementa
+todavía).
+
+Alcance de la **implementación de backend** de esta fase:
+
+- `clinical_sessions/domain/`: entidad `ClinicalSession`, enums
+  `SessionType`/`ClinicalSessionStatus`, `state_machine.py` con las
+  transiciones válidas de §8.
+- `clinical_sessions/infrastructure/`: `ClinicalSessionORM`,
+  `SqlAlchemyClinicalSessionRepository`.
+- `clinical_sessions/service.py`: `ClinicalSessionService` — autoriza
+  (incluida la comprobación de propiedad para `audiologist`) → valida la
+  transición vía `state_machine.py` → opera → audita → commit
+  transaccional. Valida también, en creación, que el paciente no esté
+  archivado y que el profesional pertenezca a la clínica, esté activo y
+  tenga rol `admin`/`audiologist`.
+- `clinical_sessions/api/`: esquemas Pydantic (`ClinicalSessionCreateRequest`,
+  `ClinicalSessionUpdateRequest`, `ClinicalSessionResponse`) separados del
+  ORM, router con los 11 endpoints de
+  [api-specification.md](api-specification.md) §Clinical sessions.
+- `core/authorization.py`: `ClinicalSessionAction` +
+  `authorize_clinical_session_action` (matriz por rol + comprobación de
+  propiedad).
+- Migración Alembic para `clinical_sessions` con los índices de
+  [data-model.md](data-model.md) §9.
+- Extensión del seed: 2-3 sesiones ficticias de ejemplo en distintos
+  estados, repartidas entre el admin y el audiologist ficticios.
+- Tests backend: creación directa en cada estado inicial válido y
+  rechazo en cada estado inválido, cada transición (válida, no-op
+  idempotente sin duplicar auditoría, conflicto), conservación de
+  timestamps en reintentos, ventana de edición por estado (incluida la
+  restricción de `review_pending` a solo `title`/`administrative_notes`),
+  matriz de permisos por rol **incluida la comprobación de propiedad**,
+  aislamiento entre clínicas (404, no 403) validado en servicio,
+  bloqueo de archivado desde `review_pending` y permiso desde
+  `completed`/`reviewed`/`cancelled`, asignación correcta de
+  `reviewed_by`/`reviewed_at` y su rechazo si los envía el cliente,
+  restauración conservando el estado previo, auditoría transaccional de
+  cada acción (incluido `professional_changed` con UUIDs, nunca valores
+  sensibles), rollback ante fallo transaccional.
+- **Frontend de `clinical_sessions`: fuera de esta ronda** (listado con
+  filtros, creación, edición, detalle con transiciones explícitas,
+  sesiones en el detalle de paciente, indicador de profesional
+  responsable, manejo visible de permisos — diseño ya cerrado, pendiente
+  de implementar en una ronda posterior).
+
+**Criterios de aceptación del backend**:
+
+1. Migración desde base vacía; seed reproducible con sesiones ficticias.
+2. Los 11 endpoints funcionan y coinciden exactamente con
+   [api-specification.md](api-specification.md) §Clinical sessions.
+3. La máquina de estados rechaza toda transición no listada en
+   [data-model.md](data-model.md) §8 con `409`, incluida la validación en
+   dominio/servicio (no solo en el router).
+4. Un `audiologist` no puede crear, editar, transicionar, cancelar ni
+   archivar una sesión de otro profesional de su misma clínica (`403`);
+   sí puede leerlas.
+5. Solo `admin` puede revisar (`.../review`) y restaurar (`.../restore`).
+6. Aislamiento por clínica cubierto por tests: `session_id` de otra
+   clínica → `404`, nunca `403`.
+7. Un paciente archivado no puede recibir sesiones nuevas (`409`); un
+   profesional inactivo, de otra clínica o con rol `viewer` no puede
+   asignarse como `professional_id` (`404`/`409` según el caso).
+8. Cambiar `professional_id` genera una entrada de auditoría
+   `clinical_session.professional_changed` propia, con los UUID anterior
+   y nuevo; nunca se registran valores de `title`/`administrative_notes`.
+9. `reviewed_by`/`reviewed_at` los asigna exclusivamente el servidor al
+   ejecutar `.../review`; enviarlos desde el cliente (creación o edición)
+   se rechaza con `422`. El archivado se permite solo desde `completed`,
+   `reviewed` o `cancelled` — nunca desde `review_pending`. En
+   `review_pending`, `PATCH` solo admite `title`/`administrative_notes`.
+10. Tests y lint (Ruff, Black) pasan en el backend; `docker compose up
+    --build` sigue levantando los tres servicios.
+11. No se implementa nada de `audio`, `transcription`, `anamnesis`,
+    `session_notes`, `clinical_flags`, integraciones, autenticación real
+    ni frontend de `clinical_sessions` (queda para una ronda posterior).
+12. No se usan datos reales en ningún punto.
+
+## Fase 4 — `audio`
+
 - Módulo `audio`: interfaz `AudioStorage` + `LocalAudioStorage`; subida
   multipart; validación de tamaño/duración/extensión/MIME
   (`AUDIO_MAX_SIZE_MB`, `AUDIO_MAX_DURATION_MINUTES`); metadatos y
   checksum en `audio_recordings` (sin blob en PostgreSQL).
-- Pantallas: crear sesión desde ficha de paciente, subir audio con
-  feedback de validación.
+- Requiere una `clinical_session` existente (Fase 3) sobre la que colgar
+  el audio.
+- Pantallas: subir audio desde el detalle de una sesión, con feedback de
+  validación.
 
-**Criterio de aceptación**: desde un paciente se crea una sesión y se le
-sube un audio ficticio de prueba; el audio pasa por
+**Criterio de aceptación**: desde una sesión clínica se sube un audio
+ficticio de prueba; el audio pasa por
 `uploaded → validating → ready` (o `failed` si no cumple los límites).
 
-## Fase 4 — `transcription` (mock)
+## Fase 5 — `transcription` (mock)
 
 - Interfaz `TranscriptionProvider` + `MockTranscriptionProvider`
   (transcripción determinista/fixture, sin IA real).
@@ -165,7 +263,7 @@ sube un audio ficticio de prueba; el audio pasa por
 `ready`, se obtiene y persiste un texto de ejemplo determinista; el audio
 progresa `transcribing → transcribed`.
 
-## Fase 5 — `anamnesis`, `session_notes`, `clinical_flags` (generación mock)
+## Fase 6 — `anamnesis`, `session_notes`, `clinical_flags` (generación mock)
 
 - Interfaz `LanguageModelProvider` + `MockLanguageModelProvider` que, a
   partir de fixtures de transcripción, genera anamnesis estructurada
@@ -189,7 +287,7 @@ progresa `transcribing → transcribed`.
 generan los tres documentos, visibles en la UI con los avisos de IA y de
 checklist no validado.
 
-## Fase 6 — Revisión, edición, aprobación, versionado, `audit_log`
+## Fase 7 — Revisión, edición, aprobación, versionado, `audit_log`
 
 - `document_versions` funcionando para anamnesis y resumen.
 - Endpoints `PUT` (guardar edición) y `POST /approve` para ambos, con la
@@ -211,7 +309,7 @@ explícitamente (queda `approved`, con usuario y fecha visibles). Editar de
 nuevo tras aprobar exige nueva aprobación. El historial muestra la versión
 original de IA y la versión editada.
 
-## Fase 7 — Exportación
+## Fase 8 — Exportación
 
 - Interfaz `DocumentExporter` con `PdfDocumentExporter` y
   `TextDocumentExporter`.
@@ -222,7 +320,7 @@ original de IA y la versión editada.
 como texto plano con formato legible; un documento no aprobado devuelve
 error controlado y la UI no ofrece la opción.
 
-## Fase 8 — `integrations` (interfaces + mocks), `consents`, retención
+## Fase 9 — `integrations` (interfaces + mocks), `consents`, retención
 
 - Interfaces `PatientRecordIntegration` y `CalendarIntegration` +
   `Mock*`, sin llamadas de red reales.
@@ -240,12 +338,12 @@ configurable a nivel de aplicación, sin que exista código que llame a un
 servicio externo real. Se puede registrar consentimiento para un paciente
 y purgar manualmente audio que supere la retención configurada.
 
-## Fase 9 — RBAC más fino, scheduler de retención, hardening
+## Fase 10 — RBAC más fino, scheduler de retención, hardening
 
 - Revisión de permisos por endpoint según
   [privacy-and-security.md](privacy-and-security.md).
 - Automatización opcional (scheduler/cron) sobre el
-  `RetentionCleanupService` ya existente desde la Fase 8 — el servicio no
+  `RetentionCleanupService` ya existente desde la Fase 9 — el servicio no
   cambia, solo se añade quién lo invoca periódicamente.
 - Revisión de seguridad general (dependencias, cabeceras HTTP, límites de
   tamaño de subida, rate limiting básico si el tiempo lo permite).
@@ -261,7 +359,7 @@ Cualquier integración real (Noah, calendario, proveedor de transcripción o
 LLM de pago), multi-tenant, selector de idioma en tiempo de ejecución
 (más allá de centralizar textos para prepararlo, ver
 [architecture.md](architecture.md) §8), grabación en vivo, scheduler
-automático de retención (Fase 8 solo prepara la interfaz, Fase 9 la
+automático de retención (Fase 9 solo prepara la interfaz, Fase 10 la
 automatiza si el tiempo lo permite) o firma electrónica avanzada quedan
 fuera de este plan (ver [product-requirements.md](product-requirements.md)
 §4) y requerirían un nuevo ciclo de análisis de alcance antes de

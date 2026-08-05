@@ -36,6 +36,14 @@ class SqlAlchemyUserRepository:
         row = result.scalar_one_or_none()
         return _to_domain(row) if row is not None else None
 
+    async def get_by_id(self, session: AsyncSession, user_id: uuid.UUID) -> User | None:
+        """Sin filtrar por `is_active`: permite distinguir "no existe" de
+        "existe pero inactivo" en los llamadores que necesiten esa
+        distinción (p. ej. asignar un profesional responsable)."""
+        result = await session.execute(select(UserORM).where(UserORM.id == user_id))
+        row = result.scalar_one_or_none()
+        return _to_domain(row) if row is not None else None
+
     async def get_by_email(self, session: AsyncSession, email: str) -> User | None:
         result = await session.execute(select(UserORM).where(UserORM.email == email))
         row = result.scalar_one_or_none()

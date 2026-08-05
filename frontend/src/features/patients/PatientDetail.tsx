@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { archivePatient, restorePatient } from '../../shared/api/patients'
-import type { Patient, Role } from '../../shared/api/types'
+import type { DevUser, Patient, Role } from '../../shared/api/types'
+import { PatientClinicalSessionsSection } from '../clinicalSessions/PatientClinicalSessionsSection'
 import { canArchivePatient, canRestorePatient, canUpdatePatient } from './permissions'
 
 interface PatientDetailProps {
   devUserId: string
   role: Role | undefined
+  currentUserId: string | undefined
+  professionalOptions: DevUser[]
   patient: Patient
   onBack: () => void
   onEdit: () => void
@@ -15,6 +18,8 @@ interface PatientDetailProps {
 export function PatientDetail({
   devUserId,
   role,
+  currentUserId,
+  professionalOptions,
   patient,
   onBack,
   onEdit,
@@ -89,6 +94,14 @@ export function PatientDetail({
           </button>
         )}
       </div>
+
+      <PatientClinicalSessionsSection
+        devUserId={devUserId}
+        role={role}
+        currentUserId={currentUserId}
+        patient={patient}
+        professionalOptions={professionalOptions}
+      />
     </div>
   )
 }

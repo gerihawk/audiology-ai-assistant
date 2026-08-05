@@ -7,6 +7,7 @@ from functools import lru_cache
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clinical_sessions.service import ClinicalSessionService
 from app.core.config import get_settings
 from app.core.context import get_request_id
 from app.core.current_user import CurrentUser, CurrentUserProvider, FakeCurrentUserProvider
@@ -19,6 +20,7 @@ __all__ = [
     "get_current_user_provider",
     "get_current_user",
     "get_patient_service",
+    "get_clinical_session_service",
 ]
 
 
@@ -42,3 +44,9 @@ async def get_patient_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> PatientService:
     return PatientService(session)
+
+
+async def get_clinical_session_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ClinicalSessionService:
+    return ClinicalSessionService(session)

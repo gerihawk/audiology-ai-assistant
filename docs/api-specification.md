@@ -23,10 +23,11 @@ fino de esquemas Pydantic se define en el código durante la implementación
 de cada módulo, siguiendo esta forma.
 
 **Estado de implementación**: solo la sección **Patients** (y sus rutas de
-apoyo `/me`, `/dev/users`) están implementadas, desde la Fase 2. El resto
-de secciones de este documento describen el diseño objetivo de fases
-futuras y no tienen código todavía (ver
-[development-plan.md](development-plan.md)).
+apoyo `/me`, `/dev/users`) están implementadas, desde la Fase 2. La
+sección **Clinical sessions** está **diseñada y cerrada** en la Fase 3,
+pendiente de implementación. El resto de secciones de este documento
+describen el diseño objetivo de fases futuras y no tienen código todavía
+(ver [development-plan.md](development-plan.md)).
 
 ## Dev tools (solo desarrollo, ausentes en producción)
 
@@ -116,65 +117,206 @@ Orden estable: `created_at ASC, id ASC`. Respuesta:
 
 ## Clinical sessions
 
-| Método | Ruta | Rol | Descripción |
+Diseño cerrado en la Fase 3, backend en implementación. Reemplaza el
+diseño anterior basado en `ProcessingStatus` y rutas anidadas bajo
+`/patients/{id}/sessions` — ver nota de corrección en
+[data-model.md](data-model.md) §6.
+
+Todas las rutas van bajo `/clinical-sessions` (no anidadas bajo
+`/patients`, a diferencia del diseño previo) y requieren un `CurrentUser`
+resuelto, operando exclusivamente sobre `current_user.clinic_id`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/clinical-sessions` | Crea una sesión; `status` inicial elegido entre `scheduled`, `in_progress`, `completed` |
+| GET | `/clinical-sessions` | Lista paginada, con filtros (ver Listado) |
+| GET | `/clinical-sessions/{session_id}` | Detalle; `404` si no existe o pertenece a otra clínica |
+| PATCH | `/clinical-sessions/{session_id}` | Actualización parcial de metadatos y, si autorizado, `professional_id`; `409` si no editable en el estado actual |
+| POST | `/clinical-sessions/{session_id}/start` | `scheduled → in_progress` (no-op si ya `in_progress`) |
+| POST | `/clinical-sessions/{session_id}/complete` | `in_progress → completed` (no-op si ya `completed`) |
+| POST | `/clinical-sessions/{session_id}/submit-review` | `completed → review_pending` (no-op si ya `review_pending`) |
+| POST | `/clinical-sessions/{session_id}/review` | `review_pending → reviewed` (no-op si ya `reviewed`); solo `admin` |
+| POST | `/clinical-sessions/{session_id}/cancel` | `{scheduled,in_progress} → cancelled` (no-op si ya `cancelled`) |
+| POST | `/clinical-sessions/{session_id}/archive` | Archiva (idempotente); solo desde `completed`, `reviewed` o `cancelled` — nunca desde `review_pending` |
+| POST | `/clinical-sessions/{session_id}/restore` | Restaura (idempotente); solo `admin` |
+
+No existe un endpoint genérico de cambio de estado
+(`PATCH .../status`): se prioriza claridad, trazabilidad y permisos
+explícitos por acción — ver decisión en
+[architecture.md](architecture.md) §11. Tampoco existe `DELETE`: el
+borrado físico no se implementa, igual que en `patients`.
+
+### Máquina de estados (resumen)
+
+```
+creación → scheduled | in_progress | completed
+scheduled      --start-->          in_progress
+scheduled      --cancel-->         cancelled
+in_progress    --complete-->       completed
+in_progress    --cancel-->         cancelled
+completed      --submit-review-->  review_pending
+review_pending --review-->         reviewed
+```
+
+`reviewed` y `cancelled` son terminales para `status` (solo admiten
+archivar). Detalle completo de transiciones, idempotencia y efectos sobre
+fechas en [data-model.md](data-model.md) §8.
+
+### Autorización (matriz de permisos)
+
+Centralizada en `core/authorization.py`
+(`authorize_clinical_session_action`, ver
+[architecture.md](architecture.md) §9), con una dimensión adicional de
+**propiedad** respecto a `patients`: para `audiologist`, "sus propias
+sesiones" significa `professional_id == current_user.id`.
+
+| Acción | admin | audiologist | viewer |
+|---|:---:|:---:|:---:|
+| Crear (`POST`) | ✅ (cualquier profesional admin/audiologist de la clínica) | ✅ (solo con `professional_id = sí mismo`) | ❌ |
+| Leer (`GET` lista/detalle) | ✅ | ✅ (sin restricción de propiedad) | ✅ |
+| Actualizar metadatos (`PATCH` sin `professional_id`) | ✅ (`review_pending` limita a `title`/`administrative_notes`, ver [data-model.md](data-model.md) §8) | ✅ (solo sesiones propias; misma limitación en `review_pending`) | ❌ |
+| Cambiar profesional (`PATCH` con `professional_id`) | ✅ (nunca en `review_pending`) | ❌ | ❌ |
+| Iniciar (`.../start`) | ✅ | ✅ (solo propias) | ❌ |
+| Completar (`.../complete`) | ✅ | ✅ (solo propias) | ❌ |
+| Enviar a revisión (`.../submit-review`) | ✅ | ✅ (solo propias) | ❌ |
+| Revisar (`.../review`) | ✅ | ❌ | ❌ |
+| Cancelar (`.../cancel`) | ✅ | ✅ (solo propias, y solo desde `scheduled`/`in_progress`) | ❌ |
+| Archivar (`.../archive`) | ✅ | ✅ (solo propias, y solo desde `completed`/`reviewed`/`cancelled` — nunca `review_pending`) | ❌ |
+| Restaurar (`.../restore`) | ✅ | ❌ | ❌ |
+
+Decisiones no fijadas explícitamente por el encargo y resueltas aquí de
+la forma más simple y segura para el MVP (ver justificación en
+[product-requirements.md](product-requirements.md) §11):
+
+- **Un `audiologist` no puede editar, iniciar, completar, enviar a
+  revisión, cancelar ni archivar sesiones de otros profesionales de su
+  misma clínica** — solo las suyas. Evita que un profesional modifique el
+  registro clínico de un compañero sin su intervención.
+- **`review` es exclusivo de `admin`.** Con solo tres roles y sin una
+  noción de "profesional senior" o revisor por pares, permitir que un
+  `audiologist` revisara sus propias sesiones habría vaciado de sentido
+  el paso de revisión (autorrevisión). Si se necesita revisión entre
+  pares en el futuro, requiere un rol o regla nueva, fuera de esta fase.
+- **Un `audiologist` que crea una sesión solo puede asignarse a sí mismo
+  como `professional_id`.** Evita que cree registros nominalmente
+  responsabilidad de un compañero sin su participación. `admin` puede
+  asignar a cualquier `admin`/`audiologist` de la clínica.
+
+Un intento sin permiso devuelve `403`. Un `session_id` válido de otra
+clínica devuelve `404`, nunca `403` (igual que `patients`, ver
+[architecture.md](architecture.md) §10).
+
+### Listado (`GET /clinical-sessions`)
+
+Parámetros de query:
+
+| Parámetro | Tipo | Default | Notas |
 |---|---|---|---|
-| GET | `/patients/{patient_id}/sessions` | clinician/admin | Sesiones de un paciente |
-| POST | `/patients/{patient_id}/sessions` | clinician/admin | Crea sesión (estado inicial `created`) |
-| GET | `/sessions/{session_id}` | clinician/admin | Detalle de sesión, incluye `status` (`ProcessingStatus`) agregado |
-| GET | `/sessions/{session_id}/timeline` | clinician/admin | Eventos de auditoría relevantes de esa sesión |
-| DELETE | `/sessions/{session_id}` | clinician/admin | Borrado lógico (`status → deleted`), nunca físico; auditado |
+| `patient_id` | UUID, opcional | — | Sesiones de un paciente (usado también en la vista de detalle de paciente) |
+| `professional_id` | UUID, opcional | — | Filtro por profesional responsable |
+| `status` | string, opcional | — | Uno de `ClinicalSessionStatus` |
+| `session_type` | string, opcional | — | Uno de los tipos fijos (ver Validaciones) |
+| `scheduled_from` / `scheduled_to` | date, opcional | — | Rango sobre `scheduled_at` exclusivamente (ver limitación en [data-model.md](data-model.md) §9); nombres de parámetro cerrados, no `date_from`/`date_to` |
+| `search` | string, opcional | — | Coincidencia parcial (case-insensitive) contra `title` o `administrative_notes` |
+| `include_archived` | bool | `false` | Si es `false`, excluye sesiones con `is_archived = true` |
+| `limit` | int | `20` | Máximo `PAGINATION_MAX_LIMIT`; `422` si se supera |
+| `offset` | int | `0` | |
+
+Orden estable: `created_at ASC, id ASC` (igual que `patients`, ver
+[data-model.md](data-model.md) §9 sobre por qué el orden no usa
+`scheduled_at`). Respuesta: `{"items": [...], "total": N, "limit": L,
+"offset": O}`.
+
+### Validaciones (`POST` / `PATCH`)
+
+- `patient_id` (solo `POST`, inmutable después): obligatorio; `404` si no
+  existe en la clínica; `409` si el paciente está archivado.
+- `professional_id`: obligatorio en creación; `404` si el usuario no
+  existe en la clínica; `409` si existe pero está inactivo, o si su rol
+  no es `admin`/`audiologist` (un `viewer` nunca puede ser profesional
+  responsable).
+- `session_type`: obligatorio, uno de `initial_assessment`, `follow_up`,
+  `hearing_aid_fitting`, `hearing_aid_adjustment`, `review`, `other`.
+- `status` (solo `POST`): opcional, default `scheduled`; si se informa,
+  debe ser uno de `scheduled`, `in_progress`, `completed` — cualquier
+  otro valor (`review_pending`, `reviewed`, `cancelled`) se rechaza con
+  `422`, ya que solo se alcanzan mediante los endpoints de transición.
+- `scheduled_at`: datetime ISO 8601 opcional; puede ser futura. Único
+  campo de fecha que acepta el cliente.
+- `started_at`, `ended_at`, `reviewed_by`, `reviewed_at`: **no existen en
+  ningún esquema de entrada** (ni `POST` ni `PATCH`); enviarlos se
+  rechaza con `422` como cualquier otro campo no reconocido. Los fija
+  siempre el servidor — ver [data-model.md](data-model.md) §8.
+- `title`: opcional, hasta 200 caracteres, espacios normalizados.
+- `administrative_notes`: opcional, hasta 2000 caracteres, espacios
+  normalizados, exclusivamente administrativas.
+- Campos no reconocidos (incluidos `clinic_id`, `status`, `started_at`,
+  `ended_at`, `reviewed_by`, `reviewed_at`, `created_by`, `created_at`,
+  `updated_at`, `id`, `schema_version` en `PATCH`) se **rechazan con
+  `422`** — no existen en los esquemas de entrada correspondientes.
+- `PATCH` sobre una sesión no editable en su estado actual (`reviewed`,
+  `cancelled`) o archivada devuelve `409`. En `review_pending`, `PATCH`
+  con cualquier campo distinto de `title`/`administrative_notes`
+  (incluido `professional_id`) también devuelve `409`.
+- Las transiciones (`start`/`complete`/`submit-review`/`review`/`cancel`)
+  devuelven `409` si el estado actual no admite esa transición ni es ya
+  el estado de destino (ver tabla de idempotencia en
+  [data-model.md](data-model.md) §8).
+- `archive` devuelve `409` si `status ∉ {completed, reviewed,
+  cancelled}` — explícitamente incluye `review_pending` como estado que
+  **no** admite archivado.
 
 ## Audio
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| POST | `/sessions/{session_id}/audio` | clinician | Sube fichero de audio (multipart); crea `audio_recordings` en `uploaded`, dispara validación (tamaño/duración/extensión/MIME) hacia `validating` → `ready`/`failed` |
-| GET | `/sessions/{session_id}/audio` | clinician/admin | Metadatos del audio (no el binario) |
-| GET | `/sessions/{session_id}/audio/download` | clinician/admin | Descarga del binario vía `AudioStorage`, auditado |
-| DELETE | `/sessions/{session_id}/audio` | clinician/admin | Borrado físico manual vía `RetentionCleanupService` (`status → deleted`, `storage_reference` invalidado); metadatos conservados |
+| POST | `/clinical-sessions/{session_id}/audio` | clinician | Sube fichero de audio (multipart); crea `audio_recordings` en `uploaded`, dispara validación (tamaño/duración/extensión/MIME) hacia `validating` → `ready`/`failed` |
+| GET | `/clinical-sessions/{session_id}/audio` | clinician/admin | Metadatos del audio (no el binario) |
+| GET | `/clinical-sessions/{session_id}/audio/download` | clinician/admin | Descarga del binario vía `AudioStorage`, auditado |
+| DELETE | `/clinical-sessions/{session_id}/audio` | clinician/admin | Borrado físico manual vía `RetentionCleanupService` (`status → deleted`, `storage_reference` invalidado); metadatos conservados |
 
 ## Transcription
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| POST | `/sessions/{session_id}/transcription` | clinician | Dispara transcripción vía `TranscriptionProvider` activo; requiere audio en `ready`; `transcribing` → `transcribed`/`failed` |
-| GET | `/sessions/{session_id}/transcription` | clinician/admin | Obtiene texto transcrito |
+| POST | `/clinical-sessions/{session_id}/transcription` | clinician | Dispara transcripción vía `TranscriptionProvider` activo; requiere audio en `ready`; `transcribing` → `transcribed`/`failed` |
+| GET | `/clinical-sessions/{session_id}/transcription` | clinician/admin | Obtiene texto transcrito |
 
 ## Anamnesis
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| POST | `/sessions/{session_id}/anamnesis/generate` | clinician | Genera borrador vía `LanguageModelProvider` a partir de la transcripción; `generating` → `review_pending`/`failed`; fija `schema_version` |
-| GET | `/sessions/{session_id}/anamnesis` | clinician/admin | Documento actual (contenido + `schema_version` + estado + aviso IA) |
-| PUT | `/sessions/{session_id}/anamnesis` | clinician | Guarda `current_content` editado; crea `document_versions`; permanece/vuelve a `review_pending` (si venía de `approved`, exige nueva aprobación) |
-| POST | `/sessions/{session_id}/anamnesis/approve` | clinician | Aprobación explícita; estado → `approved`, registra `approved_by/at` |
-| DELETE | `/sessions/{session_id}/anamnesis` | clinician/admin | Borrado lógico (`status → deleted`, `deleted_by/at`); nunca físico; `document_versions` se conserva |
-| GET | `/sessions/{session_id}/anamnesis/versions` | clinician/admin | Historial de versiones |
+| POST | `/clinical-sessions/{session_id}/anamnesis/generate` | clinician | Genera borrador vía `LanguageModelProvider` a partir de la transcripción; `generating` → `review_pending`/`failed`; fija `schema_version` |
+| GET | `/clinical-sessions/{session_id}/anamnesis` | clinician/admin | Documento actual (contenido + `schema_version` + estado + aviso IA) |
+| PUT | `/clinical-sessions/{session_id}/anamnesis` | clinician | Guarda `current_content` editado; crea `document_versions`; permanece/vuelve a `review_pending` (si venía de `approved`, exige nueva aprobación) |
+| POST | `/clinical-sessions/{session_id}/anamnesis/approve` | clinician | Aprobación explícita; estado → `approved`, registra `approved_by/at` |
+| DELETE | `/clinical-sessions/{session_id}/anamnesis` | clinician/admin | Borrado lógico (`status → deleted`, `deleted_by/at`); nunca físico; `document_versions` se conserva |
+| GET | `/clinical-sessions/{session_id}/anamnesis/versions` | clinician/admin | Historial de versiones |
 
 ## Session notes (resumen profesional)
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| POST | `/sessions/{session_id}/session-notes/generate` | clinician | Genera resumen vía `LanguageModelProvider`; `generating` → `review_pending`/`failed` |
-| GET | `/sessions/{session_id}/session-notes` | clinician/admin | Resumen actual + estado |
-| PUT | `/sessions/{session_id}/session-notes` | clinician | Guarda edición; nueva versión; misma regla de re-aprobación que anamnesis |
-| POST | `/sessions/{session_id}/session-notes/approve` | clinician | Aprobación explícita |
-| DELETE | `/sessions/{session_id}/session-notes` | clinician/admin | Borrado lógico únicamente, auditado |
-| GET | `/sessions/{session_id}/session-notes/versions` | clinician/admin | Historial de versiones |
+| POST | `/clinical-sessions/{session_id}/session-notes/generate` | clinician | Genera resumen vía `LanguageModelProvider`; `generating` → `review_pending`/`failed` |
+| GET | `/clinical-sessions/{session_id}/session-notes` | clinician/admin | Resumen actual + estado |
+| PUT | `/clinical-sessions/{session_id}/session-notes` | clinician | Guarda edición; nueva versión; misma regla de re-aprobación que anamnesis |
+| POST | `/clinical-sessions/{session_id}/session-notes/approve` | clinician | Aprobación explícita |
+| DELETE | `/clinical-sessions/{session_id}/session-notes` | clinician/admin | Borrado lógico únicamente, auditado |
+| GET | `/clinical-sessions/{session_id}/session-notes/versions` | clinician/admin | Historial de versiones |
 
 ## Clinical flags
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/sessions/{session_id}/clinical-flags` | clinician/admin | Lista de señales sugeridas/confirmadas/descartadas, generadas por el `ClinicalFlagRuleset` activo (`ruleset_name` en cada ítem); respuesta incluye aviso de checklist no validado clínicamente |
+| GET | `/clinical-sessions/{session_id}/clinical-flags` | clinician/admin | Lista de señales sugeridas/confirmadas/descartadas, generadas por el `ClinicalFlagRuleset` activo (`ruleset_name` en cada ítem); respuesta incluye aviso de checklist no validado clínicamente |
 | PATCH | `/clinical-flags/{flag_id}` | clinician | Cambia estado (`confirmada_por_profesional` / `descartada`) |
 
 ## Export
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/sessions/{session_id}/export/anamnesis?format=pdf\|text` | clinician/admin | Exporta anamnesis; **solo si `status = approved`** |
-| GET | `/sessions/{session_id}/export/session-notes?format=pdf\|text` | clinician/admin | Exporta resumen; **solo si `status = approved`** |
+| GET | `/clinical-sessions/{session_id}/export/anamnesis?format=pdf\|text` | clinician/admin | Exporta anamnesis; **solo si `status = approved`** |
+| GET | `/clinical-sessions/{session_id}/export/session-notes?format=pdf\|text` | clinician/admin | Exporta resumen; **solo si `status = approved`** |
 
 ## Consents
 

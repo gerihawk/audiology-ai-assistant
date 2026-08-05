@@ -227,3 +227,100 @@ y su infraestructura transversal (usuarios, clínicas, auditoría).
    estructuralmente necesarios para que el frontend pueda seleccionar y
    mostrar el usuario ficticio activo sin autenticación real. Ausentes en
    producción. Ver [api-specification.md](api-specification.md).
+
+## 11. Fase 3 — Diseño de `clinical_sessions` (cerrado)
+
+Diseño cerrado el 2026-08-05, con las últimas decisiones (antes preguntas
+abiertas) resueltas el mismo día. **Implementación de backend en curso a
+partir de este cierre** (ver [development-plan.md](development-plan.md)
+Fase 3). El alcance clínico del producto no cambia: `clinical_sessions`
+sigue sin contener contenido clínico real (`administrative_notes` es
+estrictamente administrativo, igual que `patients.notes`).
+
+### Decisiones cerradas
+
+1. **`is_archived` separado de `status`, no un valor `archived` dentro
+   del enumerado principal.** Mismo patrón que `patients` (Fase 2). Ver
+   [data-model.md](data-model.md) §8.
+2. **Estados iniciales válidos en creación: solo `scheduled`,
+   `in_progress`, `completed`.** `review_pending`, `reviewed` y
+   `cancelled` únicamente se alcanzan mediante los endpoints de
+   transición — nunca como valor inicial.
+3. **Reglas de edición por estado (revisadas — ya no es una única
+   ventana):**
+   - `scheduled`, `in_progress`, `completed`: editables todos los campos
+     administrativos permitidos (`title`, `administrative_notes`,
+     `session_type`, `scheduled_at`, y `professional_id` si quien edita
+     tiene permiso de cambiar profesional).
+   - `review_pending`: **editables únicamente `title` y
+     `administrative_notes`**. Cualquier intento de modificar
+     `professional_id`, `session_type`, `scheduled_at` u otro campo
+     devuelve `409`. No se puede cambiar `patient_id`, `professional_id`
+     (aunque se sea `admin`), tipo, ni el estado mediante `PATCH`.
+   - `reviewed`, `cancelled`: no editables.
+   - Sesión archivada (cualquier `status`): no editable.
+4. **`cancel` solo desde `scheduled`/`in_progress`.** No se implementa
+   ninguna acción de "reabrir" o "revertir" una sesión `completed` por
+   error en esta fase.
+5. **`archive` solo desde `completed`, `reviewed` o `cancelled` —
+   explícitamente NO desde `review_pending`** (revisado respecto al
+   cierre de diseño anterior, que sí lo permitía). Tampoco desde
+   `scheduled`/`in_progress`.
+6. **`review` exclusivo de `admin`; sin autorrevisión.** No se implementa
+   "devolver a revisión" (`review_pending → in_progress` o similar).
+7. **Un `audiologist` solo puede crear/editar/transicionar/cancelar/
+   archivar sus propias sesiones** (`professional_id == current_user.id`
+   — no `created_by`). `admin` sin esta restricción.
+8. **Un `audiologist` que crea una sesión solo puede asignarse a sí mismo
+   como `professional_id`.** Solo `admin` puede cambiar el profesional
+   responsable de una sesión ya creada.
+9. **Sin endpoint genérico de transición de estado.** Todas las
+   transiciones se ejecutan mediante endpoints explícitos.
+10. **Rutas planas `/clinical-sessions`, no anidadas bajo `/patients`.**
+11. **Se añaden `reviewed_by` (FK `users.id`, opcional) y `reviewed_at`
+    (datetime, opcional) como columnas propias** — decisión revisada
+    respecto al cierre de diseño anterior (que optaba por derivarlo
+    solo de `audit_logs`). Las asigna exclusivamente el servidor al
+    ejecutar `.../review` (actor y momento de la revisión); no se
+    aceptan en ningún esquema de entrada (`POST` ni `PATCH`); no se
+    derivan de `audit_logs` en tiempo de lectura (son la fuente directa
+    para mostrar "revisado por/cuándo" sin unir contra la auditoría, que
+    sigue conservando el historial completo de todas formas).
+12. **Auditoría de `cancel` como acción propia
+    (`clinical_session.cancelled`)**, no fusionada en
+    `clinical_session.status_changed` — igual criterio que
+    `archived`/`restored`. `start`/`complete`/`submit-review`/`review`
+    comparten la acción genérica `status_changed`
+    (`from_status`/`to_status`); la entrada de `review` incluye además
+    el actor (ya redundante con `reviewed_by`, pero el log conserva
+    histórico completo si `reviewed_by` se sobrescribiera alguna vez).
+13. **Filtro de rango de fechas del listado sobre `scheduled_at`
+    exclusivamente**, con los parámetros de query `scheduled_from` y
+    `scheduled_to` (nombres cerrados). **No se crea una fecha "efectiva"
+    combinada.** Limitación aceptada: sesiones creadas directamente como
+    `in_progress`/`completed` sin `scheduled_at` no aparecen en ese
+    filtro.
+14. **Invariantes cruzadas** (`patient_id`/`professional_id` deben
+    pertenecer a `clinic_id`) **validadas en la capa de servicio; no se
+    implementan triggers de base de datos.**
+15. **Sin límite de sesiones `in_progress` simultáneas** por profesional
+    ni por paciente.
+16. **`started_at` y `ended_at` nunca se aceptan desde el cliente, ni en
+    creación ni en edición** — revisado respecto al cierre de diseño
+    anterior (que permitía informarlos opcionalmente al crear
+    directamente en `in_progress`/`completed`). Siempre los fija el
+    servidor:
+    - creación directa en `in_progress`: `started_at = now()`;
+    - creación directa en `completed`: `started_at = ended_at = now()`
+      (mismo instante — sin información del cliente para distinguirlos,
+      es la única asignación coherente posible);
+    - `.../start`: `started_at = now()` si no existía ya (no-op si ya
+      estaba fijado — idempotencia sin reescribir la fecha original);
+    - `.../complete`: `ended_at = now()` si no existía ya;
+    - ninguna fecha generada por el servidor puede ser futura.
+17. **Sin endpoint `GET /clinical-sessions/{id}/timeline`** en esta fase.
+18. **Idempotencia estricta**: un reintento que no produce cambio real
+    (p. ej. `.../start` cuando ya está `in_progress`) responde `200`,
+    **no crea entrada de auditoría** y **no modifica ninguna fecha ya
+    fijada** (`started_at`, `ended_at`, `reviewed_at` conservan su valor
+    original).

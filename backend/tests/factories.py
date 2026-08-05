@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clinics.domain.entities import Clinic
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core.current_user import CurrentUser
+from app.patients.domain.entities import Patient
+from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
 from app.users.domain.entities import Role, User
 from app.users.infrastructure.repository import SqlAlchemyUserRepository
 
@@ -73,6 +75,36 @@ async def create_clinic_with_users(session: AsyncSession) -> ClinicWithUsers:
     audiologist = await create_user(session, clinic.id, role=Role.AUDIOLOGIST)
     viewer = await create_user(session, clinic.id, role=Role.VIEWER)
     return ClinicWithUsers(clinic=clinic, admin=admin, audiologist=audiologist, viewer=viewer)
+
+
+async def create_patient(
+    session: AsyncSession,
+    clinic_id: uuid.UUID,
+    created_by: uuid.UUID,
+    *,
+    internal_code: str | None = None,
+    is_archived: bool = False,
+) -> Patient:
+    patient = Patient(
+        id=uuid.uuid4(),
+        clinic_id=clinic_id,
+        internal_code=internal_code or f"PAT-{uuid.uuid4().hex[:8].upper()}",
+        display_name="Paciente de test",
+        birth_year=1980,
+        sex=None,
+        preferred_language="es",
+        notes=None,
+        is_archived=is_archived,
+        created_by=created_by,
+        updated_by=created_by,
+        created_at=_now(),
+        updated_at=_now(),
+        archived_at=_now() if is_archived else None,
+        schema_version=1,
+    )
+    await SqlAlchemyPatientRepository().add(session, patient)
+    await session.commit()
+    return patient
 
 
 def dev_headers(user: User) -> dict[str, str]:

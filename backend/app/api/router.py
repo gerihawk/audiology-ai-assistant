@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.api.schemas import CurrentUserResponse
+from app.clinical_sessions.api.router import router as clinical_sessions_router
 from app.core.config import Settings, get_settings
 from app.core.current_user import CurrentUser
 from app.core.deps import get_current_user
@@ -12,6 +13,7 @@ from app.patients.api.router import router as patients_router
 
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(patients_router)
+v1_router.include_router(clinical_sessions_router)
 
 
 @v1_router.get("/me", response_model=CurrentUserResponse, tags=["dev-tools"])

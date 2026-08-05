@@ -77,10 +77,13 @@ ningún endpoint implementa su propia comprobación de rol.
   aplican igualmente sobre el usuario simulado que resuelva ese proveedor.
 - La exportación de un documento no aprobado está bloqueada a nivel de API,
   no solo de UI (aplica a fases futuras de documentos clínicos).
-- Un `audiologist` solo podrá generar/editar/aprobar documentos de
-  sesiones donde figure como responsable (a definir en la fase que
-  implemente `clinical_sessions`; por defecto, **no** habrá acceso
-  cruzado entre profesionales de la misma clínica salvo para `admin`).
+- **`clinical_sessions` (Fase 3):** un `audiologist` solo puede
+  crear/editar/iniciar/completar/enviar a revisión/cancelar/archivar
+  sesiones donde figura como `professional_id` — nunca las de otro
+  profesional de la misma clínica. Revisar (`.../review`) y restaurar
+  (`.../restore`) quedan reservados a `admin`. `admin` no tiene esta
+  restricción de propiedad. Matriz completa en
+  [api-specification.md](api-specification.md) §Clinical sessions.
 
 ## 6. Registro de auditoría
 
@@ -101,6 +104,28 @@ con un único `commit`. Si cualquiera de las dos falla, ambas se revierten
 auditoría correspondiente, ni una entrada de auditoría sin el cambio que
 la originó. Ver `PatientService` en [architecture.md](architecture.md).
 
+**`clinical_sessions` (Fase 3):** `clinical_session.created`,
+`clinical_session.updated` (metadatos; `changed_fields`, sin valores),
+`clinical_session.professional_changed` (UUID anterior y nuevo del
+profesional — identificadores técnicos, no contenido sensible),
+`clinical_session.status_changed` (`from_status` / `to_status`, usado por
+`start`/`complete`/`submit-review`/`review`; la entrada de `review`
+incluye el actor, redundante de forma deliberada con las columnas
+`reviewed_by`/`reviewed_at` de la propia entidad — ver
+[data-model.md](data-model.md) §2), `clinical_session.cancelled` (acción
+propia, no fusionada en `status_changed`, igual que
+`archived`/`restored`), `clinical_session.archived`,
+`clinical_session.restored`. Un reintento idempotente que no produce
+ningún cambio real (p. ej. `.../start` cuando ya está `in_progress`) **no
+genera entrada de auditoría**. Un mismo `PATCH` que cambie tanto
+`professional_id` como algún campo de metadatos genera dos entradas de
+auditoría (una por cada tipo de cambio) dentro de la **misma
+transacción/commit** — nunca un cambio sin su auditoría correspondiente.
+Ningún valor de `title`/`administrative_notes` se duplica en auditoría.
+Detalle completo en
+[api-specification.md](api-specification.md) §Clinical sessions y
+[data-model.md](data-model.md) §8.
+
 Registro previsto para fases futuras (diseño, no implementado):
 
 - subida de audio y resultado de su validación (`ready`/`failed`);
@@ -115,7 +140,7 @@ Registro previsto para fases futuras (diseño, no implementado):
 - cualquier transición a `failed` (con `failure_reason`);
 - cambios de configuración de integraciones;
 - accesos de administrador al propio `audit_logs` (opcional, evaluar en
-  Fase 9).
+  Fase 10).
 
 Regla general: toda operación relevante debe poder asociarse a una
 entrada de `audit_log` — no se considera completa una funcionalidad que
@@ -141,7 +166,7 @@ MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
   (`find_expired_audio`, `purge`) — ver [architecture.md](architecture.md)
   §4. En el MVP la ejecución es **manual** (endpoint de administración,
   ver [api-specification.md](api-specification.md) §Retention); no existe
-  scheduler/cron todavía, eso queda para la Fase 9 del
+  scheduler/cron todavía, eso queda para la Fase 10 del
   [plan de desarrollo](development-plan.md). El borrado físico invalida
   `storage_reference` pero conserva la fila de `audio_recordings`
   (`status = deleted`) para trazabilidad.
@@ -195,6 +220,9 @@ MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
 | Borrado accidental de un documento aprobado o de un paciente | Borrado lógico obligatorio en dominio/servicio; no existe operación de borrado físico expuesta para `patients`, `anamnesis_documents`/`session_notes` |
 | Audio ficticio acumulado indefinidamente | Retención configurable (30 días por defecto) + `RetentionCleanupService`, purgable manualmente |
 | Subida de audio malicioso/con formato no soportado | Validación de tamaño, duración, extensión y tipo MIME contra lista blanca antes de pasar a `ready` |
+| Un `audiologist` modifica/cancela/revisa sesiones de un compañero de la misma clínica | Comprobación de propiedad (`professional_id == current_user.id`) en `authorize_clinical_session_action`, no solo de rol (Fase 3, diseño) |
+| Autorrevisión de una sesión clínica (quien la registra también la "revisa") | `review` restringido a `admin`, ningún `audiologist` puede revisar sus propias sesiones (Fase 3, diseño) |
+| Sesión creada para un paciente archivado o con un profesional inválido (inactivo, rol `viewer`, de otra clínica) | Validado en `ClinicalSessionService.create` antes de persistir; `409`/`404` según el caso (Fase 3, diseño) |
 
 ## 12. `CurrentUserProvider`: alcance y limitaciones (Fase 2)
 

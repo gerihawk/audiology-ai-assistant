@@ -25,7 +25,8 @@ from app.core import orm_registry  # noqa: E402,F401  (registra los modelos ORM)
 from app.core.config import get_settings  # noqa: E402
 from app.core.db import Base, get_db_session  # noqa: E402
 from app.main import app  # noqa: E402
-from tests.factories import ClinicWithUsers, create_clinic_with_users  # noqa: E402
+from app.patients.domain.entities import Patient  # noqa: E402
+from tests.factories import ClinicWithUsers, create_clinic_with_users, create_patient  # noqa: E402
 
 TEST_DB_NAME = "audiology_ai_assistant_test"
 
@@ -113,6 +114,12 @@ async def clinic_with_users(db_session: AsyncSession) -> ClinicWithUsers:
     """Una clínica con un usuario admin/audiologist/viewer, lista para
     usar como cabecera X-Dev-User-Id en los tests de la API de pacientes."""
     return await create_clinic_with_users(db_session)
+
+
+@pytest_asyncio.fixture
+async def patient(db_session: AsyncSession, clinic_with_users: ClinicWithUsers) -> Patient:
+    """Un paciente ficticio no archivado en la clínica de `clinic_with_users`."""
+    return await create_patient(db_session, clinic_with_users.clinic.id, clinic_with_users.admin.id)
 
 
 @pytest.fixture

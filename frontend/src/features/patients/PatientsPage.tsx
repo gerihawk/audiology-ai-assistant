@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useDevUser } from '../../shared/devUser/DevUserContext'
 import type { Patient } from '../../shared/api/types'
+import { useDevUser } from '../../shared/devUser/DevUserContext'
+import { useProfessionalOptions } from '../clinicalSessions/useProfessionalOptions'
 import { PatientDetail } from './PatientDetail'
 import { PatientForm } from './PatientForm'
 import { PatientList } from './PatientList'
@@ -15,6 +16,7 @@ export function PatientsPage() {
   const { currentUser, selectedUserId, status } = useDevUser()
   const [view, setView] = useState<View>({ name: 'list' })
   const [refreshToken, setRefreshToken] = useState(0)
+  const professionalOptions = useProfessionalOptions(currentUser)
 
   if (status === 'loading') {
     return <p role="status">Cargando…</p>
@@ -61,6 +63,8 @@ export function PatientsPage() {
         <PatientDetail
           devUserId={selectedUserId}
           role={currentUser?.role}
+          currentUserId={currentUser?.id}
+          professionalOptions={professionalOptions}
           patient={view.patient}
           onBack={goToList}
           onEdit={() => setView({ name: 'edit', patient: view.patient })}
