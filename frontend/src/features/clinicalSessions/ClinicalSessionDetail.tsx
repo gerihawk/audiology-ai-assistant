@@ -1,4 +1,5 @@
 import type { ClinicalSession, DevUser, Role } from '../../shared/api/types'
+import { AIPipelinePanel } from '../aiPipeline/AIPipelinePanel'
 import { ClinicalSessionBadge } from './ClinicalSessionBadge'
 import { ClinicalSessionStatusActions } from './ClinicalSessionStatusActions'
 import { formatDateTime, professionalName } from './format'
@@ -87,6 +88,14 @@ export function ClinicalSessionDetail({
         currentUserId={currentUserId}
         session={session}
         onChanged={onChanged}
+      />
+
+      <AIPipelinePanel
+        devUserId={devUserId}
+        role={role}
+        currentUserId={currentUserId}
+        clinicalSessionId={session.id}
+        professionalId={session.professional_id}
       />
     </div>
   )

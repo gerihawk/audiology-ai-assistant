@@ -58,6 +58,13 @@ class AIArtifactRepository(Protocol):
         self, session: AsyncSession, version_id: uuid.UUID
     ) -> AIArtifactVersion | None: ...
 
+    async def list_versions(
+        self, session: AsyncSession, ai_artifact_id: uuid.UUID
+    ) -> list[AIArtifactVersion]:
+        """Historial completo, más reciente primero. Solo lectura — nunca
+        se edita ni se borra una versión existente."""
+        ...
+
     async def update_disposition(
         self,
         session: AsyncSession,

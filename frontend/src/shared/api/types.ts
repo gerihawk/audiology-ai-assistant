@@ -117,6 +117,78 @@ export interface ClinicalSessionUpdateInput {
   professional_id?: string
 }
 
+export type AIArtifactType =
+  'transcript' | 'summary' | 'clinical_flags' | 'missing_information' | 'anamnesis'
+
+export type AIArtifactStatus = 'review_pending' | 'approved' | 'rejected'
+
+export type AIArtifactVersionSource = 'ai_generated' | 'human_edited'
+
+export type AIPipelineRunStatus =
+  'queued' | 'processing' | 'completed' | 'failed' | 'partially_failed'
+
+export interface AIArtifact {
+  id: string
+  clinical_session_id: string
+  artifact_type: AIArtifactType
+  status: AIArtifactStatus
+  version_number: number | null
+  content: Record<string, unknown> | null
+  confidence: number | null
+  provider_name: string | null
+  model_name: string | null
+  schema_version: number
+  approved_by: string | null
+  approved_at: string | null
+  rejected_by: string | null
+  rejected_at: string | null
+  rejection_reason: string | null
+  created_at: string
+  updated_at: string
+  ai_disclaimer: string
+}
+
+export interface AIArtifactListResponse {
+  items: AIArtifact[]
+}
+
+export interface AIArtifactVersion {
+  id: string
+  version_number: number
+  content: Record<string, unknown>
+  confidence: number | null
+  source: AIArtifactVersionSource
+  provider_name: string | null
+  model_name: string | null
+  is_current: boolean
+  created_at: string
+}
+
+export interface AIArtifactVersionListResponse {
+  items: AIArtifactVersion[]
+}
+
+export interface PipelineStepOutcome {
+  artifact_type: AIArtifactType
+  status: string
+  failure_reason: string | null
+  skipped_reason: string | null
+  latency_ms: number | null
+  execution_time_ms: number | null
+  input_token_count: number | null
+  output_token_count: number | null
+  estimated_cost_usd: string | null
+}
+
+export interface RunMockPipelineResponse {
+  pipeline_run_id: string
+  status: AIPipelineRunStatus
+  started_at: string
+  completed_at: string | null
+  artifacts: AIArtifact[]
+  step_outcomes: PipelineStepOutcome[]
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string

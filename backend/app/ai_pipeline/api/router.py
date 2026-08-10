@@ -1,9 +1,10 @@
-"""Endpoints mínimos del AI Pipeline (Fase 4.1).
+"""Endpoints del AI Pipeline (Fase 4.1 + historial de versiones para el frontend).
 
 Sin prefijo común: combina rutas bajo `/clinical-sessions/{id}/...` y
-`/ai-artifacts/{id}` — ver docs/development-plan.md Fase 4.6. Solo los 5
-endpoints pedidos, ninguno adicional (sin edición, sin listado de
-versiones, sin detalle de ejecución — quedan para una ronda posterior).
+`/ai-artifacts/{id}` — ver docs/development-plan.md Fase 4.6. Además de
+los 5 endpoints mínimos originales, `GET .../versions` (solo lectura,
+necesario para que el frontend pueda navegar el historial de versiones —
+sin él, "cambiar entre versiones" no tiene datos que mostrar).
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from fastapi import APIRouter, Depends
 from app.ai_pipeline.api.schemas import (
     AIArtifactListResponse,
     AIArtifactResponse,
+    AIArtifactVersionListResponse,
+    AIArtifactVersionResponse,
     ArtifactRejectRequest,
     RunMockPipelineResponse,
 )
@@ -61,6 +64,18 @@ async def get_ai_artifact(
 ) -> AIArtifactResponse:
     detail = await service.get_artifact(current_user, artifact_id)
     return AIArtifactResponse.from_detail(detail)
+
+
+@router.get("/ai-artifacts/{artifact_id}/versions", response_model=AIArtifactVersionListResponse)
+async def list_ai_artifact_versions(
+    artifact_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AIPipelineService = Depends(get_ai_pipeline_service),
+) -> AIArtifactVersionListResponse:
+    details = await service.list_versions(current_user, artifact_id)
+    return AIArtifactVersionListResponse(
+        items=[AIArtifactVersionResponse.from_detail(detail) for detail in details]
+    )
 
 
 @router.post("/ai-artifacts/{artifact_id}/approve", response_model=AIArtifactResponse)

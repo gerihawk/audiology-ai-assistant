@@ -98,6 +98,16 @@ class PipelineRunOutcome:
     outcomes: list[PipelineStepOutcome]
 
 
+@dataclass(slots=True)
+class AIArtifactVersionDetail:
+    """Una fila del historial — combina la versión con su ejecución (si la
+    generó IA) y si es la vigente del artefacto."""
+
+    version: AIArtifactVersion
+    generation_run: AIGenerationRun | None
+    is_current: bool
+
+
 class AIPipelineService:
     def __init__(
         self,
@@ -398,6 +408,33 @@ class AIPipelineService:
             self._session, current_user.clinic_id, clinical_session_id
         )
         return [await self._to_detail(artifact) for artifact in artifacts]
+
+    async def list_versions(
+        self, current_user: CurrentUser, artifact_id: uuid.UUID
+    ) -> list[AIArtifactVersionDetail]:
+        authorize_ai_artifact_action(current_user, AIArtifactAction.READ)
+        artifact = await self._artifacts.get_by_id(
+            self._session, current_user.clinic_id, artifact_id
+        )
+        if artifact is None:
+            raise NotFoundError("Artefacto de IA no encontrado.")
+
+        versions = await self._artifacts.list_versions(self._session, artifact_id)
+        details: list[AIArtifactVersionDetail] = []
+        for version in versions:
+            generation_run = (
+                await self._generation_runs.get_by_id(self._session, version.generation_run_id)
+                if version.generation_run_id
+                else None
+            )
+            details.append(
+                AIArtifactVersionDetail(
+                    version=version,
+                    generation_run=generation_run,
+                    is_current=(version.id == artifact.current_version_id),
+                )
+            )
+        return details
 
     # --- Disposición humana --------------------------------------------------
 

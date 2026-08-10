@@ -15,8 +15,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.ai_pipeline.domain.entities import AIArtifactStatus, AIArtifactType, AIPipelineRunStatus
-from app.ai_pipeline.service import AIArtifactDetail, PipelineRunOutcome
+from app.ai_pipeline.domain.entities import (
+    AIArtifactStatus,
+    AIArtifactType,
+    AIArtifactVersionSource,
+    AIPipelineRunStatus,
+)
+from app.ai_pipeline.service import AIArtifactDetail, AIArtifactVersionDetail, PipelineRunOutcome
 from app.core.messages.es import AI_DISCLAIMER
 
 _REJECTION_REASON_MAX_LENGTH = 500
@@ -77,6 +82,39 @@ class AIArtifactResponse(BaseModel):
 
 class AIArtifactListResponse(BaseModel):
     items: list[AIArtifactResponse]
+
+
+class AIArtifactVersionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    version_number: int
+    content: dict[str, Any]
+    confidence: int | None
+    source: AIArtifactVersionSource
+    provider_name: str | None
+    model_name: str | None
+    is_current: bool
+    created_at: datetime
+
+    @classmethod
+    def from_detail(cls, detail: AIArtifactVersionDetail) -> AIArtifactVersionResponse:
+        version = detail.version
+        return cls(
+            id=version.id,
+            version_number=version.version_number,
+            content=version.content,
+            confidence=version.confidence,
+            source=version.source,
+            provider_name=detail.generation_run.provider_name if detail.generation_run else None,
+            model_name=detail.generation_run.model_name if detail.generation_run else None,
+            is_current=detail.is_current,
+            created_at=version.created_at,
+        )
+
+
+class AIArtifactVersionListResponse(BaseModel):
+    items: list[AIArtifactVersionResponse]
 
 
 class PipelineStepOutcomeResponse(BaseModel):

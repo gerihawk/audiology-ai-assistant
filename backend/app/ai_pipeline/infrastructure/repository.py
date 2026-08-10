@@ -224,6 +224,16 @@ class SqlAlchemyAIArtifactRepository:
         row = result.scalar_one_or_none()
         return _version_to_domain(row) if row is not None else None
 
+    async def list_versions(
+        self, session: AsyncSession, ai_artifact_id: uuid.UUID
+    ) -> list[AIArtifactVersion]:
+        result = await session.execute(
+            select(AIArtifactVersionORM)
+            .where(AIArtifactVersionORM.ai_artifact_id == ai_artifact_id)
+            .order_by(AIArtifactVersionORM.version_number.desc())
+        )
+        return [_version_to_domain(row) for row in result.scalars().all()]
+
     async def update_disposition(
         self,
         session: AsyncSession,
@@ -279,6 +289,13 @@ class SqlAlchemyAIGenerationRunRepository:
         session.add(row)
         await session.flush()
         return _generation_run_to_domain(row)
+
+    async def get_by_id(self, session: AsyncSession, run_id: uuid.UUID) -> AIGenerationRun | None:
+        result = await session.execute(
+            select(AIGenerationRunORM).where(AIGenerationRunORM.id == run_id)
+        )
+        row = result.scalar_one_or_none()
+        return _generation_run_to_domain(row) if row is not None else None
 
     async def list_by_pipeline_run(
         self, session: AsyncSession, ai_pipeline_run_id: uuid.UUID

@@ -228,6 +228,72 @@ async def test_pipeline_run_persisted_with_completed_status(
     assert row.triggered_by == clinic_with_users.admin.id
 
 
+# --- Historial de versiones ---------------------------------------------------
+
+
+async def test_list_versions_returns_all_versions_most_recent_first(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    headers = dev_headers(clinic_with_users.admin)
+    _, first = await _run_pipeline(api_client, headers, clinical_session["id"])
+    await _run_pipeline(api_client, headers, clinical_session["id"])
+    artifact_id = next(a["id"] for a in first["artifacts"] if a["artifact_type"] == "transcript")
+
+    response = await api_client.get(f"/api/v1/ai-artifacts/{artifact_id}/versions", headers=headers)
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [v["version_number"] for v in items] == [2, 1]
+    assert items[0]["is_current"] is True
+    assert items[1]["is_current"] is False
+    assert items[0]["content"] != {} and items[1]["content"] != {}
+    assert items[0]["provider_name"] == "mock"
+
+
+async def test_list_versions_for_nonexistent_artifact_returns_404(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers
+):
+    response = await api_client.get(
+        f"/api/v1/ai-artifacts/{uuid.uuid4()}/versions",
+        headers=dev_headers(clinic_with_users.admin),
+    )
+    assert response.status_code == 404
+
+
+async def test_list_versions_cross_clinic_returns_404(
+    api_client: AsyncClient, db_session: AsyncSession
+):
+    clinic_a = await create_clinic_with_users(db_session)
+    clinic_b = await create_clinic_with_users(db_session)
+    patient_a = await create_patient(db_session, clinic_a.clinic.id, clinic_a.admin.id)
+    session = await _create_session(
+        api_client, dev_headers(clinic_a.admin), str(patient_a.id), str(clinic_a.audiologist.id)
+    )
+    _, body = await _run_pipeline(api_client, dev_headers(clinic_a.admin), session["id"])
+    artifact_id = body["artifacts"][0]["id"]
+
+    response = await api_client.get(
+        f"/api/v1/ai-artifacts/{artifact_id}/versions", headers=dev_headers(clinic_b.admin)
+    )
+    assert response.status_code == 404
+
+
+async def test_viewer_can_list_versions(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    _, body = await _run_pipeline(
+        api_client, dev_headers(clinic_with_users.admin), clinical_session["id"]
+    )
+    artifact_id = body["artifacts"][0]["id"]
+
+    response = await api_client.get(
+        f"/api/v1/ai-artifacts/{artifact_id}/versions",
+        headers=dev_headers(clinic_with_users.viewer),
+    )
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 1
+
+
 # --- Versionado y reejecución -------------------------------------------------
 
 
