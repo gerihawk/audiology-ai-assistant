@@ -1,0 +1,111 @@
+{
+  "id": "consulta_ficticia_01",
+  "description": "Consulta audioprotésica inicial ficticia con dos hablantes para benchmark de transcripción clínica.",
+  "language": "es",
+  "duration_expected_seconds": 115,
+  "number_of_speakers": 2,
+  "environment": "quiet_clinic",
+  "noise_level": "none",
+  "critical_terms": [
+    "pérdida auditiva",
+    "hipoacusia",
+    "hipoacusia neurosensorial",
+    "acúfenos",
+    "otitis",
+    "otoscopia",
+    "audiometría tonal",
+    "vía aérea",
+    "vía ósea",
+    "audífonos",
+    "protección auditiva"
+  ],
+  "clinical_concepts": [
+    {
+      "concept": "hearing_loss",
+      "expected": true
+    },
+    {
+      "concept": "tinnitus",
+      "expected": true
+    },
+    {
+      "concept": "vertigo",
+      "expected": false
+    },
+    {
+      "concept": "ear_surgery",
+      "expected": false
+    },
+    {
+      "concept": "family_history",
+      "expected": true
+    },
+    {
+      "concept": "occupational_noise_exposure",
+      "expected": true
+    },
+    {
+      "concept": "medication",
+      "expected": true
+    },
+    {
+      "concept": "drug_allergies",
+      "expected": false
+    }
+  ],
+  "negation_cases": [
+    {
+      "concept": "vertigo",
+      "expected": "negated",
+      "patterns": {
+        "negated": ["vértigo no he tenido nunca"],
+        "affirmed": ["he tenido vértigo"]
+      }
+    },
+    {
+      "concept": "ear_surgery",
+      "expected": "negated",
+      "patterns": {
+        "negated": ["nunca me han operado de los oídos"],
+        "affirmed": ["me han operado de los oídos"]
+      }
+    },
+    {
+      "concept": "other_medication",
+      "expected": "negated",
+      "patterns": {
+        "negated": ["no tomo ningún otro tratamiento"],
+        "affirmed": ["tomo otro tratamiento"]
+      }
+    },
+    {
+      "concept": "drug_allergies",
+      "expected": "negated",
+      "patterns": {
+        "negated": ["no tengo alergias conocidas"],
+        "affirmed": ["tengo alergias"]
+      }
+    }
+  ],
+  "laterality_cases": [
+    {
+      "concept": "hearing_loss",
+      "laterality": "left",
+      "patterns": {
+        "left": ["oído izquierdo"],
+        "right": ["oído derecho"],
+        "bilateral": ["los dos", "ambos oídos", "los dos oídos", "bilateral"]
+      }
+    },
+    {
+      "concept": "tinnitus",
+      "laterality": "left",
+      "patterns": {
+        "left": ["oído izquierdo"],
+        "right": ["oído derecho"],
+        "bilateral": ["ambos oídos", "los dos oídos", "bilateral"]
+      }
+    }
+  ],
+  "notes": "Dataset ficticio utilizado como golden dataset para benchmark de proveedores de transcripción clínica. Grabado con dos personas distintas para evaluar diarización de forma objetiva. La referencia fue creada manualmente y nunca deriva de la salida de un proveedor de IA."
+}

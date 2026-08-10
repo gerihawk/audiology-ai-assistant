@@ -48,18 +48,60 @@ class Settings(BaseSettings):
     # --- Transcripción (Fase 5) ---
     # Selección de proveedor únicamente por configuración — ver
     # app/integrations/factory.py. "mock" no requiere credenciales.
-    transcription_provider: Literal["mock", "assemblyai"] = "mock"
+    transcription_provider: Literal["mock", "assemblyai", "deepgram"] = "mock"
     assemblyai_api_key: str | None = None
     assemblyai_base_url: str = "https://api.assemblyai.com"
     assemblyai_language_code: str = "es"
     assemblyai_poll_interval_seconds: float = 2.0
     assemblyai_poll_timeout_seconds: float = 120.0
 
-    # --- Pricing del benchmark (Fase 5.1) — ver app/integrations/pricing.py ---
-    # `None` -> se usa el valor orientativo por defecto de pricing.py.
-    # Nunca facturación autoritativa: verifica el precio vigente del
-    # proveedor antes de confiar en estas cifras.
+    # --- Deepgram (Fase 5.3) ---
+    deepgram_api_key: str | None = None
+    # Endpoint EU (api.eu.deepgram.com) por defecto, no el genérico
+    # api.deepgram.com: decisión deliberada para un producto sanitario —
+    # residencia de datos dentro de la UE, GA y oficialmente documentada
+    # (mismas credenciales, sin coste ni activación adicional) — ver
+    # docs/transcription-benchmark.md §Endpoint europeo.
+    deepgram_base_url: str = "https://api.eu.deepgram.com"
+    deepgram_language_code: str = "es"
+    deepgram_model: str = "nova-3"
+    deepgram_timeout_seconds: float = 120.0
+    # Perfil "deepgram_nova3_keyterms" (preparado, no llamado en la Fase
+    # 5.3 — ver docs/transcription-benchmark.md §Configuración inicial).
+    deepgram_keyterms_enabled: bool = False
+
+    # --- Pricing del benchmark (Fase 5.1/5.2) — ver app/integrations/pricing.py ---
+    # `None` en cada campo -> se usa el valor verificado por defecto de
+    # pricing.py. Nunca facturación autoritativa: verifica el precio
+    # vigente del proveedor antes de confiar en estas cifras.
     assemblyai_price_per_hour_usd: Decimal | None = None
+    assemblyai_diarization_addon_per_hour_usd: Decimal | None = None
+    assemblyai_medical_mode_addon_per_hour_usd: Decimal | None = None
+    assemblyai_keyterms_addon_per_hour_usd: Decimal | None = None
+
+    # --- Perfil experimental AssemblyAI (Fase 5.2) ---
+    # Solo afecta al perfil "assemblyai_optimized" del benchmark — nunca al
+    # perfil "assemblyai"/"assemblyai_baseline" (producción/reproducible),
+    # ver app/integrations/factory.py. Nombres de parámetro verificados
+    # contra la documentación oficial de AssemblyAI, ver
+    # docs/transcription-benchmark.md §Inspección de la API.
+    assemblyai_optimized_speech_model: str = "universal-3-5-pro"
+    # `speakers_expected`: introduce conocimiento a priori del número de
+    # hablantes — válido para una consulta audioprotésica típica
+    # profesional↔paciente, NUNCA una suposición global del producto
+    # (pueden existir acompañantes o varios profesionales). `None` lo
+    # desactiva sin tocar código. AssemblyAI ignora este parámetro en
+    # audios de menos de 2 minutos (ver docs/transcription-benchmark.md).
+    assemblyai_optimized_speakers_expected: int | None = 2
+    assemblyai_optimized_medical_mode: bool = True
+    assemblyai_optimized_keyterms_enabled: bool = True
+
+    # --- Pricing Deepgram (Fase 5.3) — ver app/integrations/pricing.py ---
+    # Nunca mezclado con el pricing de AssemblyAI (funciones y campos
+    # independientes).
+    deepgram_price_per_minute_usd: Decimal | None = None
+    deepgram_diarization_addon_per_minute_usd: Decimal | None = None
+    deepgram_keyterm_addon_per_minute_usd: Decimal | None = None
 
     @property
     def is_production(self) -> bool:

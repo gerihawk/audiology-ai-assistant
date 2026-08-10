@@ -9,7 +9,14 @@ from app.integrations.domain.audio_cost_estimator import CostEstimate, CostEstim
 
 class MockAudioCostEstimator:
     def estimate(
-        self, *, provider: str, model: str | None, audio_duration_seconds: float
+        self,
+        *,
+        provider: str,
+        model: str | None,
+        audio_duration_seconds: float,
+        diarization: bool = False,
+        medical_mode: bool = False,
+        keyterms_prompt: bool = False,
     ) -> CostEstimate:
         return CostEstimate(
             amount_usd=Decimal("0"),

@@ -1,7 +1,12 @@
 """PricingTableAudioCostEstimator: estimación basada en la tabla de
 precios centralizada (`app/integrations/pricing.py`) — usado cuando el
 proveedor real no devuelve un coste en su respuesta (caso de AssemblyAI
-hoy). Ver docs/transcription-benchmark.md §Pricing."""
+hoy). Ver docs/transcription-benchmark.md §Pricing.
+
+Desde la Fase 5.2, el coste se calcula **por componentes**: precio base
+del modelo + add-ons activos (diarización/Medical Mode/keyterms) — nunca
+un precio plano fijo, para reflejar correctamente que un perfil
+`assemblyai_optimized` puede costar más que `assemblyai_baseline`."""
 
 from __future__ import annotations
 
@@ -17,9 +22,23 @@ class PricingTableAudioCostEstimator:
         self._settings = settings
 
     def estimate(
-        self, *, provider: str, model: str | None, audio_duration_seconds: float
+        self,
+        *,
+        provider: str,
+        model: str | None,
+        audio_duration_seconds: float,
+        diarization: bool = False,
+        medical_mode: bool = False,
+        keyterms_prompt: bool = False,
     ) -> CostEstimate:
-        price_per_second = price_per_second_usd(provider, self._settings)
+        price_per_second = price_per_second_usd(
+            provider,
+            model,
+            self._settings,
+            diarization=diarization,
+            medical_mode=medical_mode,
+            keyterms_prompt=keyterms_prompt,
+        )
         amount = (
             price_per_second * Decimal(str(audio_duration_seconds))
             if price_per_second is not None

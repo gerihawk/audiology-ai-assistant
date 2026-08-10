@@ -40,5 +40,16 @@ class CostEstimate:
 
 class AudioCostEstimator(Protocol):
     def estimate(
-        self, *, provider: str, model: str | None, audio_duration_seconds: float
+        self,
+        *,
+        provider: str,
+        model: str | None,
+        audio_duration_seconds: float,
+        # --- Componentes de coste activos (Fase 5.2) — opcionales, para
+        # que un estimador que sepa desglosar precios por add-on (p. ej.
+        # PricingTableAudioCostEstimator) pueda hacerlo; uno que no los
+        # necesite (MockAudioCostEstimator) simplemente los ignora. ---
+        diarization: bool = False,
+        medical_mode: bool = False,
+        keyterms_prompt: bool = False,
     ) -> CostEstimate: ...

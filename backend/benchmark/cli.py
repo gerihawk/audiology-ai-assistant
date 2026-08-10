@@ -50,10 +50,19 @@ def _report_for(outcome: BenchmarkOutcome, *, settings: Settings, case: DatasetC
     cost_estimator = build_audio_cost_estimator(settings, outcome.provider)
     result = outcome.result
     if result is not None and result.duration_ms is not None:
+        # Los componentes activos vienen del propio provider_metadata (Fase
+        # 5.1) — el mismo dato usado para trazabilidad de modelo alimenta
+        # también el coste por componentes, sin una segunda fuente de
+        # verdad que pueda divergir (ver docs/transcription-benchmark.md
+        # §Pricing).
+        provider_metadata = result.provider_metadata or {}
         cost_estimate = cost_estimator.estimate(
             provider=outcome.provider,
             model=result.model_name,
             audio_duration_seconds=result.duration_ms / 1000,
+            diarization=bool(provider_metadata.get("speaker_labels_requested")),
+            medical_mode=bool(provider_metadata.get("medical_mode")),
+            keyterms_prompt=bool(provider_metadata.get("keyterm_prompting")),
         )
         estimated_cost_usd = str(cost_estimate.amount_usd)
         estimated_cost_source = cost_estimate.source.value

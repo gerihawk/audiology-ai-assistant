@@ -1,4 +1,4 @@
-# Benchmark de proveedores de transcripción — Fase 5 / Fase 5.1
+# Benchmark de proveedores de transcripción — Fase 5 / 5.1 / 5.2 / 5.3
 
 Plataforma permanente para comparar proveedores de transcripción
 (AssemblyAI, Deepgram, OpenAI, Speechmatics, Azure Speech, Google Speech,
@@ -13,15 +13,34 @@ herramienta de evaluación científica y reproducible: golden dataset con
 transcripción de referencia, WER, métricas específicas de audiología
 (terminología, negaciones, lateralidad), métricas de diarización, coste
 real estimado (no Mock) y una herramienta de comparación entre
-proveedores. Este documento cubre ambas fases.
+proveedores. **Fase 5.2** investiga si el fallo de diarización observado
+en la primera prueba real (§19) se puede resolver con una configuración
+mejor de AssemblyAI, mediante dos perfiles comparables
+(`assemblyai_baseline`/`assemblyai_optimized`) sobre el mismo audio —
+conclusión: mejora parcial, insuficiente (~83% del diálogo sigue
+fusionado en un solo speaker), a más del doble de coste. **Fase 5.3**
+integra un segundo proveedor real, Deepgram Nova-3 (§20), como candidato
+a resolver la diarización que AssemblyAI no resuelve. Este documento
+cubre las cuatro fases.
+
+> **Corrección importante (Fase 5.2).** La primera prueba real
+> (`consulta_ficticia_01`, informe de la sesión anterior) **sí** se grabó
+> con dos personas distintas — una interpretando al audioprotesista, otra
+> al paciente. El fallo de diarización observado (un único speaker
+> detectado para toda la conversación, pese a `speaker_labels=True`) es
+> por tanto un **fallo real de AssemblyAI para este audio**, no un
+> artefacto de que una misma voz interpretara ambos papeles. Cualquier
+> referencia anterior en este documento que sugiriera lo segundo queda
+> corregida por esta nota — ver §19 para el experimento que investiga si
+> una configuración distinta lo resuelve.
 
 ## 1. Qué NO es esta fase
 
 - No integra ningún LLM (Summary/ClinicalFlags/MissingInformation/Anamnesis
   siguen siendo Mock, sin cambios).
-- No implementa Deepgram/OpenAI/Speechmatics/Azure/Google/AWS/Whisper —
-  solo `mock` y `assemblyai`. Añadirlos es extender el registro descrito
-  en §3, no rediseñar nada.
+- No implementa OpenAI/Speechmatics/Azure/Google/AWS/Whisper — solo
+  `mock`, `assemblyai` y, desde la Fase 5.3, `deepgram` (§20). Añadir los
+  restantes es extender el registro descrito en §3, no rediseñar nada.
 - No genera HTML ni dashboards — solo JSON y tablas por terminal.
 - No implementa NLP clínico para negaciones/lateralidad — comparación de
   texto contra patrones explícitos declarados en `metadata.json` (§7-8).
@@ -82,7 +101,9 @@ configuración global.
 
 ## 3. Cómo añadir un proveedor nuevo
 
-Dos cambios, ambos en `app/integrations/`:
+Dos cambios, ambos en `app/integrations/`. El ejemplo de Deepgram de
+abajo ya está implementado (Fase 5.3, ver §20) — se deja como referencia
+concreta de los pasos para el siguiente proveedor (OpenAI, Speechmatics...).
 
 ```python
 # factory.py
@@ -492,7 +513,11 @@ python -m benchmark.cli consulta_ficticia_01 --providers mock,assemblyai
 benchmark/results/
   mock/
     consulta_ficticia_01.json
-  assemblyai/
+  assemblyai_baseline/
+    consulta_ficticia_01.json
+  assemblyai_optimized/
+    consulta_ficticia_01.json
+  deepgram_nova3_baseline/
     consulta_ficticia_01.json
   comparisons/
     consulta_ficticia_01.json     # generado por benchmark.compare, ver §17
@@ -594,41 +619,290 @@ de los participantes, nunca pacientes reales.
 Cada uno sigue la estructura de §5-7: `audio.<ext>` + `reference.json` +
 `metadata.json` bajo `benchmark/dataset/<audio_id>/`.
 
-## 19. Cómo grabar y evaluar `consulta_ficticia_01` (dos personas)
+## 19. Perfiles AssemblyAI: `baseline` vs `optimized` (Fase 5.2)
 
-1. Graba una conversación ficticia de 1-3 min entre dos personas
-   distintas — una interpretando al audioprotesista, otra al paciente
-   (voces distintas es importante: la primera prueba real de esta fase
-   usó una única voz para ambos papeles y la diarización falló por
-   completo — no es concluyente sobre AssemblyAI hasta repetirlo con dos
-   voces reales).
-2. Guarda el fichero como
-   `backend/benchmark/dataset/consulta_ficticia_01/audio.mp3` (o
-   `.wav`/`.m4a`/`.ogg`/`.webm`).
-3. Copia `reference.json.example` → `reference.json` en esa misma carpeta
-   y transcribe el audio a mano, segmento por segmento, con el `speaker`
-   correcto (`audiologist`/`patient`).
-4. Copia `metadata.json.example` → `metadata.json` y ajusta
-   `critical_terms`/`negation_cases`/`laterality_cases` a lo que
-   **realmente** contiene tu grabación.
-5. Ejecuta manualmente (nunca de forma automática — ver §14 del encargo
-   de esta fase):
-   ```bash
-   docker compose exec backend python -m benchmark.cli consulta_ficticia_01 --providers mock,assemblyai
-   docker compose exec backend python -m benchmark.compare consulta_ficticia_01
-   ```
-6. Revisa `benchmark/results/assemblyai/consulta_ficticia_01.json` — en
-   particular `metrics.diarization` (¿ahora sí separa dos hablantes?),
-   `metrics.wer`, `metrics.terminology`, `metrics.negations`,
-   `metrics.laterality`.
+**Motivación**: la primera prueba real (dos personas distintas, ver nota
+al principio de este documento) detectó un único speaker con la
+configuración por defecto (`speaker_labels=True`, sin más parámetros).
+Antes de considerar un segundo proveedor, esta fase comprueba si una
+configuración distinta — pero **oficialmente soportada hoy** por
+AssemblyAI, nunca supuesta — resuelve el problema sobre el mismo audio.
 
-## 20. Tests: nunca llamadas reales
+### Perfil `assemblyai_baseline`
 
-Todos los tests de `AssemblyAITranscriptionProvider` inyectan un
-`httpx.AsyncClient` construido con `transport=httpx.MockTransport(handler)`
-— nunca contactan `api.assemblyai.com`. Los tests de `BenchmarkRunner`
-inyectan proveedores falsos (no `assemblyai` real) del mismo modo. Ver
-`backend/tests/test_assemblyai_provider.py`,
+Idéntico al proveedor `"assemblyai"` de producción — mismo payload HTTP
+que la Fase 5, sin ningún parámetro nuevo:
+
+```json
+{ "audio_url": "...", "language_code": "es", "speaker_labels": true }
+```
+
+### Perfil `assemblyai_optimized`
+
+Añade, todos verificados contra la documentación oficial vigente
+(nunca supuestos):
+
+| Parámetro | Valor | Variable de entorno | Por qué |
+|---|---|---|---|
+| `speech_models` | `["universal-3-5-pro"]` | `ASSEMBLYAI_OPTIMIZED_SPEECH_MODEL` | Modelo más reciente; único que soporta `keyterms_prompt` |
+| `speakers_expected` | `2` | `ASSEMBLYAI_OPTIMIZED_SPEAKERS_EXPECTED` | Ver aviso de conocimiento a priori, abajo |
+| `domain` | `"medical-v1"` (Medical Mode) | `ASSEMBLYAI_OPTIMIZED_MEDICAL_MODE` | Terminología clínica — soporta español |
+| `keyterms_prompt` | `AUDIOLOGY_KEYTERMS_ES` (`app/integrations/keyterms.py`, `KEYTERM_SET_VERSION="audiology-es-v1"`) | `ASSEMBLYAI_OPTIMIZED_KEYTERMS_ENABLED` | Vocabulario audiológico — solo `universal-3-5-pro` |
+
+**Aviso sobre `speakers_expected` — conocimiento a priori.** Fijarlo a
+`2` asume que la conversación es exactamente un profesional y un
+paciente. Es una asunción **válida para una consulta audioprotésica
+típica**, pero **nunca debe convertirse en una suposición global del
+producto**: pueden existir acompañantes, más de un profesional, o
+consultas con más participantes. Por eso es configurable
+(`ASSEMBLYAI_OPTIMIZED_SPEAKERS_EXPECTED`, admite `null`), no una
+constante — la arquitectura soporta tanto `expected_speaker_count = null`
+como `= 2` según el contexto de cada caso del dataset, decidido caso a
+caso, no de una vez para todo el producto.
+
+**Limitación conocida para `consulta_ficticia_01` específicamente**: la
+documentación de AssemblyAI indica que `speakers_expected` **se ignora en
+audios de menos de 2 minutos**. El audio real de esta prueba dura ~115s
+(1 min 55s) — por debajo del umbral. Es posible que este parámetro no
+tenga ningún efecto en el resultado de esta prueba concreta; el resto de
+mejoras (`speech_models`, Medical Mode, `keyterms_prompt`) no tienen esa
+limitación de duración.
+
+**Medical Mode** no se asume que mejore diarización — su objetivo medido
+es terminología audiológica y WER (ver criterios de comparación, §12 del
+encargo de esta fase). Se registra explícitamente `medical_mode` en
+`provider_metadata` y en el JSON de resultados.
+
+**Model traceability**: `AssemblyAITranscriptionProvider` captura
+`model_name` (best-effort) y, en `provider_metadata`,
+`speech_models_requested`/`speakers_expected_requested`/`medical_mode`/
+`keyterm_prompting`/`keyterm_set_version` — nunca el `raw_response`
+completo (ver §13).
+
+### Normalización: utterances → words → sin segmentos
+
+Si `utterances` no está disponible pero `words[].speaker` sí lo está, el
+proveedor agrupa palabras consecutivas del mismo hablante en segmentos
+sintéticos en vez de colapsar todo en un único segmento — ver
+`_segments_from_transcript` en `assemblyai_transcription_provider.py`.
+El contrato normalizado que ve el resto del sistema (`{"text",
+"language", "duration_ms", "segments"}`) no cambia — sigue sin saber si
+AssemblyAI devolvió `utterances`, `words` u otra estructura.
+
+### Coste por componentes
+
+`PricingTableAudioCostEstimator` ya no aplica un precio plano: suma el
+precio base del modelo más cada add-on activo (§14), verificados contra
+https://www.assemblyai.com/pricing el 2026-08-11:
+
+| Componente | USD/hora |
+|---|---|
+| Universal-2 (base) | $0.15 |
+| Universal-3.5 Pro (base) | $0.21 |
+| Diarización (`speaker_labels`) | +$0.02 |
+| Medical Mode | +$0.15 |
+| Keyterms Prompting | +$0.05 |
+
+`assemblyai_baseline` con diarización (Universal-2 asumido, ver
+`ASSEMBLYAI_DEFAULT_BASE_MODEL`): **$0.17/h**. `assemblyai_optimized`
+completo (Universal-3.5 Pro + diarización + Medical Mode + keyterms):
+**$0.43/h** — más de 2.5× el coste de baseline. El componente activo se
+lee de `provider_metadata` (misma fuente que la trazabilidad de modelo,
+sin una segunda fuente de verdad que pueda divergir) — nunca inventado.
+
+### Ejecutar el experimento
+
+```bash
+docker compose exec backend python -m benchmark.cli consulta_ficticia_01 --providers assemblyai_baseline,assemblyai_optimized
+docker compose exec backend python -m benchmark.compare consulta_ficticia_01
+```
+
+Resultados en `benchmark/results/assemblyai_baseline/consulta_ficticia_01.json`
+y `benchmark/results/assemblyai_optimized/consulta_ficticia_01.json` —
+nunca se pisan entre sí ni con el resultado antiguo bajo
+`benchmark/results/assemblyai/` (proveedor de producción, sin perfil).
+
+### Criterio de éxito de diarización
+
+Se considera diarización **satisfactoria** para este dataset únicamente
+si, simultáneamente: detecta 2 speakers; `speaker_count_match = true`;
+`attribution_accuracy` razonablemente alta; y ningún intercambio de
+speaker cambia la interpretación clínica del texto. Detectar
+simplemente "A" y "B" sin que la atribución sea correcta **no es
+suficiente**.
+
+### Añadir un caso nuevo al dataset (grabación)
+
+Para el resto del roadmap (§18, casos 02-10, que sí requieren grabar
+desde cero): ver `backend/benchmark/dataset/README.md` §Cómo añadir un
+caso nuevo — misma estructura de 5 pasos (audio + `reference.json` +
+`metadata.json`), sin repetirla aquí.
+
+## 20. Integración de Deepgram Nova-3 (Fase 5.3)
+
+**Motivación**: la Fase 5.2 concluyó que AssemblyAI (baseline u
+optimized) no resuelve la diarización de forma satisfactoria (§19,
+criterio de éxito) — `assemblyai_optimized` sigue fusionando ~83% del
+diálogo en un único speaker, a más del doble de coste de `baseline`, sin
+mejorar el resultado de fondo. Deepgram Nova-3 se evalúa como candidato
+alternativo, específicamente por su diarización.
+
+### Investigación previa (documentación oficial, nunca supuesta)
+
+Verificado contra `developers.deepgram.com` en el momento de esta fase:
+
+- Endpoint: `POST /v1/listen` — **síncrono**, sin polling: la respuesta ya
+  contiene la transcripción completa (a diferencia del flujo
+  subida+poll de AssemblyAI).
+- El audio se envía como **cuerpo binario** de la petición
+  (`Content-Type` = MIME del audio), sin paso previo de subida.
+- Autenticación: cabecera `Authorization: Token <api_key>`.
+- Parámetros relevantes (query string): `model=nova-3`, `language=es`,
+  `diarize=true`, `utterances=true`, `smart_format=true`,
+  `punctuate=true`, `keyterm=<término>` (repetible, ≤500 tokens en
+  total, exclusivo de Nova-3).
+- `results.utterances[]` trae `speaker` como **entero** y `start`/`end`
+  en **segundos** — a diferencia de AssemblyAI (`start`/`end` en
+  milisegundos), conversión explícita `*1000` en
+  `_segments_from_transcript` (ver nota en el docstring del módulo).
+- `metadata.models[]` + `metadata.model_info{uuid: {name, version,
+  arch}}` — trazabilidad de modelo (§13, mismo principio que AssemblyAI).
+- Endpoint regional EU disponible y en general disponibilidad:
+  `https://api.eu.deepgram.com` (mismas credenciales, sin activación ni
+  coste adicional) — residencia de datos dentro de la UE.
+
+### Endpoint EU por defecto — decisión deliberada
+
+`DEEPGRAM_BASE_URL` por defecto es `https://api.eu.deepgram.com`, no el
+genérico `api.deepgram.com`. Decisión explícita para un producto
+sanitario: preferir residencia de datos en la UE siempre que esté
+disponible oficialmente, sin coste ni fricción adicional. Configurable
+vía `Settings.deepgram_base_url` — nunca hardcodeado sin poder
+override-arse. `provider_metadata.region` (`"eu"`/`"us"`) registra cuál
+se usó realmente en cada resultado.
+
+### `DeepgramTranscriptionProvider`
+
+`app/integrations/providers/deepgram_transcription_provider.py`,
+implementa `TranscriptionProvider` sin modificar el contrato normalizado
+(§4). Normalización de segmentos con la misma prioridad que AssemblyAI
+(§19): 1) `results.utterances` con speaker → 2) `words[].speaker`
+agrupadas en segmentos sintéticos consecutivos del mismo hablante → 3)
+sin segmentos si ninguna de las dos trae hablante.
+
+`provider_metadata` (nunca el `raw_response` completo — mismo criterio
+que §13):
+
+```python
+{
+    "request_id": ...,
+    "model_version": ...,
+    "model_arch": ...,
+    "diarization_requested": True,
+    "diarization_used": bool(segments),
+    "smart_format_requested": True,
+    "language_code_requested": "es",
+    "keyterm_prompting": ...,
+    "keyterm_set_version": ...,
+    "api_base": "https://api.eu.deepgram.com",
+    "region": "eu",
+}
+```
+
+### Configuración
+
+```bash
+TRANSCRIPTION_PROVIDER=deepgram      # activa Deepgram en producción (pipeline real)
+DEEPGRAM_API_KEY=...                   # obligatoria si se activa
+DEEPGRAM_BASE_URL=https://api.eu.deepgram.com   # EU por defecto, ver arriba
+DEEPGRAM_LANGUAGE_CODE=es
+DEEPGRAM_MODEL=nova-3
+```
+
+`.env.example` documenta estas variables con placeholders
+(`CHANGE_ME_LOCAL_ONLY`), nunca valores reales (regla no negociable #5 de
+`CLAUDE.md`).
+
+### Perfiles de benchmark
+
+Mismo patrón que AssemblyAI (§19) — cada perfil es una entrada del
+registro de `app/integrations/factory.py`, `"deepgram"` (producción) es
+un alias byte-idéntico de `"deepgram_nova3_baseline"`:
+
+| Perfil | Estado en esta fase | Config |
+|---|---|---|
+| `deepgram_nova3_baseline` | Único perfil llamado esta fase | español, diarización, timestamps, utterances, smart_format, Nova-3 — sin keyterms |
+| `deepgram_nova3_keyterms` | Preparado, **no llamado** esta fase | baseline + `keyterm` con `AUDIOLOGY_KEYTERMS_ES` (`app/integrations/keyterms.py`) |
+
+Nombrado `deepgram_nova3_*` (no solo `deepgram_*`) porque Deepgram puede
+publicar modelos futuros (Nova-4...) que serán perfiles nuevos, nunca una
+sobrescritura del actual.
+
+### Coste
+
+`app/integrations/pricing.py`, tabla **independiente** de la de
+AssemblyAI (nunca mezcladas — funciones y campos separados), verificada
+contra `deepgram.com/pricing`:
+
+| Componente | USD/min |
+|---|---|
+| Nova-3 monolingüe (pre-grabado, base) | $0.0077 |
+| Diarización | +$0.0020 |
+| Keyterm prompting | +$0.0012 |
+| Smart Format | incluido, sin coste adicional |
+
+`medical_mode` no existe como concepto en Deepgram — el estimador lo
+ignora silenciosamente si se pasa (nunca un error), ver
+`test_deepgram_medical_mode_se_ignora_silenciosamente_no_existe_en_deepgram`.
+Mismo modelo de trazabilidad que AssemblyAI: `pricing_version`,
+`pricing_effective_date`, `estimated_cost_source = "pricing_table"`.
+
+### Ejecutar el benchmark
+
+```bash
+docker compose exec backend python -m benchmark.cli consulta_ficticia_01 --providers deepgram_nova3_baseline
+docker compose exec backend python -m benchmark.compare consulta_ficticia_01
+```
+
+Resultado en
+`benchmark/results/deepgram_nova3_baseline/consulta_ficticia_01.json` —
+nunca pisa los resultados de AssemblyAI. `benchmark.compare` agrega
+automáticamente cualquier perfil con resultado disponible, incluidos los
+tres (`assemblyai_baseline`, `assemblyai_optimized`,
+`deepgram_nova3_baseline`) en cuanto los tres existan.
+
+### Estado al cierre de esta fase
+
+Implementación, configuración, factory, pricing y tests (17 tests en
+`test_deepgram_provider.py`, más los de pricing/factory) están completos
+y en verde. La llamada real a Deepgram (`deepgram_nova3_baseline`) y la
+comparación de 3 vías con AssemblyAI (`baseline`/`optimized`) ya se han
+ejecutado sobre `consulta_ficticia_01` con el golden dataset definitivo
+(§5) — WER 0.03 (AssemblyAI, ambos perfiles) vs. 0.05 (Deepgram),
+terminología 1.00 (AssemblyAI) vs. 0.91 (Deepgram), negaciones/
+lateralidad 100% en los tres perfiles, atribución de hablante 0.59
+(`assemblyai_baseline`, 1 solo segmento detectado) / 0.74
+(`assemblyai_optimized`) / 0.92 (`deepgram_nova3_baseline`). Detalle
+completo en `benchmark/results/comparisons/consulta_ficticia_01.json`.
+Pendiente: la clasificación de errores CRÍTICO/MAYOR/MENOR (análisis
+cualitativo, no implementado en código — fuera de alcance de la
+regeneración del benchmark).
+
+## 21. Tests: nunca llamadas reales
+
+Todos los tests de `AssemblyAITranscriptionProvider`/
+`DeepgramTranscriptionProvider` inyectan un `httpx.AsyncClient`
+construido con `transport=httpx.MockTransport(handler)` — nunca
+contactan `api.assemblyai.com` ni `api.eu.deepgram.com`. Los tests de
+`BenchmarkRunner` inyectan proveedores falsos (nunca un proveedor real)
+del mismo modo. Ver `backend/tests/test_assemblyai_provider.py`,
+`backend/tests/test_deepgram_provider.py` (17 tests: normalización desde
+`utterances`/`words`, conversión de segundos a milisegundos, prioridad
+`utterances` > `words`, sin segmentos si no hay hablante, trazabilidad de
+modelo, forma completa de `provider_metadata`, región EU/US, cuerpo
+binario + parámetros de la petición, `keyterm` repetido, errores HTTP,
+timeout, clave ausente, audio ausente, secreto nunca en excepción ni en
+`json.dumps(provider_metadata)`),
 `backend/tests/test_benchmark_runner.py`,
 `backend/tests/test_benchmark_wer.py`,
 `backend/tests/test_benchmark_terminology.py`,
@@ -637,15 +911,29 @@ inyectan proveedores falsos (no `assemblyai` real) del mismo modo. Ver
 `backend/tests/test_benchmark_diarization.py`,
 `backend/tests/test_benchmark_dataset.py`,
 `backend/tests/test_benchmark_report.py`,
-`backend/tests/test_benchmark_compare.py` y
-`backend/tests/test_audio_cost_estimator.py`.
+`backend/tests/test_benchmark_compare.py`,
+`backend/tests/test_audio_cost_estimator.py` (pricing AssemblyAI y
+Deepgram, tabla nunca compartida) y `backend/tests/test_transcription_factory.py`
+(perfiles `assemblyai_baseline`/`assemblyai_optimized`, Fase 5.2, y
+`deepgram`/`deepgram_nova3_baseline`/`deepgram_nova3_keyterms`, Fase 5.3).
 
-## 21. Backlog (preparado, no implementado)
+## 22. Backlog (preparado, no implementado)
 
-- **Deepgram / OpenAI / Speechmatics / Azure Speech / Google Speech / AWS
+- **OpenAI / Speechmatics / Azure Speech / Google Speech / AWS
   Transcribe / Whisper local**: cada uno es una entrada nueva en los dos
   registros de `app/integrations/factory.py` (§3) — sin cambios en
-  `benchmark/` ni en `ai_pipeline/`.
+  `benchmark/` ni en `ai_pipeline/`. Deepgram Nova-3 ya está implementado
+  (§20).
+- **Clasificación de errores CRÍTICO/MAYOR/MENOR**: no implementada en
+  código — análisis cualitativo pendiente sobre los resultados ya
+  regenerados (§20).
+- **Perfil `deepgram_nova3_keyterms`**: implementado y testeado, pero no
+  llamado esta fase — solo tras establecer el baseline real, igual que
+  con AssemblyAI (§19).
+- ~~Golden dataset de `consulta_ficticia_01` (`reference.json`/
+  `metadata.json` reales)~~ — **resuelto**: golden dataset definitivo
+  aportado y validado, WER/terminología/negaciones/lateralidad/
+  diarización recalculados para los tres perfiles (§20).
 - **HTML/dashboard**: explícitamente fuera de alcance (ver §1).
 - **`estimated_cost_source = "provider"`**: el código ya distingue esta
   fuente en `CostEstimateSource`, pero ningún proveedor implementado hoy
@@ -659,4 +947,13 @@ inyectan proveedores falsos (no `assemblyai` real) del mismo modo. Ver
   AssemblyAI).
 - **`GET /audio-recordings/{id}/download`**: fuera de alcance, ver Fase 5
   en [development-plan.md](development-plan.md).
+- **Soporte de `keyterms_prompt` para español**: la documentación oficial
+  consultada no confirma ni descarta explícitamente que funcione en
+  idiomas no ingleses — se activa igualmente en `assemblyai_optimized`
+  (comportamiento documentado: si no aplica, AssemblyAI lo ignora sin
+  error) y se evalúa con datos reales en el resultado del experimento.
+- **Integración de Deepgram Nova-3**: decisión pendiente del resultado
+  del experimento baseline/optimized (§19) — ver informe de esta sesión
+  para el criterio de decisión exacto. No implementado todavía en ningún
+  caso.
 - **`RetentionCleanupService`**: sigue siendo Fase 7, sin cambios.

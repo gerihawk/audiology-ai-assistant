@@ -468,6 +468,53 @@ AssemblyAI (`model_name`/`provider_metadata`) y `python -m benchmark.compare`.
 Ver [transcription-benchmark.md](transcription-benchmark.md) para el
 diseño completo — WER ya no es deuda técnica de esta fase.
 
+### Fase 5.2 — ¿Resuelve una mejor configuración de AssemblyAI la diarización?
+
+Antes de integrar un segundo proveedor, comprueba si el fallo de
+diarización observado en la primera prueba real (`consulta_ficticia_01`,
+Fase 5) se resuelve con una configuración distinta de AssemblyAI, siempre
+oficialmente soportada — nunca supuesta. Dos perfiles comparables sobre
+el mismo audio: `assemblyai_baseline` (idéntico a producción) y
+`assemblyai_optimized` (`speech_models=["universal-3-5-pro"]`,
+`speakers_expected=2`, Medical Mode, `keyterms_prompt` con un vocabulario
+audiológico fijo y versionado). Ver
+[transcription-benchmark.md](transcription-benchmark.md) §19 para el
+diseño completo, criterio de éxito de diarización y coste por
+componentes.
+
+**Resultado:** mejora parcial pero insuficiente — `assemblyai_optimized`
+sigue fusionando ~83% del diálogo en un único speaker (el texto
+transcrito es idéntico entre ambos perfiles), a más del doble del coste
+de `baseline`. AssemblyAI se mantiene válido para precisión textual, pero
+no como líder de diarización. Decisión: evaluar Deepgram Nova-3 (Fase
+5.3) antes de dar por cerrada la elección de proveedor.
+
+### Fase 5.3 — Golden dataset + integración de Deepgram Nova-3
+
+Dos partes independientes:
+
+- **Golden dataset de `consulta_ficticia_01`**: cerrar `reference.json`/
+  `metadata.json` reales usando exclusivamente el guion original grabado
+  como fuente de verdad — nunca la transcripción de un proveedor bajo
+  evaluación, para no invalidar el propio WER que se quiere medir con
+  ella. **Bloqueado**: el guion original no existe en el repositorio;
+  pendiente de que se aporte antes de poder generar estos ficheros y
+  recalcular métricas sobre los resultados ya existentes.
+- **`DeepgramTranscriptionProvider`**: segundo proveedor real, mismo
+  contrato normalizado (§4 de
+  [transcription-benchmark.md](transcription-benchmark.md)), endpoint
+  regional EU por defecto (residencia de datos, decisión deliberada para
+  un producto sanitario), perfil de benchmark `deepgram_nova3_baseline`,
+  pricing propio nunca mezclado con el de AssemblyAI. Implementación,
+  configuración y tests completos y en verde. **Llamada real bloqueada**:
+  `DEEPGRAM_API_KEY` no está configurada en el entorno — pendiente de que
+  se configure para ejecutar el baseline real y generar la comparación de
+  3 vías (`assemblyai_baseline`/`assemblyai_optimized`/
+  `deepgram_nova3_baseline`) con clasificación de errores
+  CRÍTICO/MAYOR/MENOR. Ver
+  [transcription-benchmark.md](transcription-benchmark.md) §20 para el
+  diseño completo.
+
 ## Fase 6 — Exportación
 
 - Interfaz `DocumentExporter` con `PdfDocumentExporter` y
@@ -534,15 +581,20 @@ requerirían un nuevo ciclo de análisis de alcance — o, en el caso de un
 proveedor de IA real, además un acuerdo de tratamiento de datos previo —
 antes de planificarse.
 
-**Excepción ya decidida: AssemblyAI (Fase 5).** El párrafo anterior
-excluía "cualquier proveedor de transcripción... de pago" de forma
-genérica; esa exclusión quedó superada explícitamente en la Fase 5, que
-es el "nuevo ciclo de análisis de alcance" que este mismo párrafo pedía
-como condición. AssemblyAI es el único proveedor de transcripción
-integrado en el pipeline real (`POST /audio-recordings/{id}/transcribe`).
-El resto de proveedores de transcripción listados en
-[transcription-benchmark.md](transcription-benchmark.md) (Deepgram,
-OpenAI, Speechmatics, Azure Speech, Google Speech, AWS Transcribe,
-Whisper local) quedan preparados únicamente para `benchmark/` — ninguno
-está integrado en el pipeline real, y añadirlo ahí seguiría exigiendo
-este mismo ciclo de análisis de alcance, sesión por sesión.
+**Excepción ya decidida: AssemblyAI (Fase 5) y Deepgram (Fase 5.3).** El
+párrafo anterior excluía "cualquier proveedor de transcripción... de
+pago" de forma genérica; esa exclusión quedó superada explícitamente en
+la Fase 5 (AssemblyAI) y de nuevo en la Fase 5.3 (Deepgram), cada una el
+"nuevo ciclo de análisis de alcance" que este mismo párrafo pedía como
+condición. AssemblyAI y Deepgram son, ambos, proveedores de transcripción
+integrados en el pipeline real (`POST /audio-recordings/{id}/transcribe`,
+seleccionables vía `TRANSCRIPTION_PROVIDER=assemblyai|deepgram`) — cuál
+de los dos se recomienda para producción queda pendiente de la
+comparación de 3 vías (§Fase 5.3, bloqueada por `DEEPGRAM_API_KEY`, ver
+[transcription-benchmark.md](transcription-benchmark.md) §20). El resto
+de proveedores listados en
+[transcription-benchmark.md](transcription-benchmark.md) (OpenAI,
+Speechmatics, Azure Speech, Google Speech, AWS Transcribe, Whisper local)
+quedan preparados únicamente para `benchmark/` — ninguno está integrado
+en el pipeline real, y añadirlo ahí seguiría exigiendo este mismo ciclo
+de análisis de alcance, sesión por sesión.
