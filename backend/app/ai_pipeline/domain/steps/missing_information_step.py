@@ -1,0 +1,60 @@
+"""Paso 4 del pipeline: información ausente. Depende de resumen y señales de alerta."""
+
+from __future__ import annotations
+
+from dataclasses import asdict
+from typing import Any
+
+from app.ai_pipeline.domain.entities import AIArtifactType
+from app.ai_pipeline.domain.pipeline import PipelineExecutionContext, PipelineStepOutcome
+from app.ai_pipeline.domain.steps.base import run_provider_step
+from app.integrations.domain.clinical_flags_generator import ClinicalFlagDraft
+from app.integrations.domain.cost_estimator import CostEstimator
+from app.integrations.domain.missing_information_generator import MissingInformationGenerator
+from app.integrations.domain.token_counter import TokenCounter
+
+_CONFIDENCE = 60
+
+
+class MissingInformationStep:
+    artifact_type = AIArtifactType.MISSING_INFORMATION
+
+    def __init__(
+        self,
+        generator: MissingInformationGenerator,
+        token_counter: TokenCounter,
+        cost_estimator: CostEstimator,
+        *,
+        provider_name: str = "mock",
+        model_name: str | None = "mock-v1",
+    ) -> None:
+        self._generator = generator
+        self._token_counter = token_counter
+        self._cost_estimator = cost_estimator
+        self._provider_name = provider_name
+        self._model_name = model_name
+
+    def depends_on(self) -> frozenset[AIArtifactType]:
+        return frozenset({AIArtifactType.SUMMARY, AIArtifactType.CLINICAL_FLAGS})
+
+    async def run(self, context: PipelineExecutionContext) -> PipelineStepOutcome:
+        summary_text: str = context.outputs[AIArtifactType.SUMMARY]["text"]
+        flags_content: dict[str, Any] = context.outputs[AIArtifactType.CLINICAL_FLAGS]
+        clinical_flags = [ClinicalFlagDraft(**flag) for flag in flags_content["flags"]]
+
+        async def produce() -> tuple[dict[str, Any], int]:
+            items = await self._generator.generate(
+                summary_text, clinical_flags, context=context.session_context
+            )
+            content = {"items": [asdict(item) for item in items]}
+            return content, _CONFIDENCE
+
+        return await run_provider_step(
+            artifact_type=self.artifact_type,
+            provider_name=self._provider_name,
+            model_name=self._model_name,
+            token_counter=self._token_counter,
+            cost_estimator=self._cost_estimator,
+            input_text=summary_text,
+            produce=produce,
+        )

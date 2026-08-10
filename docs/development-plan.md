@@ -81,8 +81,8 @@ transcripción ni IA todavía — eso empieza en la Fase 2):
 10. No se han usado datos reales en ningún punto.
 
 Nada de lo anterior incluye `patients`, `clinical_sessions`, `audio`,
-`transcription`, `anamnesis`, `session_notes`, `clinical_flags` ni ningún
-proveedor mock funcional — esos módulos quedan vacíos de lógica de negocio
+`ai_pipeline`, `clinical_flags` ni ningún proveedor mock funcional — esos
+módulos quedan vacíos de lógica de negocio
 hasta la Fase 2 en adelante.
 
 ## Fase 2 — `clinics`, `users`, `patients`, `audit_log` (completada)
@@ -132,9 +132,8 @@ Decisiones cerradas en [product-requirements.md](product-requirements.md)
    ficticio activo.
 9. Tests, lint, format y build pasan en backend y frontend.
 10. `docker compose up --build` sigue levantando los tres servicios.
-11. No se implementa nada de `clinical_sessions`, `audio`,
-    `transcription`, `anamnesis`, `session_notes`, `clinical_flags`,
-    integraciones ni autenticación real.
+11. No se implementa nada de `clinical_sessions`, `audio`, `ai_pipeline`,
+    `clinical_flags`, integraciones ni autenticación real.
 12. No se usan datos reales en ningún punto (seed y tests, exclusivamente
     ficticios).
 
@@ -231,12 +230,38 @@ Alcance de la **implementación de backend** de esta fase:
    `review_pending`, `PATCH` solo admite `title`/`administrative_notes`.
 10. Tests y lint (Ruff, Black) pasan en el backend; `docker compose up
     --build` sigue levantando los tres servicios.
-11. No se implementa nada de `audio`, `transcription`, `anamnesis`,
-    `session_notes`, `clinical_flags`, integraciones, autenticación real
-    ni frontend de `clinical_sessions` (queda para una ronda posterior).
+11. No se implementa nada de `audio`, `ai_pipeline`, `clinical_flags`,
+    integraciones, autenticación real ni frontend de `clinical_sessions`
+    (queda para una ronda posterior).
 12. No se usan datos reales en ningún punto.
 
-## Fase 4 — `audio`
+## Fase 4 — AI Pipeline end-to-end (diseño cerrado el 2026-08-10)
+
+**Diseño cerrado.** Sustituye por completo al bloque de fases que ocupaba
+antes este lugar (`audio` → `transcription` → `anamnesis`/`session_notes`/
+`clinical_flags` como módulos independientes con tabla propia cada uno,
+más una fase separada de revisión/edición/aprobación/versionado) —
+contenido eliminado de este documento, no quedan dos planes posibles.
+Arquitectura completa, entidades, interfaces, contratos, secuencia y
+decisiones en [ai-pipeline-architecture.md](ai-pipeline-architecture.md);
+esquema de datos completo en [data-model.md](data-model.md) §2 y §10-11.
+**Sin preguntas abiertas** — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §13.
+
+El módulo `audio` (subida, validación, almacenamiento local) se integra
+en esta misma fase como su primer prerrequisito (subfase 4.1, sin cambios
+respecto al diseño original) — el AI Pipeline propiamente dicho (4.2 en
+adelante) no depende de que 4.1 esté implementada: sus mocks trabajan
+sobre una entrada de fixture, no sobre audio real (ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.7).
+
+Ningún proveedor real (Whisper, OpenAI, Claude API, Anthropic API,
+Gemini, Ollama, Llama u otra API externa), subida de audio real por parte
+del usuario final, micrófono, almacenamiento definitivo de audio ni
+transcripción real en ninguna subfase — todas usan exclusivamente
+implementaciones `Mock*` y datos ficticios.
+
+### Fase 4.1 — `audio`
 
 - Módulo `audio`: interfaz `AudioStorage` + `LocalAudioStorage`; subida
   multipart; validación de tamaño/duración/extensión/MIME
@@ -244,88 +269,156 @@ Alcance de la **implementación de backend** de esta fase:
   checksum en `audio_recordings` (sin blob en PostgreSQL).
 - Requiere una `clinical_session` existente (Fase 3) sobre la que colgar
   el audio.
-- Pantallas: subir audio desde el detalle de una sesión, con feedback de
+- Pantalla: subir audio desde el detalle de una sesión, con feedback de
   validación.
 
 **Criterio de aceptación**: desde una sesión clínica se sube un audio
-ficticio de prueba; el audio pasa por
-`uploaded → validating → ready` (o `failed` si no cumple los límites).
+ficticio de prueba; el audio pasa por `uploaded → validating → ready` (o
+`failed` si no cumple los límites).
 
-## Fase 5 — `transcription` (mock)
+### Fase 4.2 — Dominio del AI Pipeline
 
-- Interfaz `TranscriptionProvider` + `MockTranscriptionProvider`
-  (transcripción determinista/fixture, sin IA real).
-- Endpoint para disparar transcripción y consultar resultado; exige audio
-  en `ready`.
-- Pantalla: ver transcripción de una sesión.
+- `ai_pipeline/domain/`: entidades (`AIArtifact`, `AIArtifactVersion`,
+  `AIGenerationRun`, `AIPipelineRun`, `PromptTemplate`, `PipelineResult`),
+  enums (`AIArtifactType`, `AIArtifactStatus`, `AIGenerationRunStatus`,
+  `AIPipelineRunStatus`, `AIArtifactVersionSource`) — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §4.
+- Interfaces (`Protocol`): `AIArtifactRepository`,
+  `GenerationRunRepository`, `PipelineRunRepository`,
+  `PromptTemplateRepository`, `PipelineOrchestrator`, `PipelineStep`,
+  `PromptRenderer` — ver §6.2-6.3.
+- `clinical_flags/domain/`: entidad `ClinicalFlag`, repositorio — módulo
+  de disposición por ítem, sin cambios de fondo respecto al diseño
+  previo, solo reubicado (ya no depende de una interfaz
+  `ClinicalFlagRuleset` propia, ver §4.4).
+- Tests de dominio puro: transiciones de `AIGenerationRunStatus`/
+  `AIArtifactStatus`, invariantes de versionado (`version_number`
+  monótono, `current_version_id` siempre apunta a la última),
+  `depends_on()` de cada paso según el grafo de
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.4 — sin
+  ninguna dependencia de SQLAlchemy, FastAPI ni ningún proveedor
+  concreto.
 
-**Criterio de aceptación**: al disparar la transcripción de un audio
-`ready`, se obtiene y persiste un texto de ejemplo determinista; el audio
-progresa `transcribing → transcribed`.
+**Criterio de aceptación**: los tests de dominio pasan de forma aislada
+(el paquete `ai_pipeline/domain` es importable sin SQLAlchemy ni FastAPI
+instalados).
 
-## Fase 6 — `anamnesis`, `session_notes`, `clinical_flags` (generación mock)
+### Fase 4.3 — Persistencia
 
-- Interfaz `LanguageModelProvider` + `MockLanguageModelProvider` que, a
-  partir de fixtures de transcripción, genera anamnesis estructurada
-  (todos los campos y estados de [data-model.md](data-model.md) §3, con
-  `schema_version`), resumen de sesión, respetando el lenguaje de
-  [clinical-safety.md](clinical-safety.md).
-- Interfaz `ClinicalFlagRuleset` + `DemoClinicalFlagRuleset` (checklist
-  genérico no validado clínicamente, ver
-  [clinical-safety.md](clinical-safety.md) §7), aislada del
-  `LanguageModelProvider`.
-- Endpoints de generación y consulta para los tres módulos
-  (`generating → review_pending`/`failed`).
-- Tests que verifiquen: ausencia de lenguaje prohibido, presencia del
-  aviso obligatorio (y del aviso específico del checklist demo), y que
-  ningún campo se marque `informado` sin fragmento de respaldo.
-- Pantallas: ver anamnesis generada, resumen generado, lista de señales de
-  alerta con ambos avisos — todo en modo solo lectura por ahora (la
-  edición llega en Fase 6).
+- `ai_pipeline/infrastructure/`: ORM (`AIArtifactORM`,
+  `AIArtifactVersionORM`, `AIGenerationRunORM`, `AIPipelineRunORM`,
+  `PromptTemplateORM`) + repositorios SQLAlchemy.
+- Migración Alembic para las 5 tablas nuevas, con los índices de
+  [data-model.md](data-model.md) §11.
+- Migración para `clinical_flags` (reubicación de módulo, sin cambio de
+  esquema) y para `consents.consent_version` (columna nueva).
 
-**Criterio de aceptación**: a partir de una transcripción de prueba se
-generan los tres documentos, visibles en la UI con los avisos de IA y de
-checklist no validado.
+**Criterio de aceptación**: migración desde base vacía funciona; existen
+todos los índices/`UNIQUE` documentados; ningún `Mock*` ni endpoint
+todavía.
 
-## Fase 7 — Revisión, edición, aprobación, versionado, `audit_log`
+### Fase 4.4 — Providers Mock
 
-- `document_versions` funcionando para anamnesis y resumen.
-- Endpoints `PUT` (guardar edición) y `POST /approve` para ambos, con la
-  transición `approved → review_pending` al editar tras aprobar.
-- Borrado lógico (`DELETE`) de anamnesis/resumen/sesión: `status →
-  deleted`, nunca borrado físico.
-- Módulo `audit_log`: registro de las acciones listadas en
-  [privacy-and-security.md](privacy-and-security.md) §6, incluidos fallos
-  y borrados.
-- Pantalla: edición inline de anamnesis/resumen, botón de aprobación
-  explícita, vista de historial de versiones, vista de auditoría (rol
-  admin) para una sesión.
-- Endpoint y pantalla para cambiar estado de `clinical_flags`
-  (confirmar/descartar).
+- Las ocho interfaces de proveedor (`integrations/domain/`):
+  `TranscriptionProvider`, `LanguageModelProvider`, `SummaryGenerator`,
+  `ClinicalFlagsGenerator`, `MissingInformationGenerator`,
+  `AnamnesisGenerator`, `CostEstimator`, `TokenCounter` — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1.
+- Sus ocho `Mock*` (`integrations/mocks/`), deterministas, sin llamadas
+  de red. `MockClinicalFlagsGenerator` es basado en reglas (checklist),
+  hereda directamente la lógica de la antigua
+  `DemoClinicalFlagRuleset` — no usa `MockLanguageModelProvider`.
+- Fixtures de transcripción deterministas para `MockTranscriptionProvider`
+  (resuelve la dependencia de audio real sin bloquear esta fase).
+- Tests: determinismo (misma entrada → misma salida) de cada `Mock*`;
+  ausencia de lenguaje prohibido y de asignación de `informado` sin
+  evidencia en `MockAnamnesisGenerator` (reutilizando la lista de
+  [clinical-safety.md](clinical-safety.md) §3).
 
-**Criterio de aceptación**: se puede editar un campo de la anamnesis,
-guardar (queda `review_pending`, se crea versión nueva), y aprobar
-explícitamente (queda `approved`, con usuario y fecha visibles). Editar de
-nuevo tras aprobar exige nueva aprobación. El historial muestra la versión
-original de IA y la versión editada.
+**Criterio de aceptación**: cada `Mock*` tiene tests de determinismo y de
+seguridad clínica pasando; ninguno realiza I/O de red.
 
-## Fase 8 — Exportación
+### Fase 4.5 — Orquestador y servicio
+
+- `ai_pipeline/domain/pipeline.py`: `SequentialPipelineOrchestrator`
+  (síncrono, respeta el grafo de dependencias — sin colas, workers ni
+  procesamiento distribuido).
+- `ai_pipeline/service.py`: `AIPipelineService` — autoriza → ejecuta el
+  pipeline → persiste artefactos/versiones/runs → audita → commit
+  transaccional. Incluye el punto de extensión de comprobación de
+  consentimiento (sin bloquear en el MVP, ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.3).
+
+**Criterio de aceptación**: disparar el pipeline sobre una sesión
+ficticia respeta el orden del grafo; un fallo en `summary` no impide que
+`clinical_flags` se ejecute (dependencias independientes); un fallo en
+`missing_information` provoca que `anamnesis` se salte (`skipped`, no
+`failed`); cada `ai_generation_runs` tiene
+`provider_name`/`latency_ms`/`execution_time_ms`/`estimated_cost_usd`/
+tokens poblados.
+
+### Fase 4.6 — API
+
+- `ai_pipeline/api/`: esquemas Pydantic, router con los endpoints de
+  [api-specification.md](api-specification.md) §AI Pipeline.
+- `clinical_flags/api/`: `PATCH /clinical-flags/{flag_id}`.
+- `core/authorization.py`: `AIArtifactAction`/`AIPipelineAction` — mismo
+  patrón que `ClinicalSessionAction` (matriz por rol + comprobación de
+  propiedad para `audiologist`).
+
+**Criterio de aceptación**: los endpoints responden según los contratos
+de [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7;
+`403`/`404`/`409` se comportan igual que en `clinical_sessions`; un
+segundo disparo del pipeline mientras hay uno en curso devuelve `409`.
+
+### Fase 4.7 — Prompt management
+
+- `ai_pipeline/prompts/` (git): fichero por plantilla, uno por
+  `artifact_type` que la usa.
+- Script de seed que puebla `prompt_templates` desde esos ficheros si no
+  existe ya una versión activa con ese `name`.
+- `PromptRenderer` con validación de `variables_schema`.
+- Configuración `ai_store_rendered_prompts` (`core/config.py`, `false`
+  por defecto).
+- Tests: ausencia de lenguaje prohibido en cada plantilla; con
+  `ai_store_rendered_prompts=false` las columnas de prompt renderizado
+  son siempre `NULL`; regenerar tras publicar una plantilla nueva usa la
+  nueva versión; ejecuciones anteriores siguen apuntando a la versión que
+  realmente usaron.
+
+**Criterio de aceptación**: existe al menos una plantilla activa por
+`artifact_type` que la usa, sembrada desde git.
+
+### Fase 4.8 — Frontend
+
+- Pantallas: disparar el pipeline desde el detalle de una sesión; ver
+  cada artefacto con su aviso de IA y su `confidence`; ver historial de
+  versiones; aprobar/rechazar/editar; disposición por ítem de
+  `clinical_flags`.
+
+**Criterio de aceptación**: desde la UI se puede probar el ciclo completo
+(disparar → revisar → aprobar/rechazar/editar → exportar, una vez exista
+la Fase 5) con datos ficticios, sin audio real.
+
+## Fase 5 — Exportación
 
 - Interfaz `DocumentExporter` con `PdfDocumentExporter` y
   `TextDocumentExporter`.
-- Endpoints de exportación, bloqueados si el documento no está `approved`.
+- Endpoints de exportación (`GET .../export/{artifact_type}`),
+  bloqueados si el artefacto no está `approved`.
 - Pantalla: botón de exportar (PDF/texto) visible solo cuando corresponde.
 
-**Criterio de aceptación**: un documento aprobado se descarga como PDF y
-como texto plano con formato legible; un documento no aprobado devuelve
+**Criterio de aceptación**: un artefacto aprobado se descarga como PDF y
+como texto plano con formato legible; un artefacto no aprobado devuelve
 error controlado y la UI no ofrece la opción.
 
-## Fase 9 — `integrations` (interfaces + mocks), `consents`, retención
+## Fase 6 — `integrations` (Noah/calendario), `consents`, retención
 
 - Interfaces `PatientRecordIntegration` y `CalendarIntegration` +
   `Mock*`, sin llamadas de red reales.
 - Endpoints de configuración de integraciones (`GET/PATCH /integrations`).
-- Modelo y endpoints de `consents`.
+- Endpoints y pantalla de registro de consentimiento (`consents`,
+  incluida `consent_version`, ya añadida al modelo en la Fase 4).
 - Interfaz `RetentionCleanupService` (`find_expired_audio`, `purge`) y
   endpoints manuales de retención (`GET/POST /retention/expired-audio...`)
   usando `RETENTION_DAYS_DEFAULT` (30 días); sin scheduler todavía.
@@ -338,15 +431,19 @@ configurable a nivel de aplicación, sin que exista código que llame a un
 servicio externo real. Se puede registrar consentimiento para un paciente
 y purgar manualmente audio que supere la retención configurada.
 
-## Fase 10 — RBAC más fino, scheduler de retención, hardening
+## Fase 7 — RBAC más fino, scheduler de retención, hardening
 
 - Revisión de permisos por endpoint según
-  [privacy-and-security.md](privacy-and-security.md).
+  [privacy-and-security.md](privacy-and-security.md), incluida la matriz
+  de `AIArtifactAction`/`AIPipelineAction` de la Fase 4.
 - Automatización opcional (scheduler/cron) sobre el
-  `RetentionCleanupService` ya existente desde la Fase 9 — el servicio no
+  `RetentionCleanupService` ya existente desde la Fase 6 — el servicio no
   cambia, solo se añade quién lo invoca periódicamente.
 - Revisión de seguridad general (dependencias, cabeceras HTTP, límites de
   tamaño de subida, rate limiting básico si el tiempo lo permite).
+- Evaluar si activar el bloqueo por consentimiento de `procesamiento_ia`
+  (punto de extensión ya preparado desde la Fase 4, no forzado hasta
+  ahora).
 
 **Criterio de aceptación**: checklist de
 [privacy-and-security.md](privacy-and-security.md) revisado punto por
@@ -355,12 +452,16 @@ explícitamente si las hay.
 
 ## Fuera de las fases del MVP
 
-Cualquier integración real (Noah, calendario, proveedor de transcripción o
-LLM de pago), multi-tenant, selector de idioma en tiempo de ejecución
-(más allá de centralizar textos para prepararlo, ver
-[architecture.md](architecture.md) §8), grabación en vivo, scheduler
-automático de retención (Fase 9 solo prepara la interfaz, Fase 10 la
-automatiza si el tiempo lo permite) o firma electrónica avanzada quedan
-fuera de este plan (ver [product-requirements.md](product-requirements.md)
-§4) y requerirían un nuevo ciclo de análisis de alcance antes de
-planificarse.
+Cualquier integración real (Noah, calendario, o cualquier proveedor de
+transcripción o de modelo de lenguaje de pago — OpenAI, Anthropic, Claude
+API, Gemini, Ollama, Llama, Whisper, Azure, AWS), multi-tenant, selector
+de idioma en tiempo de ejecución (más allá de centralizar textos para
+prepararlo, ver [architecture.md](architecture.md) §8), grabación en
+vivo, scheduler automático de retención (Fase 6 solo prepara la interfaz,
+Fase 7 la automatiza si el tiempo lo permite), bloqueo forzado por
+consentimiento de IA (preparado en la Fase 4, no forzado hasta que se
+decida explícitamente) o firma electrónica avanzada quedan fuera de este
+plan (ver [product-requirements.md](product-requirements.md) §4) y
+requerirían un nuevo ciclo de análisis de alcance — o, en el caso de un
+proveedor de IA real, además un acuerdo de tratamiento de datos previo —
+antes de planificarse.

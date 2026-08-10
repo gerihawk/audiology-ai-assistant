@@ -25,9 +25,12 @@ de cada módulo, siguiendo esta forma.
 **Estado de implementación**: solo la sección **Patients** (y sus rutas de
 apoyo `/me`, `/dev/users`) están implementadas, desde la Fase 2. La
 sección **Clinical sessions** está **diseñada y cerrada** en la Fase 3,
-pendiente de implementación. El resto de secciones de este documento
-describen el diseño objetivo de fases futuras y no tienen código todavía
-(ver [development-plan.md](development-plan.md)).
+pendiente de implementación. La sección **AI Pipeline** está **diseñada y
+cerrada** en la Fase 4 (ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md)), pendiente de
+implementación. El resto de secciones de este documento describen el
+diseño objetivo de fases futuras y no tienen código todavía (ver
+[development-plan.md](development-plan.md)).
 
 ## Dev tools (solo desarrollo, ausentes en producción)
 
@@ -275,48 +278,73 @@ Orden estable: `created_at ASC, id ASC` (igual que `patients`, ver
 | GET | `/clinical-sessions/{session_id}/audio/download` | clinician/admin | Descarga del binario vía `AudioStorage`, auditado |
 | DELETE | `/clinical-sessions/{session_id}/audio` | clinician/admin | Borrado físico manual vía `RetentionCleanupService` (`status → deleted`, `storage_reference` invalidado); metadatos conservados |
 
-## Transcription
+## AI Pipeline
 
-| Método | Ruta | Rol | Descripción |
-|---|---|---|---|
-| POST | `/clinical-sessions/{session_id}/transcription` | clinician | Dispara transcripción vía `TranscriptionProvider` activo; requiere audio en `ready`; `transcribing` → `transcribed`/`failed` |
-| GET | `/clinical-sessions/{session_id}/transcription` | clinician/admin | Obtiene texto transcrito |
+Diseño cerrado en la Fase 4 (ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md)), sustituye
+por completo al diseño previo de secciones independientes
+"Transcription"/"Anamnesis"/"Session notes" — eliminadas de este
+documento, no quedan rutas alternativas para el mismo propósito. Todas
+las rutas van bajo `/clinical-sessions/{session_id}/ai/` y requieren un
+`CurrentUser` resuelto, operando exclusivamente sobre
+`current_user.clinic_id`. `{artifact_type}` es uno de `transcript`,
+`summary`, `clinical_flags`, `missing_information`, `anamnesis`.
 
-## Anamnesis
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/clinical-sessions/{session_id}/ai/generate` | Dispara el pipeline completo (grafo de dependencias, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.4); requiere audio en `ready`; `409` si ya hay un `ai_pipeline_run` `queued`/`processing` para la sesión; devuelve el `PipelineResult` |
+| GET | `/clinical-sessions/{session_id}/ai/pipeline-runs/{run_id}` | Detalle de una ejecución del pipeline (estado agregado, estado de cada paso) |
+| GET | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}` | Artefacto vigente (contenido de la versión actual + `schema_version` + `confidence` + estado + aviso IA); `404` si el pipeline no se ha ejecutado todavía para ese tipo |
+| GET | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}/versions` | Historial de versiones (solo lectura) |
+| PUT | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}` | Guarda contenido editado; crea una `AIArtifactVersion` (`source = human_edited`); si el artefacto estaba `approved` o `rejected`, vuelve a `review_pending` |
+| POST | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}/approve` | Aprobación explícita; `status → approved`, registra `approved_by/at` |
+| POST | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}/reject` | Rechazo explícito; `status → rejected`, registra `rejected_by/at` y `rejection_reason`; no es un estado terminal, el artefacto puede editarse o regenerarse después |
+| DELETE | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}` | Borrado lógico (`deleted_by/at`); nunca físico; `ai_artifact_versions` se conserva |
 
-| Método | Ruta | Rol | Descripción |
-|---|---|---|---|
-| POST | `/clinical-sessions/{session_id}/anamnesis/generate` | clinician | Genera borrador vía `LanguageModelProvider` a partir de la transcripción; `generating` → `review_pending`/`failed`; fija `schema_version` |
-| GET | `/clinical-sessions/{session_id}/anamnesis` | clinician/admin | Documento actual (contenido + `schema_version` + estado + aviso IA) |
-| PUT | `/clinical-sessions/{session_id}/anamnesis` | clinician | Guarda `current_content` editado; crea `document_versions`; permanece/vuelve a `review_pending` (si venía de `approved`, exige nueva aprobación) |
-| POST | `/clinical-sessions/{session_id}/anamnesis/approve` | clinician | Aprobación explícita; estado → `approved`, registra `approved_by/at` |
-| DELETE | `/clinical-sessions/{session_id}/anamnesis` | clinician/admin | Borrado lógico (`status → deleted`, `deleted_by/at`); nunca físico; `document_versions` se conserva |
-| GET | `/clinical-sessions/{session_id}/anamnesis/versions` | clinician/admin | Historial de versiones |
+No existe un endpoint por artefacto para "generar" individualmente: el
+pipeline siempre se dispara completo (`POST .../ai/generate`), y el
+orquestador decide qué pasos ejecutar según sus dependencias — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §8. `confidence`
+se expone en las respuestas de artefacto pero nunca decide nada
+automáticamente por sí solo.
 
-## Session notes (resumen profesional)
+### Autorización
 
-| Método | Ruta | Rol | Descripción |
-|---|---|---|---|
-| POST | `/clinical-sessions/{session_id}/session-notes/generate` | clinician | Genera resumen vía `LanguageModelProvider`; `generating` → `review_pending`/`failed` |
-| GET | `/clinical-sessions/{session_id}/session-notes` | clinician/admin | Resumen actual + estado |
-| PUT | `/clinical-sessions/{session_id}/session-notes` | clinician | Guarda edición; nueva versión; misma regla de re-aprobación que anamnesis |
-| POST | `/clinical-sessions/{session_id}/session-notes/approve` | clinician | Aprobación explícita |
-| DELETE | `/clinical-sessions/{session_id}/session-notes` | clinician/admin | Borrado lógico únicamente, auditado |
-| GET | `/clinical-sessions/{session_id}/session-notes/versions` | clinician/admin | Historial de versiones |
+Mismo patrón que `clinical_sessions` (matriz centralizada en
+`core/authorization.py`, dimensión de propiedad para `audiologist`):
+`admin` sin restricción; `audiologist` dispara el pipeline y
+aprueba/rechaza/edita únicamente sobre sesiones propias
+(`professional_id == current_user.id`); `viewer` solo lectura. Un
+intento sin permiso devuelve `403`; un `session_id` de otra clínica
+devuelve `404`.
+
+### Validaciones
+
+- Cualquier campo no reconocido en el cuerpo de `PUT .../ai/artifacts/{artifact_type}`
+  (incluidos `confidence`, `source_map`, `status`, cualquier campo de
+  auditoría) se rechaza con `422` — no existen en el esquema de entrada.
+- `POST .../ai/artifacts/{artifact_type}/approve`/`reject` sobre un
+  artefacto que no existe todavía devuelve `404`.
+- `POST .../ai/generate` mientras ya hay una ejecución `queued`/`processing`
+  para la misma sesión devuelve `409`.
 
 ## Clinical flags
 
+Disposición humana por ítem sobre las señales generadas por el paso
+`clinical_flags` del AI Pipeline — no genera contenido (eso lo hace
+`POST .../ai/generate`), solo gestiona la revisión individual de cada
+señal ya generada.
+
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/clinical-sessions/{session_id}/clinical-flags` | clinician/admin | Lista de señales sugeridas/confirmadas/descartadas, generadas por el `ClinicalFlagRuleset` activo (`ruleset_name` en cada ítem); respuesta incluye aviso de checklist no validado clínicamente |
+| GET | `/clinical-sessions/{session_id}/clinical-flags` | clinician/admin | Lista de señales sugeridas/confirmadas/descartadas, generadas por el `ClinicalFlagsGenerator` activo (`ruleset_name` en cada ítem, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1); respuesta incluye aviso de checklist no validado clínicamente |
 | PATCH | `/clinical-flags/{flag_id}` | clinician | Cambia estado (`confirmada_por_profesional` / `descartada`) |
 
 ## Export
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/clinical-sessions/{session_id}/export/anamnesis?format=pdf\|text` | clinician/admin | Exporta anamnesis; **solo si `status = approved`** |
-| GET | `/clinical-sessions/{session_id}/export/session-notes?format=pdf\|text` | clinician/admin | Exporta resumen; **solo si `status = approved`** |
+| GET | `/clinical-sessions/{session_id}/export/{artifact_type}?format=pdf\|text` | clinician/admin | Exporta el artefacto de IA indicado (`summary`, `anamnesis`); **solo si su `status = approved`** |
 
 ## Consents
 
@@ -347,17 +375,19 @@ Orden estable: `created_at ASC, id ASC` (igual que `patients`, ver
 
 ## Convenciones transversales
 
-- Toda respuesta que incluya contenido generado por IA (anamnesis,
-  resumen, clinical flags antes de confirmación) incluye un campo
-  `ai_disclaimer` con el texto obligatorio definido en
-  [clinical-safety.md](clinical-safety.md). Las respuestas de
-  `clinical-flags` incluyen además `ruleset_disclaimer` (checklist de
-  demostración, no validado clínicamente).
-- Las rutas de exportación devuelven `409 Conflict` si el documento no
+- Toda respuesta que incluya contenido generado por IA (cualquier
+  `artifact_type` del AI Pipeline) incluye un campo `ai_disclaimer` con el
+  texto obligatorio definido en [clinical-safety.md](clinical-safety.md).
+  Las respuestas de `clinical-flags` incluyen además `ruleset_disclaimer`
+  (checklist de demostración, no validado clínicamente).
+- Las rutas de exportación devuelven `409 Conflict` si el artefacto no
   está `approved`.
-- Las rutas de escritura sobre pacientes/sesiones/documentos registran una
-  entrada en `audit_log` de forma síncrona antes de responder `2xx`,
-  incluidos fallos (`status = failed`) y borrados.
+- Las rutas de escritura sobre pacientes/sesiones/artefactos de IA
+  registran una entrada en `audit_log` de forma síncrona antes de
+  responder `2xx`, incluidos fallos y borrados. La auditoría técnica de
+  cada generación (proveedor, modelo, coste, tiempo) vive en
+  `ai_generation_runs`, no en `audit_log` — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.6.
 - Cualquier transición de estado inválida (p. ej. aprobar sin generar,
   transcribir sin audio `ready`) devuelve `409 Conflict` con el motivo;
   la validación ocurre en la capa de dominio/servicio, no solo en el

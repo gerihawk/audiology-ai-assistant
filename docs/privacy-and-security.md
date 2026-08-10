@@ -34,8 +34,10 @@ cuando eso ocurra.
 ## 3. Separación identidad / contenido clínico
 
 `patients` (identidad) está desacoplado de `clinical_sessions`,
-`anamnesis_documents`, `session_notes`, `clinical_flags` y
-`transcriptions` (contenido clínico), que solo referencian `patient_id` o
+`ai_artifacts`/`ai_artifact_versions` (transcripción, resumen, señales de
+alerta, información ausente, anamnesis — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md)) y
+`clinical_flags` (contenido clínico), que solo referencian `patient_id` o
 `clinical_session_id`. Esto permite, a futuro:
 
 - aplicar cifrado o controles de acceso distintos a cada conjunto;
@@ -51,9 +53,13 @@ cuando eso ocurra.
   como excepción explícita, nunca como el modo de producción.
 - **En reposo**: se diseña para poder activar cifrado a nivel de disco/volumen
   y, para campos especialmente sensibles (p. ej. `patients.display_name`,
-  `patients.birth_year`), se deja preparada la posibilidad de cifrado a
-  nivel de aplicación (columna) como mejora futura — **no implementado
-  todavía en el MVP**, documentado como deuda consciente.
+  `patients.birth_year`, `ai_artifact_versions.content` — contiene
+  transcripción, resúmenes y anamnesis, el contenido clínico-adyacente
+  más sensible del sistema — y, si se activa la opción de §6,
+  `ai_generation_runs.rendered_system_prompt`/`rendered_user_prompt`/`raw_response`),
+  se deja preparada la posibilidad de cifrado a nivel de aplicación
+  (columna) como mejora futura — **no implementado todavía en el MVP**,
+  documentado como deuda consciente.
 - Los ficheros de audio se almacenan fuera del control de versiones, en un
   volumen/almacenamiento dedicado con acceso restringido al backend.
 
@@ -126,25 +132,54 @@ Detalle completo en
 [api-specification.md](api-specification.md) §Clinical sessions y
 [data-model.md](data-model.md) §8.
 
+**AI Pipeline (Fase 4, diseño cerrado):** `ai_pipeline.triggered`
+(agregado por ejecución completa, `metadata = {"outcomes": {artifact_type:
+status}}` — solo nombres de tipo y estado, nunca contenido),
+`ai_artifact.approved`, `ai_artifact.rejected` (incluye
+`rejection_reason` en metadata — texto breve del profesional, no
+contenido clínico generado), `ai_artifact.edited`. **No** se registra una
+entrada de `audit_log` por cada paso individual del pipeline ni por cada
+reintento — ese nivel de detalle técnico (proveedor, modelo, latencia,
+tokens, coste, plantilla usada) vive exclusivamente en `ai_generation_runs`
+(ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.6),
+una tabla distinta con un propósito distinto:
+
+| | `audit_logs` | `ai_generation_runs` |
+|---|---|---|
+| Propósito | Quién hizo qué, cuándo (trazabilidad de acciones humanas y de negocio) | Telemetría técnica de cada ejecución del pipeline |
+| Contenido | Acción, actor, `entity_id`, nombres de campos modificados | Proveedor, modelo, latencia, tokens, coste, plantilla — nunca contenido |
+| Nunca contiene | Contenido clínico, valores de campos, secretos | Contenido clínico (salvo activación explícita, ver §6.1 más abajo), secretos |
+
+### 6.1 Prompt renderizado: almacenamiento configurable (Fase 4)
+
+**Decisión cerrada** (ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.5): se
+soporta guardar el prompt completamente renderizado y la respuesta cruda
+del proveedor en `ai_generation_runs`, pero de forma **configurable y
+desactivada por defecto** (`ai_store_rendered_prompts: bool = False`).
+
+**Implicaciones de privacidad**: activar esta opción duplica en una
+segunda tabla el mismo contenido clínico-adyacente que ya vive, de forma
+versionada, en `ai_artifact_versions.content` — es la razón por la que el
+valor por defecto es `false` (minimización de datos, §2). Si se activa,
+las columnas correspondientes se añaden a la lista de columnas candidatas
+a cifrado de §4. Activarla es una decisión explícita por entorno, nunca
+el comportamiento por defecto — ni siquiera en desarrollo. **Nunca**, en
+ningún caso, se almacena una clave de API ni ningún otro secreto en estas
+columnas.
+
 Registro previsto para fases futuras (diseño, no implementado):
 
 - subida de audio y resultado de su validación (`ready`/`failed`);
-- solicitud de transcripción y su resultado;
-- generación de documentos IA y su resultado;
-- cada edición de anamnesis/resumen (referenciando la versión creada);
-- aprobación de documentos;
-- exportaciones;
-- **borrado lógico** de documentos clínicos (`deleted_by`/`deleted_at`);
 - **borrado físico** de audio por retención (manual, vía
   `RetentionCleanupService`);
-- cualquier transición a `failed` (con `failure_reason`);
 - cambios de configuración de integraciones;
 - accesos de administrador al propio `audit_logs` (opcional, evaluar en
-  Fase 10).
+  Fase 7).
 
 Regla general: toda operación relevante debe poder asociarse a una
 entrada de `audit_log` — no se considera completa una funcionalidad que
-escriba en pacientes, sesiones, audio o documentos sin su auditoría
+escriba en pacientes, sesiones, audio o artefactos de IA sin su auditoría
 correspondiente.
 
 ## 7. Consentimiento
@@ -152,10 +187,20 @@ correspondiente.
 `consents` registra si el paciente (ficticio, en el MVP) ha consentido
 grabación de audio, procesamiento por IA y almacenamiento. El sistema no
 verifica el consentimiento contra ningún documento externo; es un registro
-declarativo por parte del profesional. La generación de documentos IA
-debería, a futuro, poder bloquearse si no existe consentimiento de
-`procesamiento_ia` — **se documenta como regla deseable, no forzada en el
-MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
+declarativo por parte del profesional.
+
+**Decisión cerrada (Fase 4)**: `consents` se amplía con `consent_version`
+(qué versión de la política de consentimiento se aceptó), además de
+`granted` y `recorded_at` ya existentes — ver
+[data-model.md](data-model.md) §2 y
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.3.
+`AIPipelineService.run_pipeline` incluye ya el punto de extensión donde
+se comprobaría el consentimiento de `procesamiento_ia` antes de generar
+— **en el MVP no bloquea**: si no existe un registro, se asume `true`
+implícitamente (mismo comportamiento que antes de esta fase). El día que
+deba exigirse explícitamente, esta misma comprobación pasa a rechazar la
+generación (`409`) sin rediseñar nada — el campo y el punto de extensión
+ya existen.
 
 ## 8. Retención y eliminación
 
@@ -166,19 +211,20 @@ MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
   (`find_expired_audio`, `purge`) — ver [architecture.md](architecture.md)
   §4. En el MVP la ejecución es **manual** (endpoint de administración,
   ver [api-specification.md](api-specification.md) §Retention); no existe
-  scheduler/cron todavía, eso queda para la Fase 10 del
+  scheduler/cron todavía, eso queda para la Fase 7 del
   [plan de desarrollo](development-plan.md). El borrado físico invalida
   `storage_reference` pero conserva la fila de `audio_recordings`
   (`status = deleted`) para trazabilidad.
-- **Documentos clínicos** (`anamnesis_documents`, `session_notes`): **nunca**
+- **Artefactos de IA** (`ai_artifacts`/`ai_artifact_versions`): **nunca**
   se eliminan físicamente, ni siquiera pasado el periodo de retención.
-  Solo admiten **borrado lógico** (`status = deleted`, `deleted_by`,
-  `deleted_at`), conservando `document_versions` y `audit_log` íntegros.
-  Esto aplica con más razón a documentos ya `approved`: la trazabilidad de
-  lo que se aprobó no puede perderse.
-- `clinical_sessions` sigue el mismo criterio que los documentos: borrado
-  lógico únicamente; su audio asociado puede haberse eliminado físicamente
-  de forma independiente por retención.
+  Solo admiten **borrado lógico** (`deleted_by`, `deleted_at` en
+  `ai_artifacts`), conservando `ai_artifact_versions`,
+  `ai_generation_runs` y `audit_log` íntegros. Esto aplica con más razón a
+  artefactos ya `approved`: la trazabilidad de lo que se aprobó no puede
+  perderse.
+- `clinical_sessions` sigue el mismo criterio que los artefactos de IA:
+  borrado lógico únicamente; su audio asociado puede haberse eliminado
+  físicamente de forma independiente por retención.
 - En desarrollo, se recomienda limpiar periódicamente los datos ficticios
   de prueba usando el mismo mecanismo de limpieza manual, no un borrado
   directo en base de datos.
@@ -190,8 +236,14 @@ MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
   configurada explícitamente distinta de `mock`, y (b) exista consentimiento
   y configuración explícitos para ese tipo de envío.
 - En el MVP esto es estructural: las únicas implementaciones disponibles
-  de `TranscriptionProvider` y `LanguageModelProvider` son `Mock*`, que no
-  hacen ninguna llamada de red.
+  de las ocho interfaces del AI Pipeline (`TranscriptionProvider`,
+  `LanguageModelProvider`, `SummaryGenerator`, `ClinicalFlagsGenerator`,
+  `MissingInformationGenerator`, `AnamnesisGenerator`, `CostEstimator`,
+  `TokenCounter` — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6) son
+  `Mock*`, que no hacen ninguna llamada de red. No se integra ningún
+  proveedor real (OpenAI, Anthropic, Claude API, Gemini, Ollama, Llama,
+  Whisper, Azure, AWS u otra API externa) en esta fase.
 
 ## 10. Gestión de secretos
 
@@ -216,13 +268,18 @@ MVP** (ver pregunta abierta en product-requirements.md si debe forzarse ya).
 | Exportación de documento no revisado | Bloqueo a nivel de API si `status != approved` |
 | Secretos filtrados en el repositorio | Solo variables de entorno, `.env` en `.gitignore`, revisión previa a commit |
 | Envío accidental a proveedor de pago real | Solo implementaciones `Mock*` disponibles en el MVP; activar un proveedor real requiere cambio explícito de configuración |
-| Pérdida de trazabilidad de cambios clínicos o administrativos | `document_versions`/`audit_logs` obligatorios y transaccionales en cada escritura |
-| Borrado accidental de un documento aprobado o de un paciente | Borrado lógico obligatorio en dominio/servicio; no existe operación de borrado físico expuesta para `patients`, `anamnesis_documents`/`session_notes` |
+| Pérdida de trazabilidad de cambios clínicos o administrativos | `ai_artifact_versions`/`audit_logs` obligatorios y transaccionales en cada escritura |
+| Borrado accidental de un artefacto de IA aprobado o de un paciente | Borrado lógico obligatorio en dominio/servicio; no existe operación de borrado físico expuesta para `patients`, `ai_artifacts` |
 | Audio ficticio acumulado indefinidamente | Retención configurable (30 días por defecto) + `RetentionCleanupService`, purgable manualmente |
 | Subida de audio malicioso/con formato no soportado | Validación de tamaño, duración, extensión y tipo MIME contra lista blanca antes de pasar a `ready` |
 | Un `audiologist` modifica/cancela/revisa sesiones de un compañero de la misma clínica | Comprobación de propiedad (`professional_id == current_user.id`) en `authorize_clinical_session_action`, no solo de rol (Fase 3, diseño) |
 | Autorrevisión de una sesión clínica (quien la registra también la "revisa") | `review` restringido a `admin`, ningún `audiologist` puede revisar sus propias sesiones (Fase 3, diseño) |
 | Sesión creada para un paciente archivado o con un profesional inválido (inactivo, rol `viewer`, de otra clínica) | Validado en `ClinicalSessionService.create` antes de persistir; `409`/`404` según el caso (Fase 3, diseño) |
+| Inyección de prompt: texto de transcripción (no confiable) insertado en un prompt destinado a un LLM | Solo puede ocupar variables declaradas del `user_prompt_template`, nunca el `system_prompt` (Fase 4, diseño — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.4) |
+| Duplicación de contenido clínico-adyacente en una segunda tabla al activar el almacenamiento de prompt renderizado | `ai_store_rendered_prompts = false` por defecto; activación explícita y documentada por entorno (Fase 4, diseño — §6.1 más arriba) |
+| Uso indebido de `confidence` para aprobar artefactos de IA automáticamente | Prohibido estructuralmente: ninguna ruta de código condiciona una transición a `approved` por el valor de `confidence` (Fase 4, diseño) |
+| Generación de artefactos de IA sin consentimiento de `procesamiento_ia` | Campo y punto de extensión ya preparados en `consents`/`AIPipelineService`; no forzado en el MVP con datos ficticios — riesgo aceptado conscientemente (Fase 4, diseño, ver §7) |
+| Envío de datos clínicos reales a un proveedor de IA de pago sin acuerdo de tratamiento de datos | Bloqueo estructural mientras tanto (solo `Mock*` disponibles); activar un proveedor real es una decisión de producto/legal explícita y posterior, fuera de esta fase |
 
 ## 12. `CurrentUserProvider`: alcance y limitaciones (Fase 2)
 

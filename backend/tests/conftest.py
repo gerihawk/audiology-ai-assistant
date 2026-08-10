@@ -79,6 +79,15 @@ async def test_engine() -> AsyncIterator[AsyncEngine]:
     settings = get_settings()
     engine = create_async_engine(_test_db_url(settings))
     async with engine.begin() as conn:
+        # `ai_artifacts.current_version_id` referencia a `ai_artifact_versions`,
+        # que a su vez referencia a `ai_artifacts` — un ciclo que
+        # `sorted_tables` no puede ordenar linealmente (mismo motivo por el
+        # que la migración crea esa FK con ALTER TABLE aparte, ver
+        # docs/data-model.md §10). Se rompe el ciclo poniendo esa columna a
+        # NULL antes del borrado genérico en orden topológico inverso.
+        if "ai_artifacts" in Base.metadata.tables:
+            ai_artifacts = Base.metadata.tables["ai_artifacts"]
+            await conn.execute(ai_artifacts.update().values(current_version_id=None))
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(table.delete())
     yield engine

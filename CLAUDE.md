@@ -62,8 +62,10 @@ completo en [docs/product-requirements.md](docs/product-requirements.md) y
 
 ## Estructura de módulos (backend)
 
-`patients`, `clinical_sessions`, `audio`, `transcription`, `anamnesis`,
-`session_notes`, `clinical_flags`, `users`, `audit_log`, `integrations`.
-Cada módulo mantiene su propio dominio, esquemas Pydantic y capa de
-persistencia; evita dependencias circulares entre módulos (ver
-[docs/architecture.md](docs/architecture.md)).
+`patients`, `clinical_sessions`, `audio`, `ai_pipeline`, `clinical_flags`,
+`users`, `audit_log`, `integrations`. Cada módulo mantiene su propio
+dominio, esquemas Pydantic y capa de persistencia; evita dependencias
+circulares entre módulos (ver [docs/architecture.md](docs/architecture.md)).
+`ai_pipeline` sustituye a los antiguos `transcription`/`anamnesis`/
+`session_notes` (nunca implementados) — diseño cerrado en
+[docs/ai-pipeline-architecture.md](docs/ai-pipeline-architecture.md).

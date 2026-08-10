@@ -1,0 +1,568 @@
+"""AIPipelineService: autoriza → ejecuta el pipeline → persiste → audita → commit.
+
+Mismo patrón transaccional que `ClinicalSessionService`/`PatientService`: la
+escritura de todas las entidades tocadas (artefactos, versiones,
+ejecuciones, auditoría) se confirma con un único commit; si algo falla de
+forma inesperada (no un simple fallo de proveedor, que se captura y
+registra como `AIGenerationRunStatus.FAILED` sin abortar el resto), todo
+se revierte.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.ai_pipeline.domain.artifact_repository import AIArtifactRepository
+from app.ai_pipeline.domain.entities import (
+    PIPELINE_STEP_ORDER,
+    AIArtifact,
+    AIArtifactStatus,
+    AIArtifactType,
+    AIArtifactVersion,
+    AIArtifactVersionSource,
+    AIGenerationRun,
+    AIGenerationRunStatus,
+    AIPipelineRun,
+    AIPipelineRunStatus,
+)
+from app.ai_pipeline.domain.generation_run_repository import AIGenerationRunRepository
+from app.ai_pipeline.domain.pipeline import (
+    PipelineExecutionContext,
+    PipelineOrchestrator,
+    PipelineStep,
+    PipelineStepOutcome,
+    SequentialPipelineOrchestrator,
+)
+from app.ai_pipeline.domain.pipeline_run_repository import AIPipelineRunRepository
+from app.ai_pipeline.domain.steps.anamnesis_step import AnamnesisStep
+from app.ai_pipeline.domain.steps.clinical_flags_step import ClinicalFlagsStep
+from app.ai_pipeline.domain.steps.missing_information_step import MissingInformationStep
+from app.ai_pipeline.domain.steps.summary_step import SummaryStep
+from app.ai_pipeline.domain.steps.transcription_step import TranscriptionStep
+from app.ai_pipeline.infrastructure.repository import (
+    SqlAlchemyAIArtifactRepository,
+    SqlAlchemyAIGenerationRunRepository,
+    SqlAlchemyAIPipelineRunRepository,
+)
+from app.audit_log.domain.entities import AuditLogEntry
+from app.audit_log.infrastructure.repository import SqlAlchemyAuditLogRepository
+from app.clinical_sessions.domain.entities import ClinicalSession
+from app.clinical_sessions.domain.repository import ClinicalSessionRepository
+from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSessionRepository
+from app.core.authorization import (
+    AIArtifactAction,
+    AIPipelineAction,
+    authorize_ai_artifact_action,
+    authorize_ai_pipeline_action,
+)
+from app.core.current_user import CurrentUser
+from app.core.exceptions import ConflictError, NotFoundError
+from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
+from app.integrations.domain.clinical_flags_generator import ClinicalFlagsGenerator
+from app.integrations.domain.cost_estimator import CostEstimator
+from app.integrations.domain.missing_information_generator import MissingInformationGenerator
+from app.integrations.domain.session_context import SessionContext
+from app.integrations.domain.summary_generator import SummaryGenerator
+from app.integrations.domain.token_counter import TokenCounter
+from app.integrations.domain.transcription_provider import TranscriptionProvider
+from app.integrations.mocks.mock_anamnesis_generator import MockAnamnesisGenerator
+from app.integrations.mocks.mock_clinical_flags_generator import MockClinicalFlagsGenerator
+from app.integrations.mocks.mock_cost_estimator import MockCostEstimator
+from app.integrations.mocks.mock_missing_information_generator import (
+    MockMissingInformationGenerator,
+)
+from app.integrations.mocks.mock_summary_generator import MockSummaryGenerator
+from app.integrations.mocks.mock_token_counter import MockTokenCounter
+from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
+
+
+@dataclass(slots=True)
+class AIArtifactDetail:
+    """Combina el sobre `AIArtifact` con su versión y ejecución vigentes —
+    todo lo que necesita la capa de API para una sola respuesta, sin que
+    el router tenga que hacer sus propias consultas."""
+
+    artifact: AIArtifact
+    current_version: AIArtifactVersion | None
+    generation_run: AIGenerationRun | None
+
+
+@dataclass(slots=True)
+class PipelineRunOutcome:
+    pipeline_run: AIPipelineRun
+    artifacts: list[AIArtifactDetail]
+    outcomes: list[PipelineStepOutcome]
+
+
+class AIPipelineService:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        artifact_repository: AIArtifactRepository | None = None,
+        generation_run_repository: AIGenerationRunRepository | None = None,
+        pipeline_run_repository: AIPipelineRunRepository | None = None,
+        clinical_session_repository: ClinicalSessionRepository | None = None,
+        audit_repository: SqlAlchemyAuditLogRepository | None = None,
+        orchestrator: PipelineOrchestrator | None = None,
+        transcription_provider: TranscriptionProvider | None = None,
+        summary_generator: SummaryGenerator | None = None,
+        clinical_flags_generator: ClinicalFlagsGenerator | None = None,
+        missing_information_generator: MissingInformationGenerator | None = None,
+        anamnesis_generator: AnamnesisGenerator | None = None,
+        token_counter: TokenCounter | None = None,
+        cost_estimator: CostEstimator | None = None,
+    ) -> None:
+        self._session = session
+        self._artifacts = artifact_repository or SqlAlchemyAIArtifactRepository()
+        self._generation_runs = generation_run_repository or SqlAlchemyAIGenerationRunRepository()
+        self._pipeline_runs = pipeline_run_repository or SqlAlchemyAIPipelineRunRepository()
+        self._clinical_sessions = (
+            clinical_session_repository or SqlAlchemyClinicalSessionRepository()
+        )
+        self._audit = audit_repository or SqlAlchemyAuditLogRepository()
+        self._orchestrator = orchestrator or SequentialPipelineOrchestrator()
+
+        # Todos los providers son Mock en esta fase — ver
+        # docs/ai-pipeline-architecture.md §6.4. Inyectables para tests y
+        # para el día que se sustituyan por proveedores reales, sin tocar
+        # el servicio ni el orquestador.
+        self._transcription_provider = transcription_provider or MockTranscriptionProvider()
+        self._summary_generator = summary_generator or MockSummaryGenerator()
+        self._clinical_flags_generator = clinical_flags_generator or MockClinicalFlagsGenerator()
+        self._missing_information_generator = (
+            missing_information_generator or MockMissingInformationGenerator()
+        )
+        self._anamnesis_generator = anamnesis_generator or MockAnamnesisGenerator()
+        self._token_counter = token_counter or MockTokenCounter()
+        self._cost_estimator = cost_estimator or MockCostEstimator()
+
+    # --- Disparo del pipeline --------------------------------------------
+
+    async def run_pipeline(
+        self, current_user: CurrentUser, clinical_session_id: uuid.UUID, request_id: str
+    ) -> PipelineRunOutcome:
+        clinical_session = await self._get_clinical_session_or_404(
+            current_user, clinical_session_id
+        )
+        authorize_ai_pipeline_action(
+            current_user, AIPipelineAction.TRIGGER, professional_id=clinical_session.professional_id
+        )
+
+        existing_active = await self._pipeline_runs.get_active_for_session(
+            self._session, current_user.clinic_id, clinical_session_id
+        )
+        if existing_active is not None:
+            raise ConflictError("Ya existe una ejecución del pipeline en curso para esta sesión.")
+
+        now = datetime.now(UTC)
+        pipeline_run = AIPipelineRun(
+            id=uuid.uuid4(),
+            clinical_session_id=clinical_session_id,
+            triggered_by=current_user.id,
+            status=AIPipelineRunStatus.PROCESSING,
+            started_at=now,
+            completed_at=None,
+            request_id=request_id,
+        )
+
+        try:
+            persisted_run = await self._pipeline_runs.add(self._session, pipeline_run)
+
+            context = PipelineExecutionContext(
+                clinical_session_id=clinical_session_id,
+                session_context=SessionContext(clinical_session_id=clinical_session_id),
+            )
+            result = await self._orchestrator.run(context, self._build_steps())
+
+            artifact_details: list[AIArtifactDetail] = []
+            any_completed = False
+            any_failed_or_skipped = False
+
+            for outcome in result.outcomes:
+                if outcome.status is None:
+                    any_failed_or_skipped = True
+                    continue  # saltado: nunca se invocó, no genera auditoría técnica
+
+                if outcome.status == AIGenerationRunStatus.FAILED:
+                    any_failed_or_skipped = True
+                    await self._generation_runs.add(
+                        self._session,
+                        AIGenerationRun(
+                            id=uuid.uuid4(),
+                            ai_pipeline_run_id=persisted_run.id,
+                            clinical_session_id=clinical_session_id,
+                            artifact_type=outcome.artifact_type,
+                            ai_artifact_id=None,
+                            resulting_version_number=None,
+                            status=outcome.status,
+                            provider_name=outcome.provider_name or "mock",
+                            model_name=outcome.model_name,
+                            prompt_template_id=None,
+                            prompt_template_version=None,
+                            input_token_count=outcome.input_token_count,
+                            output_token_count=outcome.output_token_count,
+                            estimated_cost_usd=outcome.estimated_cost_usd,
+                            latency_ms=outcome.latency_ms,
+                            execution_time_ms=outcome.execution_time_ms,
+                            rendered_system_prompt=None,
+                            rendered_user_prompt=None,
+                            raw_response=None,
+                            started_at=outcome.started_at or now,
+                            completed_at=outcome.completed_at,
+                            failure_reason=outcome.failure_reason,
+                            request_id=request_id,
+                        ),
+                    )
+                    continue
+
+                any_completed = True
+                detail = await self._persist_completed_outcome(
+                    current_user, persisted_run.id, clinical_session_id, outcome, request_id
+                )
+                artifact_details.append(detail)
+
+            final_status = _resolve_pipeline_status(any_completed, any_failed_or_skipped)
+            updated_run = await self._pipeline_runs.update_fields(
+                self._session,
+                persisted_run.id,
+                {"status": final_status, "completed_at": datetime.now(UTC)},
+            )
+            assert updated_run is not None  # ya verificado: acabamos de crearla
+
+            await self._write_audit(
+                current_user,
+                request_id,
+                action="ai_pipeline.triggered",
+                entity_type="ai_pipeline_run",
+                entity_id=persisted_run.id,
+                metadata={
+                    "outcomes": {
+                        outcome.artifact_type.value: (
+                            outcome.status.value if outcome.status is not None else "skipped"
+                        )
+                        for outcome in result.outcomes
+                    }
+                },
+            )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        return PipelineRunOutcome(
+            pipeline_run=updated_run, artifacts=artifact_details, outcomes=result.outcomes
+        )
+
+    async def _persist_completed_outcome(
+        self,
+        current_user: CurrentUser,
+        pipeline_run_id: uuid.UUID,
+        clinical_session_id: uuid.UUID,
+        outcome: PipelineStepOutcome,
+        request_id: str,
+    ) -> AIArtifactDetail:
+        existing_artifact = await self._artifacts.get_by_session_and_type(
+            self._session, current_user.clinic_id, clinical_session_id, outcome.artifact_type
+        )
+        now = datetime.now(UTC)
+
+        # Orden de inserción impuesto por las FKs circulares del esquema
+        # (ver docs/data-model.md §10): el AIArtifact debe existir ya
+        # (aunque sea sin versión vigente) antes de poder insertar la
+        # AIArtifactVersion y el AIGenerationRun que la referencian; solo
+        # entonces se actualiza `current_version_id`.
+        if existing_artifact is None:
+            artifact_id = uuid.uuid4()
+            next_version_number = 1
+            await self._artifacts.insert_new(
+                self._session,
+                AIArtifact(
+                    id=artifact_id,
+                    clinical_session_id=clinical_session_id,
+                    artifact_type=outcome.artifact_type,
+                    status=AIArtifactStatus.REVIEW_PENDING,
+                    current_version_id=None,
+                    confidence=None,
+                    schema_version=1,
+                    approved_by=None,
+                    approved_at=None,
+                    rejected_by=None,
+                    rejected_at=None,
+                    rejection_reason=None,
+                    deleted_by=None,
+                    deleted_at=None,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            )
+        else:
+            artifact_id = existing_artifact.id
+            next_version_number = (
+                await self._artifacts.latest_version_number(self._session, artifact_id) + 1
+            )
+
+        generation_run = AIGenerationRun(
+            id=uuid.uuid4(),
+            ai_pipeline_run_id=pipeline_run_id,
+            clinical_session_id=clinical_session_id,
+            artifact_type=outcome.artifact_type,
+            ai_artifact_id=artifact_id,
+            resulting_version_number=next_version_number,
+            status=AIGenerationRunStatus.COMPLETED,
+            provider_name=outcome.provider_name or "mock",
+            model_name=outcome.model_name,
+            prompt_template_id=None,
+            prompt_template_version=None,
+            input_token_count=outcome.input_token_count,
+            output_token_count=outcome.output_token_count,
+            estimated_cost_usd=outcome.estimated_cost_usd,
+            latency_ms=outcome.latency_ms,
+            execution_time_ms=outcome.execution_time_ms,
+            rendered_system_prompt=None,
+            rendered_user_prompt=None,
+            raw_response=None,
+            started_at=outcome.started_at or now,
+            completed_at=outcome.completed_at,
+            failure_reason=None,
+            request_id=request_id,
+        )
+        persisted_generation_run = await self._generation_runs.add(self._session, generation_run)
+
+        version = AIArtifactVersion(
+            id=uuid.uuid4(),
+            ai_artifact_id=artifact_id,
+            version_number=next_version_number,
+            content=outcome.content or {},
+            confidence=outcome.confidence,
+            source_map=None,
+            source=AIArtifactVersionSource.AI_GENERATED,
+            generation_run_id=persisted_generation_run.id,
+            created_by=None,
+            change_note=None,
+            created_at=outcome.completed_at or now,
+        )
+        persisted_version = await self._artifacts.insert_version(self._session, version)
+
+        # Una versión nueva generada por IA siempre reabre la revisión
+        # humana y limpia cualquier disposición previa, incluso si la
+        # anterior estaba approved/rejected — ver
+        # docs/ai-pipeline-architecture.md §3.3.
+        updated_artifact = await self._artifacts.update_disposition(
+            self._session,
+            current_user.clinic_id,
+            artifact_id,
+            {
+                "current_version_id": persisted_version.id,
+                "confidence": outcome.confidence,
+                "status": AIArtifactStatus.REVIEW_PENDING.value,
+                "approved_by": None,
+                "approved_at": None,
+                "rejected_by": None,
+                "rejected_at": None,
+                "rejection_reason": None,
+                "updated_at": now,
+            },
+        )
+        assert updated_artifact is not None  # se acaba de crear/confirmar en esta misma transacción
+
+        return AIArtifactDetail(
+            artifact=updated_artifact,
+            current_version=persisted_version,
+            generation_run=persisted_generation_run,
+        )
+
+    # --- Lectura -----------------------------------------------------------
+
+    async def get_artifact(
+        self, current_user: CurrentUser, artifact_id: uuid.UUID
+    ) -> AIArtifactDetail:
+        authorize_ai_artifact_action(current_user, AIArtifactAction.READ)
+        artifact = await self._artifacts.get_by_id(
+            self._session, current_user.clinic_id, artifact_id
+        )
+        if artifact is None:
+            raise NotFoundError("Artefacto de IA no encontrado.")
+        return await self._to_detail(artifact)
+
+    async def list_artifacts(
+        self, current_user: CurrentUser, clinical_session_id: uuid.UUID
+    ) -> list[AIArtifactDetail]:
+        authorize_ai_artifact_action(current_user, AIArtifactAction.READ)
+        await self._get_clinical_session_or_404(current_user, clinical_session_id)
+        artifacts = await self._artifacts.list_by_session(
+            self._session, current_user.clinic_id, clinical_session_id
+        )
+        return [await self._to_detail(artifact) for artifact in artifacts]
+
+    # --- Disposición humana --------------------------------------------------
+
+    async def approve(
+        self, current_user: CurrentUser, artifact_id: uuid.UUID, request_id: str
+    ) -> AIArtifactDetail:
+        return await self._set_disposition(
+            current_user, artifact_id, request_id, action=AIArtifactAction.APPROVE
+        )
+
+    async def reject(
+        self,
+        current_user: CurrentUser,
+        artifact_id: uuid.UUID,
+        request_id: str,
+        *,
+        rejection_reason: str | None,
+    ) -> AIArtifactDetail:
+        return await self._set_disposition(
+            current_user,
+            artifact_id,
+            request_id,
+            action=AIArtifactAction.REJECT,
+            rejection_reason=rejection_reason,
+        )
+
+    async def _set_disposition(
+        self,
+        current_user: CurrentUser,
+        artifact_id: uuid.UUID,
+        request_id: str,
+        *,
+        action: AIArtifactAction,
+        rejection_reason: str | None = None,
+    ) -> AIArtifactDetail:
+        existing = await self._artifacts.get_by_id(
+            self._session, current_user.clinic_id, artifact_id
+        )
+        if existing is None:
+            raise NotFoundError("Artefacto de IA no encontrado.")
+
+        clinical_session = await self._clinical_sessions.get_by_id(
+            self._session, current_user.clinic_id, existing.clinical_session_id
+        )
+        assert (
+            clinical_session is not None
+        )  # invariante: el artefacto solo existe si la sesión existe
+        authorize_ai_artifact_action(
+            current_user, action, professional_id=clinical_session.professional_id
+        )
+
+        target_status = (
+            AIArtifactStatus.APPROVED
+            if action == AIArtifactAction.APPROVE
+            else AIArtifactStatus.REJECTED
+        )
+
+        if existing.status == target_status:
+            return await self._to_detail(existing)  # no-op idempotente, sin duplicar auditoría
+
+        if existing.status != AIArtifactStatus.REVIEW_PENDING:
+            raise ConflictError(
+                f"No se puede {action.value} un artefacto en estado "
+                f"'{existing.status.value}'. Debe volver a 'review_pending' "
+                "(editando o regenerando) antes de cambiar su disposición."
+            )
+
+        now = datetime.now(UTC)
+        values: dict[str, object] = {"status": target_status.value, "updated_at": now}
+        if action == AIArtifactAction.APPROVE:
+            values["approved_by"] = current_user.id
+            values["approved_at"] = now
+        else:
+            values["rejected_by"] = current_user.id
+            values["rejected_at"] = now
+            values["rejection_reason"] = rejection_reason
+
+        try:
+            updated = await self._artifacts.update_disposition(
+                self._session, current_user.clinic_id, artifact_id, values
+            )
+            assert updated is not None
+            await self._write_audit(
+                current_user,
+                request_id,
+                action=f"ai_artifact.{target_status.value}",
+                entity_type="ai_artifact",
+                entity_id=artifact_id,
+                metadata=({"rejection_reason": rejection_reason} if rejection_reason else {}),
+            )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        return await self._to_detail(updated)
+
+    # --- Helpers internos -----------------------------------------------------
+
+    def _build_steps(self) -> list[PipelineStep]:
+        steps_by_type: dict[AIArtifactType, PipelineStep] = {
+            AIArtifactType.TRANSCRIPT: TranscriptionStep(
+                self._transcription_provider, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.SUMMARY: SummaryStep(
+                self._summary_generator, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.CLINICAL_FLAGS: ClinicalFlagsStep(
+                self._clinical_flags_generator, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.MISSING_INFORMATION: MissingInformationStep(
+                self._missing_information_generator, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.ANAMNESIS: AnamnesisStep(
+                self._anamnesis_generator, self._token_counter, self._cost_estimator
+            ),
+        }
+        return [steps_by_type[artifact_type] for artifact_type in PIPELINE_STEP_ORDER]
+
+    async def _to_detail(self, artifact: AIArtifact) -> AIArtifactDetail:
+        version = (
+            await self._artifacts.get_version_by_id(self._session, artifact.current_version_id)
+            if artifact.current_version_id
+            else None
+        )
+        return AIArtifactDetail(artifact=artifact, current_version=version, generation_run=None)
+
+    async def _get_clinical_session_or_404(
+        self, current_user: CurrentUser, clinical_session_id: uuid.UUID
+    ) -> ClinicalSession:
+        clinical_session = await self._clinical_sessions.get_by_id(
+            self._session, current_user.clinic_id, clinical_session_id
+        )
+        if clinical_session is None:
+            raise NotFoundError("Sesión clínica no encontrada.")
+        return clinical_session
+
+    async def _write_audit(
+        self,
+        current_user: CurrentUser,
+        request_id: str,
+        *,
+        action: str,
+        entity_type: str,
+        entity_id: uuid.UUID,
+        metadata: dict | None = None,
+    ) -> None:
+        await self._audit.add(
+            self._session,
+            AuditLogEntry(
+                id=uuid.uuid4(),
+                clinic_id=current_user.clinic_id,
+                actor_user_id=current_user.id,
+                action=action,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                request_id=request_id,
+                metadata=metadata or {},
+            ),
+        )
+
+
+def _resolve_pipeline_status(any_completed: bool, any_failed_or_skipped: bool) -> str:
+    if any_completed and not any_failed_or_skipped:
+        return AIPipelineRunStatus.COMPLETED.value
+    if any_completed and any_failed_or_skipped:
+        return AIPipelineRunStatus.PARTIALLY_FAILED.value
+    return AIPipelineRunStatus.FAILED.value

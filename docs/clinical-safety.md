@@ -10,10 +10,11 @@ consideración de producto o de arquitectura.
 
 ## 2. Lenguaje obligatorio
 
-El `LanguageModelProvider` (incluido el mock) y cualquier texto generado
-automáticamente en `anamnesis_documents`, `session_notes` y
-`clinical_flags` debe usar exclusivamente expresiones no diagnósticas,
-entre ellas:
+`AnamnesisGenerator`, `SummaryGenerator` y `ClinicalFlagsGenerator`
+(incluidos los mocks — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6) y
+cualquier texto generado automáticamente en `ai_artifact_versions.content`
+debe usar exclusivamente expresiones no diagnósticas, entre ellas:
 
 - "señal que requiere valoración profesional";
 - "información que convendría ampliar";
@@ -32,8 +33,10 @@ mensajes de UI que describan ese contenido):
   clínico establecido.
 
 Esto se valida en dos niveles:
-1. **Diseño del prompt/plantilla** del `LanguageModelProvider` (incluido el
-   mock, que debe servir de ejemplo correcto desde el primer commit).
+1. **Diseño de las plantillas** en `prompt_templates` (ver
+   [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.4),
+   incluidas las usadas por los mocks, que deben servir de ejemplo
+   correcto desde el primer commit.
 2. **Tests automatizados** que comprueben que las plantillas de salida no
    contienen las expresiones prohibidas (lista mantenida como constante
    compartida, no duplicada entre backend y tests).
@@ -49,27 +52,30 @@ UI— debe ir acompañado, sin excepción, del texto:
 Este aviso se implementa como constante única (backend,
 `core/messages/es.py` — ver [architecture.md](architecture.md) §8)
 reutilizada tanto en las respuestas de API (`ai_disclaimer`) como en la
-exportación PDF/texto mientras el documento no esté `approved`. Una vez
-aprobado, el documento exportado indica en su lugar quién lo aprobó y
+exportación PDF/texto mientras el artefacto no esté `approved`. Una vez
+aprobado, el artefacto exportado indica en su lugar quién lo aprobó y
 cuándo, conservando el histórico de que el borrador se originó con IA
-(visible en `document_versions`/auditoría, no oculto).
+(visible en `ai_artifact_versions`/auditoría, no oculto).
 
 ## 5. Aprobación humana explícita
 
-- Ningún documento (`anamnesis_documents`, `session_notes`) puede
-  exportarse ni considerarse parte del "expediente" sin pasar por
-  `status = approved`.
+- Ningún artefacto de IA (`ai_artifacts` — transcripción, resumen,
+  señales de alerta, información ausente, anamnesis) puede exportarse ni
+  considerarse parte del "expediente" sin pasar por `status = approved`.
 - La aprobación es una acción explícita del profesional (`POST
   .../approve`), distinta de simplemente guardar una edición. Guardar una
-  edición deja el documento en `review_pending`, nunca lo aprueba
+  edición deja el artefacto en `review_pending`, nunca lo aprueba
   implícitamente.
 - La aprobación registra `approved_by` y `approved_at`; no existe
-  aprobación automática ni por inactividad.
-- **Decisión cerrada**: si el profesional edita un documento ya aprobado,
-  el sistema devuelve automáticamente su estado a `review_pending` y exige
-  una nueva aprobación explícita antes de permitir de nuevo su
-  exportación. Ver transición `approved → review_pending` en
-  [data-model.md](data-model.md) §6.
+  aprobación automática ni por inactividad. Tampoco existe aprobación
+  automática por `confidence`: ese valor nunca decide una transición de
+  estado, solo orienta la revisión humana — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §8.
+- **Decisión cerrada**: si el profesional edita un artefacto ya aprobado
+  (o rechazado), el sistema devuelve automáticamente su estado a
+  `review_pending` y exige una nueva aprobación explícita antes de
+  permitir de nuevo su exportación. Ver
+  [data-model.md](data-model.md) §10.
 
 ## 6. Estados de campo en la anamnesis
 
@@ -83,16 +89,17 @@ valor de texto (ver [data-model.md](data-model.md)):
 - `no_determinado`: se mencionó pero no de forma suficientemente clara
   para clasificarlo.
 
-El `LanguageModelProvider` nunca debe asignar `informado` o
+`AnamnesisGenerator` nunca debe asignar `informado` o
 `negado_explicitamente` sin un fragmento de la transcripción que lo
 respalde. Ante la duda, el estado correcto es `no_determinado`.
 
 ## 7. Señales de alerta / motivos de derivación — checklist de demostración
 
 **Decisión cerrada**: el MVP usa un checklist genérico de demostración
-(`DemoClinicalFlagRuleset`, ver [architecture.md](architecture.md) §4) para
-generar `clinical_flags` (p. ej. pérdida asimétrica, otalgia, otorrea).
-Este checklist:
+(`MockClinicalFlagsGenerator`, ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1 y §6.4)
+para generar `clinical_flags` (p. ej. pérdida asimétrica, otalgia,
+otorrea). Este checklist:
 
 - **no está validado clínicamente**;
 - **no es apto para uso real** con pacientes;
@@ -112,12 +119,15 @@ posible, y registra qué ruleset la produjo (`ruleset_name`, ver
 activas en cada sesión.
 
 **Aislamiento obligatorio**: la lógica del checklist vive exclusivamente
-detrás de la interfaz `ClinicalFlagRuleset`. Ningún otro módulo (API,
-`anamnesis`, `session_notes`) contiene reglas de detección embebidas. Esto
-permite sustituir `DemoClinicalFlagRuleset` por un protocolo clínico
-validado en el futuro sin tocar el resto del sistema — sustitución que, en
-todo caso, requerirá validación clínica y legal previa, fuera del alcance
-de este MVP.
+detrás de la interfaz `ClinicalFlagsGenerator` (`integrations/domain/` —
+ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1;
+sustituye a la antigua interfaz `ClinicalFlagRuleset`, misma lógica y
+mismas salvaguardas, nombre unificado con el resto del AI Pipeline).
+Ningún otro módulo (API, `ai_pipeline`) contiene reglas de detección
+embebidas. Esto permite sustituir `MockClinicalFlagsGenerator` por un
+protocolo clínico validado en el futuro sin tocar el resto del sistema —
+sustitución que, en todo caso, requerirá validación clínica y legal
+previa, fuera del alcance de este MVP.
 
 ## 8. Límites explícitos de la IA en este producto
 

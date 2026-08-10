@@ -75,7 +75,7 @@ identidad/clínica de §1.
 | updated_by | FK users.id | |
 | created_at / updated_at | timestamp | `updated_at` con `onupdate` a nivel de base de datos |
 | archived_at | timestamp, nullable | |
-| schema_version | int, default 1 | Versión del esquema fijo de campos de `patients`, análogo a `anamnesis_documents.schema_version` |
+| schema_version | int, default 1 | Versión del esquema fijo de campos de `patients`, análogo a `ai_artifacts.schema_version` |
 
 Índice único: `UNIQUE (clinic_id, internal_code)`. Índices adicionales en
 §7 (búsqueda por clínica, estado archivado, fechas).
@@ -139,64 +139,133 @@ Solo metadatos: el binario nunca se almacena en PostgreSQL.
 | uploaded_at | timestamp | |
 | deleted_at | timestamp, nullable | Fecha de borrado físico (retención) |
 
-### `transcriptions`
+### `ai_artifacts`, `ai_artifact_versions`, `ai_generation_runs`, `ai_pipeline_runs`, `prompt_templates`
+
+**Sustituyen por completo** a `transcriptions`, `anamnesis_documents`,
+`session_notes` y `document_versions` del diseño anterior (eliminadas de
+esta documentación, no quedan tablas alternativas para el mismo
+propósito). Diseño cerrado en la Fase 4 — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) para el
+análisis completo (por qué una entidad genérica `AIArtifact` en vez de
+una tabla por tipo de artefacto, interfaces, orquestador, contratos).
+`clinical_flags` (más abajo) no se sustituye: sigue siendo la tabla de
+disposición por ítem, ahora alimentada por `ai_artifact_versions` en vez
+de generarse de forma aislada.
+
+#### `ai_artifacts`
+Un sobre por (sesión, tipo de artefacto) — como mucho uno activo por
+combinación. Regenerar no crea una fila nueva aquí, crea una versión
+nueva en `ai_artifact_versions`.
+
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
-| audio_recording_id | FK audio_recordings.id, único | 1:1 con el audio; la fila solo existe si la transcripción se completó (el estado del proceso vive en `audio_recordings.status`) |
-| provider_name | string | p. ej. `mock` |
-| raw_text | text | Transcripción completa |
-| language | string | p. ej. `es` |
+| clinical_session_id | FK clinical_sessions.id | |
+| artifact_type | enum (`AIArtifactType`) | `transcript`, `summary`, `clinical_flags`, `missing_information`, `anamnesis` |
+| status | enum (`AIArtifactStatus`) | `review_pending`, `approved`, `rejected` — ver §10 |
+| current_version_id | FK ai_artifact_versions.id | La versión vigente; nunca nulo tras la creación |
+| confidence | int, nullable | 0-100; espejo desnormalizado de `current_version.confidence`, actualizado en la misma transacción que `current_version_id`. Nunca se usa para aprobar automáticamente — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §8 |
+| schema_version | int, default 1 | Versión del esquema JSON de `content` para este `artifact_type` — mismo patrón que `patients.schema_version` |
+| approved_by | FK users.id, nullable | |
+| approved_at | timestamp, nullable | |
+| rejected_by | FK users.id, nullable | |
+| rejected_at | timestamp, nullable | |
+| rejection_reason | text, nullable | |
+| deleted_by | FK users.id, nullable | Borrado **lógico únicamente**; un artefacto `approved` nunca se elimina físicamente |
+| deleted_at | timestamp, nullable | |
+| created_at / updated_at | timestamp | |
+
+`UNIQUE (clinical_session_id, artifact_type)`.
+
+#### `ai_artifact_versions`
+Append-only: nunca se edita ni se borra una fila existente.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | UUID PK | |
+| ai_artifact_id | FK ai_artifacts.id | |
+| version_number | int | Monótono por `ai_artifact_id`, empieza en 1 |
+| content | JSONB | Forma específica de `artifact_type`, validada en `service.py` por un esquema propio de cada tipo — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.1 (principio "JSON First": nunca texto libre ni Markdown como contrato interno) |
+| confidence | int, nullable | 0-100; solo si `source = ai_generated` — `null` si `human_edited` |
+| source_map | JSONB, nullable | Trazabilidad de cada fragmento generado hacia su origen (rango de transcripción, segmento de audio, timestamps, offsets). Diseño preparado, **no poblado todavía** — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.7 |
+| source | enum (`AIArtifactVersionSource`) | `ai_generated`, `human_edited` |
+| generation_run_id | FK ai_generation_runs.id, nullable | Solo si `source = ai_generated` |
+| created_by | FK users.id, nullable | Nulo si `ai_generated`; siempre presente si `human_edited` |
+| change_note | text, nullable | Comentario opcional del profesional |
 | created_at | timestamp | |
 
-### `anamnesis_documents`
-Documento estructurado por campos. Ver §3 para el listado de campos.
+`UNIQUE (ai_artifact_id, version_number)`.
+
+#### `ai_generation_runs`
+Una fila por ejecución de un paso del pipeline — la auditoría técnica de
+cada generación (nunca contenido clínico ni secretos, ver
+[privacy-and-security.md](privacy-and-security.md) §6).
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
-| clinical_session_id | FK clinical_sessions.id, único | 1:1 con la sesión |
-| schema_version | int, default 1 | Versión del esquema fijo de campos de anamnesis (§3); permite evolucionar el esquema sin migrar documentos existentes |
-| ai_generated_content | JSONB | Salida original del `LanguageModelProvider`, inmutable |
-| current_content | JSONB | Contenido editable actual (campo por campo, ver §3) |
-| status | enum (`ProcessingStatus`) | `generating`, `review_pending`, `approved`, `failed`, `deleted` |
-| approved_by | FK users.id, nullable | |
-| approved_at | timestamp, nullable | |
-| deleted_at | timestamp, nullable | Borrado **lógico únicamente**; un documento `approved` nunca se elimina físicamente |
-| deleted_by | FK users.id, nullable | |
-| created_at / updated_at | timestamp | |
+| ai_pipeline_run_id | FK ai_pipeline_runs.id | Agrupa todos los pasos de una ejecución completa |
+| clinical_session_id | FK clinical_sessions.id | Denormalizado, útil si el paso falla antes de crear artefacto |
+| artifact_type | enum (`AIArtifactType`) | Qué paso es |
+| ai_artifact_id | FK ai_artifacts.id, nullable | Nulo si el paso falló antes de producir contenido |
+| resulting_version_number | int, nullable | Qué `ai_artifact_versions.version_number` produjo esta ejecución |
+| status | enum (`AIGenerationRunStatus`) | `queued`, `processing`, `completed`, `failed` — ver §10 |
+| provider_name | string | p. ej. `mock`; futuro `openai`/`anthropic`/... |
+| model_name | string, nullable | p. ej. `mock-v1` |
+| prompt_template_id | FK prompt_templates.id, nullable | Nulo para `TranscriptionProvider` (no usa plantillas de LLM) |
+| prompt_template_version | int, nullable | Copiado en el momento de la ejecución — si la plantilla se republica después, esta fila sigue apuntando a la versión realmente usada |
+| input_token_count | int, nullable | Vía `TokenCounter`, o del proveedor si lo devuelve |
+| output_token_count | int, nullable | |
+| estimated_cost_usd | numeric(10,6), nullable | Vía `CostEstimator` |
+| latency_ms | int, nullable | Duración de la llamada al proveedor |
+| execution_time_ms | int, nullable | Duración total del paso (incluye render de prompt, parseo, persistencia — puede ser mayor que `latency_ms`) |
+| rendered_system_prompt | text, nullable | **Solo si** `Settings.ai_store_rendered_prompts = true` (config, `false` por defecto); `NULL` en caso contrario, sin excepción — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.5 |
+| rendered_user_prompt | text, nullable | Idem |
+| raw_response | JSONB, nullable | Idem |
+| started_at | timestamp | |
+| completed_at | timestamp, nullable | |
+| failure_reason | text, nullable | |
+| request_id | string, nullable | Correlation ID, mismo patrón que `audit_logs.request_id` |
 
-### `session_notes`
-Resumen profesional de la sesión. Mismo patrón que `anamnesis_documents`.
+**Nunca almacena**: secretos, claves de API. **No almacena** el prompt
+renderizado ni la respuesta cruda salvo activación explícita por
+configuración (columnas de arriba) — ver implicaciones de privacidad en
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.5.
+
+#### `ai_pipeline_runs`
+Una fila por disparo completo del pipeline (una ejecución de
+`POST .../ai/generate`).
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
-| clinical_session_id | FK clinical_sessions.id, único | |
-| schema_version | int, default 1 | |
-| ai_generated_content | text | Resumen original generado por IA |
-| current_content | text | Resumen editable actual |
-| status | enum (`ProcessingStatus`) | `generating`, `review_pending`, `approved`, `failed`, `deleted` |
-| approved_by | FK users.id, nullable | |
-| approved_at | timestamp, nullable | |
-| deleted_at | timestamp, nullable | Borrado lógico únicamente |
-| deleted_by | FK users.id, nullable | |
-| created_at / updated_at | timestamp | |
+| clinical_session_id | FK clinical_sessions.id | |
+| triggered_by | FK users.id | |
+| status | enum (`AIPipelineRunStatus`) | `queued`, `processing`, `completed`, `failed`, `partially_failed` |
+| started_at | timestamp | |
+| completed_at | timestamp, nullable | |
+| request_id | string, nullable | |
 
-### `document_versions`
-Historial de cambios, común a `anamnesis_documents` y `session_notes`
-(tabla única con discriminador de tipo, dado que ambos comparten el mismo
-ciclo de vida de edición/aprobación).
+#### `prompt_templates`
+Ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.4 para
+la arquitectura completa de gestión de prompts (origen dual: fixtures en
+git → seed → base de datos).
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
-| document_type | enum | `anamnesis`, `session_note` |
-| document_id | UUID | Referencia lógica a `anamnesis_documents.id` o `session_notes.id` según `document_type` |
-| content | JSONB o text | Snapshot del contenido en ese momento |
-| edited_by | FK users.id | |
-| edited_at | timestamp | |
-| change_note | text, nullable | Comentario opcional del profesional |
+| name | string | p. ej. `anamnesis.generate`, `summary.generate` — por propósito, no por proveedor |
+| version | int | Monótono por `name`, append-only |
+| description | text, nullable | |
+| system_prompt | text, nullable | |
+| user_prompt_template | text | Con marcadores `{{variable}}` |
+| variables_schema | JSONB | Nombres/tipos de variables esperadas; se valida antes de renderizar |
+| is_active | bool | Exactamente una versión activa por `name` |
+| created_by | FK users.id | |
+| change_note | text, nullable | |
+| created_at | timestamp | |
+
+`UNIQUE (name, version)`; índice parcial `UNIQUE (name) WHERE is_active`.
 
 ### `clinical_flags`
 | Campo | Tipo | Notas |
@@ -206,8 +275,8 @@ ciclo de vida de edición/aprobación).
 | category | string | p. ej. `otalgia`, `perdida_asimetrica`, `tinnitus_unilateral` |
 | description | text | Redactado en lenguaje no diagnóstico (ver clinical-safety.md) |
 | source_excerpt | text, nullable | Fragmento de la transcripción que originó la señal |
-| ruleset_name | string | p. ej. `demo_generic_v1`; identifica qué `ClinicalFlagRuleset` la generó, para trazabilidad si se sustituye por un protocolo validado |
-| status | enum | `sugerida_ia`, `confirmada_por_profesional`, `descartada` — eje de disposición del profesional, independiente de `ProcessingStatus` (ver architecture.md §5) |
+| ruleset_name | string | p. ej. `demo_generic_v1`; identifica qué `ClinicalFlagsGenerator` la generó, para trazabilidad si se sustituye por un protocolo validado |
+| status | enum | `sugerida_ia`, `confirmada_por_profesional`, `descartada` — eje de disposición del profesional, independiente de los estados del AI Pipeline (ver §10 y architecture.md §5) |
 | reviewed_by | FK users.id, nullable | |
 | reviewed_at | timestamp, nullable | |
 | created_at | timestamp | |
@@ -241,8 +310,9 @@ como `audit_metadata` a la columna `metadata`.
 | clinical_session_id | FK clinical_sessions.id, nullable | |
 | consent_type | enum | `grabacion_audio`, `procesamiento_ia`, `almacenamiento` |
 | granted | bool | |
+| consent_version | string, nullable | Versión de la política de consentimiento aceptada. Añadida en la Fase 4 para el consentimiento de `procesamiento_ia` — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.3: en el MVP el pipeline no bloquea por ausencia de consentimiento (se asume `true` si no hay registro), pero el campo ya existe para cuando deba exigirse |
 | granted_by | FK users.id | Quien registra el consentimiento en el sistema |
-| recorded_at | timestamp | |
+| recorded_at | timestamp | Cumple el rol de "consent_timestamp" |
 | notes | text, nullable | |
 
 ### `integration_configs`
@@ -260,9 +330,13 @@ MVP), para preparar el interruptor futuro sin tocar código.
 
 ## 3. Campos de la anamnesis y sus estados
 
-`current_content` / `ai_generated_content` de `anamnesis_documents`
-almacenan un objeto con, como mínimo, estos campos. Cada campo tiene un
-valor de texto (posiblemente vacío) **y** un estado independiente:
+`ai_artifact_versions.content` de la versión vigente de un `ai_artifacts`
+con `artifact_type = anamnesis` (ver §2) almacena un objeto con, como
+mínimo, estos campos — antes vivía en
+`anamnesis_documents.current_content`/`ai_generated_content`, tabla ya
+eliminada de este documento (ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md)).
+Cada campo tiene un valor de texto (posiblemente vacío) **y** un estado
+independiente:
 
 - `informado`
 - `negado_explicitamente`
@@ -291,12 +365,17 @@ Campos:
 18. uso_previo_audifonos
 19. expectativas
 20. impacto_social_laboral_familiar
-21. informacion_ausente (lista derivada: campos en `no_preguntado`)
+21. informacion_ausente (lista derivada, calculada por el backend a
+    partir de los campos en `no_preguntado` — **no** generada por IA;
+    convenience field, distinta de la lista de sugerencias de
+    seguimiento del artefacto `missing_information`, generado antes que
+    la anamnesis y usado como una de sus entradas — ver
+    [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.3)
 22. observaciones_profesional (campo libre, **no generado por IA** — solo
     editable por el profesional)
 
-Regla de generación: el `LanguageModelProvider` (incluido el mock) nunca
-asigna `informado` a un campo sin una cita/fragmento de respaldo en la
+Regla de generación: `AnamnesisGenerator` (incluido el mock) nunca asigna
+`informado` a un campo sin una cita/fragmento de respaldo en la
 transcripción. Si no hay evidencia textual, el campo queda en
 `no_preguntado` o `no_determinado`.
 
@@ -308,16 +387,23 @@ clinics 1───N patients
 clinics 1───N clinical_sessions
 clinics 1───N audit_logs
 patients 1───N clinical_sessions
-clinical_sessions 1───1 audio_recordings   (MVP: un audio por sesión)
-audio_recordings 1───1 transcriptions
-clinical_sessions 1───1 anamnesis_documents
-clinical_sessions 1───1 session_notes
-clinical_sessions 1───N clinical_flags
+patients 1───N consents
+clinical_sessions 1───1 audio_recordings     (MVP: un audio por sesión)
+clinical_sessions 1───N ai_artifacts          (a lo sumo 1 por artifact_type, vía UNIQUE)
+ai_artifacts 1───N ai_artifact_versions
+ai_artifacts N───1 ai_artifact_versions        (current_version_id, la vigente)
+ai_artifact_versions N───1 ai_generation_runs   (0..1, nulo si human_edited)
+clinical_sessions 1───N ai_pipeline_runs
+ai_pipeline_runs 1───N ai_generation_runs
+ai_generation_runs N───1 prompt_templates         (0..1)
+clinical_sessions 1───N clinical_flags             (alimentada por
+                                                      ai_artifact_versions.content
+                                                      cuando artifact_type = clinical_flags)
 clinical_sessions 1───N consents
-anamnesis_documents / session_notes 1───N document_versions (por document_type + document_id)
 users 1───N clinical_sessions (como professional_id, created_by, updated_by)
 users 1───N patients (como created_by / updated_by)
 users 1───N audit_logs (como actor)
+users 1───N ai_pipeline_runs (como triggered_by)
 ```
 
 ## 5. Notas de diseño
@@ -325,13 +411,18 @@ users 1───N audit_logs (como actor)
 - Se asume **un audio por sesión** en el MVP (simplifica el flujo); el
   modelo no impide extenderlo a N audios más adelante sin romper
   compatibilidad (bastaría con quitar la restricción de unicidad).
-- `document_versions` usa una FK lógica (no de base de datos) a dos tablas
-  distintas mediante `document_type` porque Postgres no soporta FKs
-  polimórficas nativas; se documenta la integridad referencial como
-  responsabilidad de la capa de aplicación y se cubre con tests.
-- Ningún campo de `clinical_flags` ni `anamnesis_documents` contiene
-  lenguaje diagnóstico; ver [clinical-safety.md](clinical-safety.md) para
-  las reglas de redacción que debe cumplir el `LanguageModelProvider`.
+- `ai_artifact_versions` es append-only y versiona por igual las cinco
+  variantes de artefacto de IA (transcripción, resumen, señales de
+  alerta, información ausente, anamnesis) — sustituye a la antigua
+  `document_versions` (que usaba una FK lógica polimórfica solo para dos
+  tipos) por un único mecanismo compartido por todos. Ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §3.1 para el
+  análisis de por qué se prefirió una entidad genérica a una tabla por
+  tipo de artefacto.
+- Ningún campo de `clinical_flags` ni de `ai_artifact_versions.content`
+  (cuando `artifact_type = anamnesis`) contiene lenguaje diagnóstico; ver
+  [clinical-safety.md](clinical-safety.md) para las reglas de redacción
+  que deben cumplir `AnamnesisGenerator`/`ClinicalFlagsGenerator`.
 - Ningún audio se almacena como blob en PostgreSQL: `audio_recordings`
   solo guarda metadatos, hash y una referencia opaca al proveedor de
   `AudioStorage`; el binario vive exclusivamente en ese proveedor
@@ -343,17 +434,22 @@ Enumerado compartido (`core/processing_status.py`), con el subconjunto
 aplicable a cada entidad. Validado en la capa de dominio/servicio (ver
 [architecture.md](architecture.md) §5), no solo en la API.
 
-> **Corrección de diseño (Fase 3):** las versiones anteriores de este
-> documento incluían `clinical_sessions` como consumidor agregado de
-> `ProcessingStatus` (`created → uploaded → … → exported`). Al diseñar en
-> detalle el módulo `clinical_sessions` (Fase 3), ese enfoque genérico
-> resultó insuficiente para expresar sus reglas de negocio propias
-> (creación directa en varios estados, cancelación, revisión sin IA de
-> por medio). `clinical_sessions` tiene ahora su **propia** máquina de
-> estados, `ClinicalSessionStatus`, documentada en §8, independiente de
-> `ProcessingStatus`. `ProcessingStatus` queda reservado a
-> `audio_recordings`, `anamnesis_documents` y `session_notes` (fases
-> futuras, sin implementar todavía).
+> **Corrección de diseño (Fase 3, ampliada en Fase 4):** las versiones
+> anteriores de este documento incluían `clinical_sessions` como
+> consumidor agregado de `ProcessingStatus` (`created → uploaded → … →
+> exported`). Al diseñar en detalle el módulo `clinical_sessions`
+> (Fase 3), ese enfoque genérico resultó insuficiente para expresar sus
+> reglas de negocio propias. `clinical_sessions` tiene su **propia**
+> máquina de estados, `ClinicalSessionStatus`, documentada en §8,
+> independiente de `ProcessingStatus`. El diseño previo también reservaba
+> `ProcessingStatus` para `anamnesis_documents`/`session_notes`
+> (fases futuras, nunca implementadas); esas tablas se eliminaron en la
+> Fase 4 en favor de `ai_artifacts`/`ai_artifact_versions` (§2), que usan
+> su **propio** modelo de estados en dos ejes independientes
+> (`AIArtifactStatus`/`AIGenerationRunStatus`, ver §10) — tampoco
+> `ProcessingStatus`. **`ProcessingStatus` queda reservado
+> exclusivamente a `audio_recordings`** (única entidad que sigue
+> aplicándolo; fase futura, sin implementar todavía).
 
 | Estado | Aplica a | Significado |
 |---|---|---|
@@ -362,32 +458,22 @@ aplicable a cada entidad. Validado en la capa de dominio/servicio (ver
 | `ready` | `audio_recordings` | Audio válido, listo para transcribir |
 | `transcribing` | `audio_recordings` | Transcripción en curso |
 | `transcribed` | `audio_recordings` | Transcripción completada |
-| `generating` | `anamnesis_documents`, `session_notes` | Generación IA en curso |
-| `review_pending` | `anamnesis_documents`, `session_notes` | Generado (o editado tras generar), pendiente de aprobación explícita |
-| `approved` | `anamnesis_documents`, `session_notes` | Aprobado explícitamente por el profesional |
-| `failed` | todas | Error no recuperable en el paso correspondiente; ver `failure_reason` |
-| `deleted` | todas | `audio_recordings`: borrado físico + metadatos conservados. `anamnesis_documents`/`session_notes`: borrado **lógico** únicamente |
+| `failed` | `audio_recordings` | Error no recuperable en el paso correspondiente; ver `failure_reason` |
+| `deleted` | `audio_recordings` | Borrado físico + metadatos conservados |
 
-Transiciones válidas por entidad (cualquier otra transición debe ser
-rechazada por la capa de dominio):
+Transiciones válidas (cualquier otra transición debe ser rechazada por la
+capa de dominio):
 
 ```
 audio_recordings:
   uploaded → validating → ready → transcribing → transcribed
   (uploaded|validating) → failed
   ready → deleted   (retención, borrado físico manual)
-
-anamnesis_documents / session_notes:
-  generating → review_pending → approved
-  review_pending → review_pending   (nueva edición, se versiona)
-  approved → review_pending          (nueva edición tras aprobar: exige re-aprobación)
-  generating → failed
-  (review_pending|approved) → deleted  (borrado lógico, nunca físico si approved)
 ```
 
-Un documento en `deleted` no aparece en las vistas por defecto pero
-conserva su fila, `document_versions` y las entradas de `audit_log`
-asociadas — nunca se elimina físicamente si alcanzó `approved`.
+Ver §10 para los estados de los artefactos de IA generados a partir de la
+transcripción (`ai_artifacts`/`ai_generation_runs`), que sustituyen al
+antiguo uso de `ProcessingStatus` para `anamnesis_documents`/`session_notes`.
 
 ## 7. Multi-clínica, archivado de pacientes e índices (Fase 2)
 
@@ -425,7 +511,7 @@ API. `is_archived` + `archived_at` sustituyen al borrado:
 | `(clinic_id, timestamp)` | `audit_logs` | Auditoría por clínica y rango de fechas |
 
 **`schema_version` en `patients`**: mismo patrón que en
-`anamnesis_documents`/`session_notes` — versiona el esquema fijo de campos
+`ai_artifacts` — versiona el esquema fijo de campos
 administrativos del paciente para poder evolucionarlo sin migrar filas
 existentes ni introducir formularios configurables por clínica.
 
@@ -567,3 +653,90 @@ sin haber sido programadas — esas sesiones no aparecerán en el filtro
 [api-specification.md](api-specification.md) §Clinical sessions).
 Decisión cerrada: no se crea una fecha "efectiva" combinada (ver
 [product-requirements.md](product-requirements.md) §11, decisión 13).
+
+## 10. Estados del AI Pipeline (Fase 4)
+
+Diseño cerrado el 2026-08-10 — análisis completo y justificación en
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §9.2 y §12.
+Dos ejes **independientes**, nunca mezclados en un único enumerado:
+
+### `AIGenerationRunStatus` — eje de ejecución (`ai_generation_runs.status`)
+
+| Estado | Significado | ¿Terminal? |
+|---|---|---|
+| `queued` | Paso encolado, todavía no iniciado | No |
+| `processing` | Ejecutándose (llamada al provider en curso) | No |
+| `completed` | Terminó con éxito; produjo una `ai_artifact_versions` | Sí |
+| `failed` | Terminó con error; ver `failure_reason` | Sí |
+
+```
+queued → processing → completed
+                    → failed
+```
+
+No existe un estado `created` distinto de `queued` (un
+`ai_generation_runs` nace directamente en `queued`; no hay hueco
+intermedio en un orquestador síncrono).
+
+### `AIArtifactStatus` — eje de disposición humana (`ai_artifacts.status`)
+
+| Estado | Significado | ¿Terminal? |
+|---|---|---|
+| `review_pending` | Existe una versión vigente sin decisión humana, o ya se editó/regeneró desde `approved`/`rejected` | No |
+| `approved` | Aprobado explícitamente por un profesional | No (una nueva edición lo devuelve a `review_pending`) |
+| `rejected` | Rechazado explícitamente; puede reabrirse mediante edición o regeneración | No |
+
+```
+              ┌──────────────────────────────┐
+              ▼                              │
+  review_pending → approved ──────────────────┤ (editar tras aprobar)
+              │                              │
+              └→ rejected ────────────────────┘ (editar/regenerar tras rechazar)
+```
+
+No existe `failed` en este eje (pertenece únicamente al eje de
+ejecución: si una regeneración falla, el `AIArtifact` existente no se
+toca). No existe `versioned` como estado: todo `AIArtifact` tiene ≥1
+versión desde que existe, es un hecho estructural, no un estado — mismo
+criterio que `clinical_sessions` no tiene un estado "ha sido creada".
+
+### `AIPipelineRunStatus` — agregado de una ejecución completa (`ai_pipeline_runs.status`)
+
+| Estado | Significado |
+|---|---|
+| `queued` | Disparado, todavía no iniciado |
+| `processing` | Al menos un paso en curso |
+| `completed` | Todos los pasos completaron |
+| `partially_failed` | Al menos un paso falló o se saltó, pero al menos uno completó |
+| `failed` | Ningún paso completó |
+
+### `confidence`
+
+`ai_artifacts.confidence` / `ai_artifact_versions.confidence` (0-100):
+confianza estimada del modelo en la generación, **nunca** sustituye al
+criterio clínico ni decide ninguna transición de forma automática —
+ninguna ruta de código aprueba un artefacto por su valor de `confidence`.
+Solo se usa para resaltar en la interfaz qué elementos merecen especial
+atención en la revisión humana. Ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §8.
+
+## 11. Índices y restricciones del AI Pipeline (Fase 4)
+
+| Índice / restricción | Tabla | Propósito |
+|---|---|---|
+| `UNIQUE (clinical_session_id, artifact_type)` | `ai_artifacts` | A lo sumo un artefacto activo por tipo y sesión |
+| `(clinical_session_id)` | `ai_artifacts` | Listar todos los artefactos de una sesión |
+| `UNIQUE (ai_artifact_id, version_number)` | `ai_artifact_versions` | Integridad del versionado |
+| `(ai_artifact_id, version_number DESC)` | `ai_artifact_versions` | Obtener el historial ordenado |
+| `(ai_pipeline_run_id)` | `ai_generation_runs` | Listar los pasos de una ejecución |
+| `(clinical_session_id, artifact_type)` | `ai_generation_runs` | Auditoría técnica por sesión y tipo |
+| `(clinical_session_id, status)` | `ai_pipeline_runs` | Comprobar si ya existe una ejecución `queued`/`processing` en curso (ver regla de concurrencia en [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §8) |
+| `UNIQUE (name, version)` | `prompt_templates` | Integridad del versionado de plantillas |
+| `UNIQUE (name) WHERE is_active` | `prompt_templates` | Exactamente una versión activa por nombre |
+
+**Invariante de aplicación**: un `ai_pipeline_runs` con `status IN
+(queued, processing)` para una `clinical_session_id` dada bloquea un
+nuevo disparo del pipeline sobre esa misma sesión (`ConflictError` →
+409) — validado en `AIPipelineService`, no mediante constraint de
+Postgres, mismo criterio ya aplicado a las invariantes de
+`clinical_sessions` (§9).

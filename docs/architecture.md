@@ -14,11 +14,18 @@
                                                           └──────────────────────────────┘
 
 Backend, capa de integración:
-  transcription/  → TranscriptionProvider ──▶ MockTranscriptionProvider (MVP)
-  anamnesis/…      → LanguageModelProvider ──▶ MockLanguageModelProvider (MVP)
-  integrations/    → PatientRecordIntegration ──▶ MockPatientRecordIntegration (MVP)
+  integrations/    → TranscriptionProvider ──▶ MockTranscriptionProvider (MVP)
+                    → LanguageModelProvider ──▶ MockLanguageModelProvider (MVP)
+                    → SummaryGenerator ──▶ MockSummaryGenerator (MVP)
+                    → ClinicalFlagsGenerator ──▶ MockClinicalFlagsGenerator (MVP, checklist basado en reglas)
+                    → MissingInformationGenerator ──▶ MockMissingInformationGenerator (MVP)
+                    → AnamnesisGenerator ──▶ MockAnamnesisGenerator (MVP)
+                    → CostEstimator ──▶ MockCostEstimator (MVP)
+                    → TokenCounter ──▶ MockTokenCounter (MVP)
+                    → PatientRecordIntegration ──▶ MockPatientRecordIntegration (MVP)
                     → CalendarIntegration ──▶ MockCalendarIntegration (MVP)
-  session_notes/…  → DocumentExporter ──▶ PdfDocumentExporter / TextDocumentExporter
+  ai_pipeline/ (exportación de un artefacto aprobado) → DocumentExporter
+                    ──▶ PdfDocumentExporter / TextDocumentExporter
 ```
 
 Todo proveedor externo (transcripción, LLM, historia clínica, calendario) se
@@ -84,24 +91,80 @@ backend/
         retention.py              # interfaz RetentionCleanupService
       infrastructure/
         local_audio_storage.py  # única implementación en el MVP
-    transcription/
-    anamnesis/
-    session_notes/
-    clinical_flags/
+    ai_pipeline/                    # Fase 4 — diseño cerrado en
+                                     # ai-pipeline-architecture.md; sustituye
+                                     # por completo a los antiguos módulos
+                                     # transcription/anamnesis/session_notes
+                                     # (nunca implementados)
       domain/
-        clinical_flag_ruleset.py     # interfaz ClinicalFlagRuleset (puerto)
+        entities.py                  # AIArtifact, AIArtifactVersion,
+                                      # AIGenerationRun, AIPipelineRun,
+                                      # PipelineResult, enums
+        artifact_repository.py        # interfaz AIArtifactRepository (puerto)
+        generation_run_repository.py   # interfaz (puerto)
+        pipeline_run_repository.py      # interfaz (puerto)
+        prompt_template_repository.py    # interfaz (puerto)
+        prompt_renderer.py                # PromptRenderer — interno, no es
+                                           # una integración externa (mismo
+                                           # criterio que AudioStorage)
+        pipeline.py                        # PipelineOrchestrator (puerto) +
+                                            # SequentialPipelineOrchestrator
+        steps/                              # un PipelineStep por artifact_type
+          transcription_step.py
+          summary_step.py
+          clinical_flags_step.py
+          missing_information_step.py
+          anamnesis_step.py
       infrastructure/
-        demo_clinical_flag_ruleset.py # checklist genérico, no validado
+        orm.py                          # AIArtifactORM, AIArtifactVersionORM,
+                                         # AIGenerationRunORM, AIPipelineRunORM,
+                                         # PromptTemplateORM
+        repository.py                    # implementaciones SQLAlchemy
+      service.py                          # AIPipelineService: autoriza →
+                                           # ejecuta el pipeline → persiste →
+                                           # audita → commit
+      api/
+        schemas.py
+        router.py                          # /api/v1/clinical-sessions/{id}/ai/*
+    clinical_flags/                   # disposición por ítem (confirmar/
+                                       # descartar); no genera contenido —
+                                       # eso lo hace ClinicalFlagsGenerator
+                                       # en integrations/, orquestado por
+                                       # ai_pipeline/
+      domain/
+        entities.py                    # ClinicalFlag (dataclass), enum de disposición
+        repository.py                   # interfaz ClinicalFlagRepository (puerto)
+      infrastructure/
+        orm.py
+        repository.py
+      service.py                        # confirma/descarta; autoriza → opera → audita
+      api/
+        schemas.py
+        router.py                        # PATCH /clinical-flags/{flag_id}
     integrations/
       domain/            # interfaces abstractas compartidas
-        transcription_provider.py
-        language_model_provider.py
+        transcription_provider.py       # TranscriptionProvider
+        language_model_provider.py       # LanguageModelProvider (bajo nivel,
+                                          # compuesto por los *Generator)
+        summary_generator.py              # SummaryGenerator
+        clinical_flags_generator.py        # ClinicalFlagsGenerator (MVP:
+                                            # basado en reglas, sin LLM)
+        missing_information_generator.py    # MissingInformationGenerator
+        anamnesis_generator.py               # AnamnesisGenerator
+        cost_estimator.py                     # CostEstimator
+        token_counter.py                       # TokenCounter
         patient_record_integration.py
         calendar_integration.py
         document_exporter.py
       mocks/
         mock_transcription_provider.py
         mock_language_model_provider.py
+        mock_summary_generator.py
+        mock_clinical_flags_generator.py
+        mock_missing_information_generator.py
+        mock_anamnesis_generator.py
+        mock_cost_estimator.py
+        mock_token_counter.py
         mock_patient_record_integration.py
         mock_calendar_integration.py
     core/
@@ -123,13 +186,32 @@ backend/
   alembic/
 ```
 
-`AudioStorage` y `ClinicalFlagRuleset` son interfaces igual de "abstractas
-obligatorias" que las de `integrations/`, pero se definen dentro de su
-propio módulo (`audio`, `clinical_flags`) porque no son integraciones con
-sistemas externos de terceros — son puntos de extensión internos del
-dominio. `integrations/` queda reservado a las cuatro interfaces e
-implementaciones mock originales (transcripción, LLM, historia clínica,
-calendario) más el exportador de documentos.
+`AudioStorage` (`audio/`) y `PromptRenderer`/`PipelineOrchestrator`
+(`ai_pipeline/`) son interfaces igual de "abstractas obligatorias" que las
+de `integrations/`, pero se definen dentro de su propio módulo porque no
+son integraciones con sistemas externos de terceros — son puntos de
+extensión internos del dominio. `integrations/` queda reservado a las
+ocho interfaces e implementaciones mock del AI Pipeline
+(`TranscriptionProvider`, `LanguageModelProvider`, `SummaryGenerator`,
+`ClinicalFlagsGenerator`, `MissingInformationGenerator`,
+`AnamnesisGenerator`, `CostEstimator`, `TokenCounter` — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6) más
+`PatientRecordIntegration`/`CalendarIntegration` (historia clínica,
+calendario) y el exportador de documentos.
+
+**Nota sobre `ClinicalFlagRuleset` (nombre obsoleto).** El diseño previo
+a la Fase 4 definía una interfaz `ClinicalFlagRuleset` dentro de
+`clinical_flags/domain/`. Queda **eliminada**: su propósito lo cumple
+ahora `ClinicalFlagsGenerator` (`integrations/domain/`), con la misma
+implementación de referencia basada en reglas (`MockClinicalFlagsGenerator`,
+heredera de `DemoClinicalFlagRuleset`) y las mismas salvaguardas clínicas
+de [clinical-safety.md](clinical-safety.md) §7 — solo cambia dónde vive
+la interfaz (ahora junto al resto de proveedores del pipeline, no
+aislada en su propio módulo) y su firma (ya no recibe un borrador de
+anamnesis, que en el nuevo orden del pipeline todavía no existe cuando
+se detectan señales de alerta — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.4 y §12,
+decisión 18).
 
 ## 3. Módulos de dominio
 
@@ -138,25 +220,28 @@ calendario) más el exportador de documentos.
 | `clinics` | Entidad `Clinic` mínima; sistema multi-clínica desde el modelo, sin gestión completa desde el frontend en el MVP (Fase 2). |
 | `users` | Usuarios internos (`admin`/`audiologist`/`viewer`) por clínica. Sin autenticación real: solo resolución vía `CurrentUserProvider` (Fase 2). |
 | `patients` | Identidad y datos administrativos mínimos del paciente (ficticio), aislados por clínica. No contiene contenido clínico. |
-| `clinical_sessions` | Entidad central de la consulta: pertenece a una clínica, un paciente y un profesional responsable. Máquina de estados propia (`ClinicalSessionStatus`, Fase 3, diseño en [data-model.md](data-model.md) §8), borrado lógico (`is_archived`) independiente del estado. Base sobre la que se colgarán audio, transcripción, anamnesis, notas, señales clínicas, etc. en fases posteriores. |
+| `clinical_sessions` | Entidad central de la consulta: pertenece a una clínica, un paciente y un profesional responsable. Máquina de estados propia (`ClinicalSessionStatus`, Fase 3, diseño en [data-model.md](data-model.md) §8), borrado lógico (`is_archived`) independiente del estado. Base sobre la que cuelgan audio y el AI Pipeline. |
 | `audio` | Subida, validación (tamaño/duración/extensión/MIME) y almacenamiento de la grabación vía `AudioStorage`, incluida su eliminación física conforme a retención. |
-| `transcription` | Orquesta la llamada a `TranscriptionProvider` y persiste el resultado. |
-| `anamnesis` | Genera (vía `LanguageModelProvider`) y gestiona el ciclo de vida del documento de anamnesis, con versionado, `schema_version` y borrado lógico si está aprobado. |
-| `session_notes` | Resumen profesional de la sesión, mismo ciclo de vida que anamnesis (versionado, borrado lógico). |
-| `clinical_flags` | Señales de alerta / posibles motivos de derivación, generadas por un `ClinicalFlagRuleset` sustituible (MVP: checklist de demostración no validado clínicamente), con estado de revisión humana. |
-| `audit_log` | Registro append-only (tabla `audit_logs`) de acciones relevantes sobre pacientes, sesiones y documentos, escrito en la misma transacción que la entidad auditada. |
-| `integrations` | Interfaces abstractas + mocks para proveedores externos (transcripción, LLM, Noah, calendario) y exportadores de documentos. |
+| `ai_pipeline` | Orquesta la generación de artefactos de IA (transcripción, resumen, señales de alerta, información ausente, anamnesis) a partir de un grafo de dependencias (Fase 4, diseño cerrado en [ai-pipeline-architecture.md](ai-pipeline-architecture.md)); versionado, revisión humana y aprobación mediante la entidad genérica `AIArtifact`/`AIArtifactVersion`; auditoría técnica (proveedor, modelo, coste, tiempo) en `AIGenerationRun`. |
+| `clinical_flags` | Disposición humana por ítem (confirmar/descartar) sobre las señales de alerta generadas por el AI Pipeline — no genera contenido, solo gestiona su revisión individual (eje independiente de la disposición por documento de `AIArtifact`, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.2). |
+| `audit_log` | Registro append-only (tabla `audit_logs`) de acciones relevantes sobre pacientes, sesiones y artefactos de IA, escrito en la misma transacción que la entidad auditada. |
+| `integrations` | Interfaces abstractas + mocks para proveedores externos (transcripción, modelo de lenguaje, generación de resumen/anamnesis/señales/información ausente, coste, tokens, Noah, calendario) y exportadores de documentos. |
 
 ## 4. Interfaces abstractas obligatorias
 
 Definidas en `integrations/domain/`, implementadas en el MVP únicamente por
-sus contrapartes `Mock*`:
+sus contrapartes `Mock*` — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6 para los
+contratos completos:
 
-- **`TranscriptionProvider`**: `transcribe(audio_file) -> TranscriptionResult`.
-- **`LanguageModelProvider`**: `generate_anamnesis(transcript) -> AnamnesisDraft`,
-  `generate_session_summary(transcript) -> str`,
-  `detect_missing_information(anamnesis_draft) -> list[MissingInfoItem]`,
-  `detect_clinical_flags(transcript) -> list[ClinicalFlagDraft]`.
+- **`TranscriptionProvider`**: `transcribe(input: TranscriptionInput) -> TranscriptionResult`.
+- **`LanguageModelProvider`**: interfaz de bajo nivel, `complete(prompt: RenderedPrompt, *, model=None) -> LanguageModelResponse`. Es la única interfaz que implementarían SDKs de proveedores reales; el resto de generators la componen, no la sustituyen.
+- **`SummaryGenerator`**: `generate(transcript, *, context) -> SummaryDraft`.
+- **`ClinicalFlagsGenerator`**: `generate(transcript, *, context) -> list[ClinicalFlagDraft]`. MVP: `MockClinicalFlagsGenerator`, checklist basado en reglas, sin `LanguageModelProvider` — no validado clínicamente (ver [clinical-safety.md](clinical-safety.md) §7).
+- **`MissingInformationGenerator`**: `generate(summary, clinical_flags, *, context) -> list[MissingInfoItem]`.
+- **`AnamnesisGenerator`**: `generate(transcript, missing_information, *, context) -> AnamnesisDraft`.
+- **`CostEstimator`**: `estimate(*, provider, model, input_tokens, output_tokens) -> Decimal`.
+- **`TokenCounter`**: `count(text, *, model) -> int`.
 - **`PatientRecordIntegration`**: `sync_patient(...)`, `fetch_patient(...)` —
   sin implementación funcional real en el MVP, solo el contrato y el mock.
 - **`CalendarIntegration`**: `list_upcoming_sessions(...)`,
@@ -177,10 +262,17 @@ junto a su módulo:
   `purge(audio_recording_id) -> None` — borrado físico del audio +
   invalidación de `storage_reference`, con entrada de auditoría. En el MVP
   se invoca manualmente (endpoint/admin), sin scheduler.
-- **`ClinicalFlagRuleset`** (`clinical_flags/domain/`):
-  `evaluate(transcript, anamnesis_draft) -> list[ClinicalFlagDraft]`. MVP:
-  `DemoClinicalFlagRuleset`, checklist genérico marcado explícitamente como
-  no validado clínicamente (ver [clinical-safety.md](clinical-safety.md)).
+- **`PipelineOrchestrator`** (`ai_pipeline/domain/pipeline.py`):
+  `run(clinical_session_id, triggered_by, steps) -> PipelineResult`. MVP:
+  `SequentialPipelineOrchestrator`, síncrono, sin colas ni workers — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.2.
+- **`PromptRenderer`** (`ai_pipeline/domain/prompt_renderer.py`):
+  `render(template, variables) -> RenderedPrompt` — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.4.
+
+(`ClinicalFlagRuleset`, definida aquí en el diseño previo a la Fase 4,
+queda eliminada — su propósito lo cumple ahora `ClinicalFlagsGenerator`
+en `integrations/domain/`, ver §2 y §4.)
 
 Cada interfaz se selecciona en tiempo de ejecución mediante configuración
 (inyección por variable de entorno / factory), nunca mediante `import`
@@ -188,70 +280,95 @@ directo del módulo consumidor a la implementación concreta.
 
 ## 5. Estados de procesamiento (`ProcessingStatus`) y máquinas de estado propias
 
-Se define un enumerado compartido en `core/processing_status.py` con, como
-mínimo: `uploaded`, `validating`, `ready`, `transcribing`, `transcribed`,
-`generating`, `review_pending`, `approved`, `failed`, `deleted`. Cada
-entidad con ciclo de vida basado en procesamiento (`audio_recordings`,
-`anamnesis_documents`, `session_notes` — fases futuras, sin implementar
-todavía) usa el subconjunto de estados que le aplica.
-
-Las transiciones válidas (p. ej. `uploaded → validating → ready`, nunca
-`uploaded → approved`) se definen y verifican en la **capa de dominio o
-servicio** de cada módulo (una función/objeto `StateMachine` por entidad),
-no únicamente mediante validación en el router de FastAPI. Cualquier
-intento de transición inválida lanza una excepción de dominio antes de
-tocar la base de datos. Detalle completo de estados por entidad en
+Se define un enumerado compartido en `core/processing_status.py` con:
+`uploaded`, `validating`, `ready`, `transcribing`, `transcribed`,
+`failed`, `deleted`. **Aplica exclusivamente a `audio_recordings`**
+(fase futura, sin implementar todavía) — ver
 [data-model.md](data-model.md) §6.
 
-`clinical_flags` mantiene su propio eje de estado independiente
-(`sugerida_ia` / `confirmada_por_profesional` / `descartada`): no es un
-estado de *procesamiento* sino de *disposición del profesional* ante una
-señal, y no se mezcla con `ProcessingStatus`.
+Las transiciones válidas (p. ej. `uploaded → validating → ready`, nunca
+`uploaded → deleted` directamente) se definen y verifican en la **capa de
+dominio o servicio** de cada módulo (una función/objeto `StateMachine`
+por entidad), no únicamente mediante validación en el router de FastAPI.
+Cualquier intento de transición inválida lanza una excepción de dominio
+antes de tocar la base de datos.
 
-**`clinical_sessions` no usa `ProcessingStatus`.** Tiene su propia máquina
-de estados, `ClinicalSessionStatus` (`scheduled`, `in_progress`,
-`completed`, `review_pending`, `reviewed`, `cancelled`), definida en
-`clinical_sessions/domain/state_machine.py` y documentada en
-[data-model.md](data-model.md) §8. Razón: el vocabulario de
-`ProcessingStatus` (pensado para un pipeline lineal de IA:
-subir→validar→procesar→revisar→aprobar) no expresa bien el ciclo de vida
-real de una consulta clínica — creación directa en varios estados,
-cancelación, o el hecho de que "revisar" aquí no depende de ningún
-proveedor de IA. Mismo principio arquitectónico (transiciones validadas en
-dominio/servicio, nunca solo en el router), vocabulario y reglas propias.
-Esta es una corrección respecto al diseño original de la Fase 0/1, que
-trataba `clinical_sessions` como un agregado informativo de
-`ProcessingStatus`; ver nota en [data-model.md](data-model.md) §6.
+Cada entidad con ciclo de vida propio tiene, en cambio, su **propia**
+máquina de estados en vez de compartir `ProcessingStatus` — mismo
+principio arquitectónico (transiciones validadas en dominio/servicio,
+nunca solo en el router), vocabulario y reglas propias en cada caso:
+
+- **`clinical_sessions`**: `ClinicalSessionStatus` (`scheduled`,
+  `in_progress`, `completed`, `review_pending`, `reviewed`, `cancelled`),
+  definida en `clinical_sessions/domain/state_machine.py` y documentada
+  en [data-model.md](data-model.md) §8. Razón: el vocabulario de
+  `ProcessingStatus` (pensado para un pipeline lineal de IA) no expresa
+  bien el ciclo de vida real de una consulta clínica — creación directa
+  en varios estados, cancelación, revisión sin IA de por medio.
+- **Artefactos de IA (`ai_artifacts`/`ai_generation_runs`)**: dos ejes
+  independientes, `AIGenerationRunStatus` (ejecución:
+  `queued`/`processing`/`completed`/`failed`) y `AIArtifactStatus`
+  (disposición humana: `review_pending`/`approved`/`rejected`),
+  documentados en [data-model.md](data-model.md) §10 y
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §9.2. Razón:
+  igual que `clinical_sessions`, `ProcessingStatus` mezclaría en un único
+  enumerado dos conceptos distintos — si un paso técnico se ejecutó con
+  éxito, y si un humano ha decidido algo sobre su resultado —. Sustituye
+  al uso previsto (nunca implementado) de `ProcessingStatus` para
+  `anamnesis_documents`/`session_notes`.
+- **`clinical_flags`** mantiene su propio eje de estado, ya existente
+  desde el diseño original: `sugerida_ia` / `confirmada_por_profesional`
+  / `descartada` — disposición del profesional sobre una señal
+  individual, no un estado de procesamiento ni de artefacto completo (ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.2).
+
+**`ProcessingStatus` queda reservado exclusivamente a
+`audio_recordings`.** Esta es una corrección acumulada respecto al diseño
+original de la Fase 0/1 (que trataba `clinical_sessions` como un
+agregado de `ProcessingStatus`, corregido en la Fase 3) y respecto al
+diseño previo a la Fase 4 (que reservaba `ProcessingStatus` también para
+`anamnesis_documents`/`session_notes`, tablas ya eliminadas — ver nota en
+[data-model.md](data-model.md) §6).
 
 ## 6. Flujo end-to-end (secuencia principal)
 
 1. El profesional crea un paciente ficticio.
-2. Crea una `ClinicalSession` asociada a ese paciente (estado `created`).
+2. Crea una `ClinicalSession` asociada a ese paciente.
 3. Sube un audio → `audio` valida tamaño/duración/extensión/MIME
    (`uploaded` → `validating` → `ready`, o `failed` si no pasa la
    validación) y lo almacena vía `AudioStorage`.
-4. El profesional solicita transcripción → `transcription` invoca
-   `TranscriptionProvider.transcribe(...)` (`transcribing` → `transcribed`,
-   o `failed`).
-5. El profesional solicita generación de documentos → `anamnesis` y
-   `session_notes` invocan `LanguageModelProvider`, y `clinical_flags`
-   invoca `ClinicalFlagRuleset` (`generating` → `review_pending`, o
-   `failed`).
-6. El profesional revisa/edita cada documento → cada guardado crea una
-   nueva versión (`document_versions`); el documento permanece en
-   `review_pending` hasta la aprobación explícita.
-7. El profesional aprueba explícitamente → estado `approved`, se registra
-   usuario y timestamp. Solo entonces el documento puede exportarse. Una
-   nueva edición tras la aprobación devuelve el documento a
-   `review_pending` y exige nueva aprobación.
-8. `audit_log` registra cada transición de estado y cada edición relevante
-   durante todo el flujo, incluidos fallos y borrados.
-9. El profesional exporta anamnesis/resumen aprobados vía
-   `DocumentExporter` (`exported` a nivel de sesión, informativo).
-10. Pasado el periodo de retención (30 días por defecto), el audio puede
-    eliminarse físicamente (`deleted`) de forma manual vía
-    `RetentionCleanupService`; los documentos clínicos aprobados nunca se
-    eliminan físicamente, solo mediante borrado lógico auditado.
+4. El profesional dispara el AI Pipeline
+   (`POST .../ai/generate`) → `ai_pipeline` ejecuta el grafo de
+   dependencias completo (`Transcription` → `{Summary, Clinical Flags}` →
+   `Missing Information` → `Structured Anamnesis`, ver
+   [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.4),
+   creando o versionando un `AIArtifact` por cada paso que complete con
+   éxito (`AIGenerationRunStatus`: `queued` → `processing` → `completed`
+   o `failed`, por paso). Cada artefacto nace en `AIArtifactStatus =
+   review_pending`.
+5. El profesional revisa/edita cada artefacto → cada guardado crea una
+   nueva `AIArtifactVersion`; el artefacto permanece o vuelve a
+   `review_pending` hasta la aprobación explícita. Para `clinical_flags`,
+   además, cada ítem generado se confirma o descarta individualmente
+   (tabla `clinical_flags`, disposición por ítem).
+6. El profesional aprueba explícitamente cada artefacto → estado
+   `approved`, se registra usuario y timestamp. Solo entonces puede
+   exportarse. Una nueva edición tras la aprobación (o tras un rechazo)
+   devuelve el artefacto a `review_pending` y exige nueva decisión.
+7. `audit_log` registra el disparo del pipeline y cada acción de
+   disposición humana (aprobar/rechazar/editar); la auditoría técnica de
+   cada paso (proveedor, modelo, coste, tiempo, plantilla usada) vive en
+   `ai_generation_runs`, no en `audit_logs` — ver
+   [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.6.
+8. El profesional exporta artefactos aprobados vía `DocumentExporter`.
+9. Pasado el periodo de retención (30 días por defecto), el audio puede
+   eliminarse físicamente (`deleted`) de forma manual vía
+   `RetentionCleanupService`; los artefactos de IA aprobados nunca se
+   eliminan físicamente, solo mediante borrado lógico auditado.
+
+La IA nunca escribe directamente sobre el resultado persistido: `AI →
+Draft → Human Review → Approve → Persist`, nunca `AI → Database` — ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.1.
 
 ## 7. Frontend
 
@@ -264,10 +381,10 @@ frontend/
       patients/
       sessions/
       audio-upload/
-      transcription/
-      anamnesis-review/
-      session-notes-review/
-      clinical-flags/
+      ai-pipeline/       # disparo del pipeline, revisión/aprobación por
+                          # artefacto (transcripción, resumen, anamnesis,
+                          # información ausente), historial de versiones
+      clinical-flags/     # disposición por ítem, dentro del artefacto de señales
       audit-log/
     shared/
       api-client/
@@ -287,11 +404,17 @@ mano; ver [development-plan.md](development-plan.md)).
 El MVP es exclusivamente en español, pero ningún texto de usuario ni
 prompt de IA se escribe embebido donde se usa:
 
-- **Backend**: todos los textos fijos (avisos obligatorios de IA,
-  disclaimers del checklist de señales de alerta, plantillas/prompts del
-  `LanguageModelProvider`) viven en `core/messages/es.py` como constantes
-  con clave semántica (p. ej. `AI_DISCLAIMER`, `CLINICAL_FLAGS_DEMO_NOTICE`),
-  nunca como literales repetidos en el código de dominio.
+- **Backend**: los avisos obligatorios de IA y el disclaimer del checklist
+  de señales de alerta viven en `core/messages/es.py` como constantes con
+  clave semántica (p. ej. `AI_DISCLAIMER`, `CLINICAL_FLAGS_DEMO_NOTICE`),
+  nunca como literales repetidos en el código de dominio. Los
+  **prompts** de los `*Generator` del AI Pipeline siguen el mismo
+  principio de "nunca hardcodeados" pero con un mecanismo propio —
+  plantillas versionadas en `ai_pipeline/prompts/` (git) sembradas en la
+  tabla `prompt_templates` (base de datos, fuente de verdad en
+  ejecución) — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.4, no en
+  `core/messages/es.py`.
 - **Frontend**: mismo principio en `shared/i18n/es.ts` — componentes
   importan claves, no escriben cadenas de texto directamente.
 
@@ -374,10 +497,12 @@ datos de otra clínica.
   un proveedor de pago concreto antes de validar el flujo.
 - **Separación domain/infrastructure/presentation** por módulo, en lugar de
   una arquitectura hexagonal global de una sola pieza: mantiene cada
-  módulo clínico (`anamnesis`, `clinical_flags`, etc.) independiente y más
-  fácil de razonar/testear de forma aislada.
-- **Versionado explícito de documentos** (no solo `updated_at`): requisito
-  de negocio (guardar original IA + versión final) y de auditoría clínica.
+  módulo clínico (`ai_pipeline`, `clinical_flags`, etc.) independiente y
+  más fácil de razonar/testear de forma aislada.
+- **Versionado explícito de artefactos de IA** (`AIArtifactVersion`, no
+  solo `updated_at`): requisito de negocio (guardar original IA + versión
+  final editada, poder regenerar sin perder la anterior) y de auditoría
+  clínica — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §3.3.
 - **Identidad del paciente separada del contenido clínico** (módulo
   `patients` vs. resto de módulos clínicos que solo referencian
   `patient_id`): principio de privacidad desde el diseño, ver
@@ -387,17 +512,25 @@ datos de otra clínica.
   el MVP no tiene el volumen ni el equipo que justifique la complejidad
   operativa de microservicios; los límites de módulo ya preparan una
   futura extracción si hiciera falta.
-- **`AudioStorage` y `ClinicalFlagRuleset` como interfaces internas del
-  módulo, no en `integrations/`**: no son integraciones con sistemas
-  externos de terceros sino puntos de extensión propios del dominio
-  (almacenamiento físico, protocolo clínico). Mezclarlas con
-  `integrations/` diluiría el propósito de ese módulo (reservado a Noah,
-  calendario, transcripción y LLM).
-- **`ProcessingStatus` compartido con transiciones validadas en
-  dominio/servicio**: exigido para poder razonar sobre el estado de una
-  sesión de forma consistente en todos los módulos y para que ninguna
-  transición inválida (p. ej. aprobar un documento sin generarlo antes)
-  dependa solo de que el frontend "se porte bien".
+- **`AudioStorage`, `PipelineOrchestrator` y `PromptRenderer` como
+  interfaces internas del módulo, no en `integrations/`**: no son
+  integraciones con sistemas externos de terceros sino puntos de
+  extensión propios del dominio (almacenamiento físico, orquestación,
+  renderizado de plantillas). Mezclarlas con `integrations/` diluiría el
+  propósito de ese módulo (reservado a proveedores externos sustituibles:
+  Noah, calendario, transcripción, modelo de lenguaje y los generators
+  del AI Pipeline).
+- **Cada entidad con ciclo de vida propio tiene su propia máquina de
+  estados**, en vez de forzar un único `ProcessingStatus` compartido para
+  todo: `clinical_sessions` (`ClinicalSessionStatus`), los artefactos de
+  IA (`AIGenerationRunStatus`/`AIArtifactStatus`, dos ejes) y
+  `audio_recordings` (`ProcessingStatus`, el único caso que realmente
+  encaja con ese vocabulario). El principio que sí se comparte —
+  transiciones validadas en dominio/servicio, nunca solo en el router —
+  no exige compartir el vocabulario; forzarlo llevó a dos correcciones de
+  diseño sucesivas (Fase 3 para `clinical_sessions`, Fase 4 para los
+  artefactos de IA) documentadas en
+  [data-model.md](data-model.md) §6.
 - **`CurrentUserProvider` como puerto, no como parámetro implícito**: aísla
   todo el código de negocio de cómo se resuelve la identidad. La Fase 2
   usa una implementación simulada; sustituirla por autenticación real más
@@ -425,3 +558,25 @@ datos de otra clínica.
   del módulo al que pertenece; lo que se comparte es el **principio**
   (transiciones validadas en dominio/servicio, nunca solo en el router),
   no el vocabulario.
+- **`AIArtifact`/`AIArtifactVersion` genéricos, en vez de una tabla por
+  tipo de artefacto (Fase 4)**: un único mecanismo de versionado, estado
+  de revisión y auditoría técnica reutilizado por los cinco artefactos
+  actuales (transcripción, resumen, señales de alerta, información
+  ausente, anamnesis) y por cualquier artefacto futuro, sin migración de
+  esquema nueva cada vez. Análisis completo de ventajas/inconvenientes
+  frente al diseño anterior (tablas independientes) en
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §3.1.
+- **Contrato interno del AI Pipeline siempre en JSON estructurado, nunca
+  texto libre ni Markdown**: permite validar la forma de cada tipo de
+  artefacto en la capa de servicio, generar cualquier vista/documento a
+  partir de la misma fuente estructurada, y evita que la salida de un
+  proveedor concreto se filtre sin normalizar hacia el contenido
+  persistido. Ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md)
+  §7.1.
+- **Cada `*Generator` del AI Pipeline compone `LanguageModelProvider` en
+  vez de implementarse directamente contra un SDK de proveedor** (salvo
+  `ClinicalFlagsGenerator`, deliberadamente basado en reglas): separa el
+  eje de "qué proveedor" del eje de "cómo se valida la salida de cada
+  artefacto", de modo que cambiar de proveedor no obligue a reimplementar
+  la lógica de negocio de cada artefacto. Ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.2.

@@ -106,15 +106,17 @@ Detalle de fases y criterios de aceptación en
 1. Documentación fundacional (este conjunto de documentos).
 2. Esqueleto de proyecto (Docker Compose, backend, frontend, lint/CI local).
 3. Módulo `patients` + `users` + auth básica.
-4. Módulo `clinical_sessions` + `audio` (subida, almacenamiento local).
-5. Módulo `transcription` (mock) sobre el audio subido.
-6. Módulo `anamnesis` + `session_notes` + `clinical_flags` (generación mock
-   a partir de la transcripción).
-7. Flujo de revisión/edición/aprobación + versionado + `audit_log`.
-8. Exportación PDF/texto.
-9. `integrations` (interfaces + mocks para Noah/calendario), consentimiento,
+4. Módulo `clinical_sessions`.
+5. AI Pipeline end-to-end (diseño cerrado en
+   [ai-pipeline-architecture.md](ai-pipeline-architecture.md)): `audio`,
+   generación mock de transcripción/resumen/señales de
+   alerta/información ausente/anamnesis mediante un orquestador de grafo
+   de dependencias, revisión/edición/aprobación/versionado de cada
+   artefacto (`AIArtifact`).
+6. Exportación PDF/texto.
+7. `integrations` (interfaces + mocks para Noah/calendario), consentimiento,
    retención/eliminación configurables.
-10. RBAC más fino y hardening de seguridad si el tiempo lo permite.
+8. RBAC más fino y hardening de seguridad si el tiempo lo permite.
 
 ## 8. Decisiones cerradas (previamente preguntas abiertas)
 
@@ -127,10 +129,14 @@ resto de la documentación y para la implementación.
    versionar el esquema en el futuro sin necesidad de formularios
    configurables por clínica ahora. Ver [data-model.md](data-model.md) §3.
 2. **Español único, preparado para i18n futura.** El MVP funciona
-   exclusivamente en español. Todos los textos de UI, etiquetas y prompts
-   del `LanguageModelProvider` se centralizan en recursos únicos (no
-   hardcodeados dispersos) para facilitar una futura internacionalización,
-   sin implementar multiidioma ahora. Ver [architecture.md](architecture.md) §8.
+   exclusivamente en español. Todos los textos de UI y etiquetas se
+   centralizan en recursos únicos (no hardcodeados dispersos); los
+   prompts del AI Pipeline siguen el mismo principio mediante plantillas
+   versionadas (`prompt_templates`, ver
+   [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.4) en
+   vez de constantes de código. Ninguno de los dos mecanismos implementa
+   selección de idioma en tiempo de ejecución todavía. Ver
+   [architecture.md](architecture.md) §8.
 3. **Límites de audio.** Tamaño máximo 200 MB, duración máxima 60 minutos,
    ambos configurables por variable de entorno
    (`AUDIO_MAX_SIZE_MB`, `AUDIO_MAX_DURATION_MINUTES`). Se valida tamaño,
@@ -150,9 +156,11 @@ resto de la documentación y para la implementación.
 7. **Checklist de señales de alerta genérico de demostración.** No
    validado clínicamente, no apto para uso real; así se etiqueta en toda
    salida relacionada. Su lógica vive detrás de una interfaz
-   (`ClinicalFlagRuleset`) aislada para poder sustituirla por protocolos
-   validados en el futuro sin tocar el resto del módulo `clinical_flags`.
-   Ver [clinical-safety.md](clinical-safety.md) §7.
+   (`ClinicalFlagsGenerator`, ver
+   [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1 —
+   nombre actualizado en la Fase 4, mismo aislamiento) para poder
+   sustituirla por protocolos validados en el futuro sin tocar el resto
+   del AI Pipeline. Ver [clinical-safety.md](clinical-safety.md) §7.
 
 ## 9. Decisiones adicionales cerradas
 
@@ -161,18 +169,26 @@ resto de la documentación y para la implementación.
    (`storage_reference`). El binario nunca pasa por la base de datos.
 9. **UUID como identificador público** en todas las entidades, sin IDs
    secuenciales expuestos.
-10. **Borrado lógico para documentos clínicos aprobados.** Nunca se
-    eliminan mediante borrado físico; se marcan `deleted` con auditoría,
-    conservando `document_versions` íntegro. Los audios sí pueden
-    eliminarse físicamente conforme a la política de retención (el
-    registro de metadatos permanece, con `storage_reference` invalidado).
-11. **Estados de procesamiento explícitos y unificados**
-    (`ProcessingStatus`): como mínimo `uploaded`, `validating`, `ready`,
-    `transcribing`, `transcribed`, `generating`, `review_pending`,
-    `approved`, `failed`, `deleted` — con las transiciones válidas
-    definidas y verificadas en la capa de dominio/servicio, nunca
+10. **Borrado lógico para artefactos de IA aprobados.** Nunca se
+    eliminan mediante borrado físico; se marcan como eliminados con
+    auditoría, conservando `ai_artifact_versions` íntegro (ver
+    [data-model.md](data-model.md) §2, tablas `ai_artifacts`/
+    `ai_artifact_versions`). Los audios sí pueden eliminarse físicamente
+    conforme a la política de retención (el registro de metadatos
+    permanece, con `storage_reference` invalidado).
+11. **Estados de procesamiento explícitos, verificados en dominio/servicio.**
+    `ProcessingStatus` (`uploaded`, `validating`, `ready`, `transcribing`,
+    `transcribed`, `failed`, `deleted`) aplica exclusivamente a
+    `audio_recordings`. Los artefactos de IA usan su propio modelo de dos
+    ejes (`AIGenerationRunStatus`/`AIArtifactStatus`), y
+    `clinical_sessions` su propia máquina de estados
+    (`ClinicalSessionStatus`) — decisión revisada en la Fase 3 y de nuevo
+    en la Fase 4 respecto a la versión original de este documento, que
+    preveía un único `ProcessingStatus` compartido por todas las
+    entidades con ciclo de vida. En todos los casos, las transiciones
+    válidas se definen y verifican en la capa de dominio/servicio, nunca
     dependiendo únicamente de la API. Detalle completo en
-    [data-model.md](data-model.md) §6.
+    [data-model.md](data-model.md) §6 y §10.
 12. **Auditoría universal.** Toda operación relevante (incluyendo fallos y
     borrados) debe poder asociarse a una entrada de `audit_log`.
 
