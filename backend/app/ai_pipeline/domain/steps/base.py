@@ -89,12 +89,26 @@ async def run_provider_step(
 
 
 def _content_as_text(content: dict[str, Any]) -> str:
-    """Aproximación simple para `TokenCounter`: concatena los valores de
-    texto del contenido generado. No pretende ser un serializador fiel."""
-    parts: list[str] = []
-    for value in content.values():
-        if isinstance(value, str):
-            parts.append(value)
-        else:
-            parts.append(str(value))
-    return " ".join(parts)
+    """Aproximación simple para `TokenCounter`: concatena el texto real del
+    contenido generado. No pretende ser un serializador fiel.
+
+    Extrae recursivamente los valores string de listas/diccionarios
+    anidados (p. ej. `segments` en `transcript` desde la Fase 5, o `flags`
+    en `clinical_flags`) en vez de convertir la estructura entera con
+    `str(value)` — eso inflaba el recuento con sintaxis de Python
+    (`{`, `'speaker':`, claves...) además del propio texto, detectado con
+    una llamada real a AssemblyAI (ver docs/transcription-benchmark.md):
+    con `segments` presente, `output_token_count` llegó a duplicarse.
+    Los escalares no-string (`duration_ms`, `None`, booleanos) se
+    convierten con `str()` igual que antes."""
+    return " ".join(part for part in (_extract_text(value) for value in content.values()) if part)
+
+
+def _extract_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return " ".join(part for part in (_extract_text(v) for v in value.values()) if part)
+    if isinstance(value, list):
+        return " ".join(part for part in (_extract_text(v) for v in value) if part)
+    return str(value)
