@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
@@ -53,6 +54,12 @@ class Settings(BaseSettings):
     assemblyai_language_code: str = "es"
     assemblyai_poll_interval_seconds: float = 2.0
     assemblyai_poll_timeout_seconds: float = 120.0
+
+    # --- Pricing del benchmark (Fase 5.1) — ver app/integrations/pricing.py ---
+    # `None` -> se usa el valor orientativo por defecto de pricing.py.
+    # Nunca facturación autoritativa: verifica el precio vigente del
+    # proveedor antes de confiar en estas cifras.
+    assemblyai_price_per_hour_usd: Decimal | None = None
 
     @property
     def is_production(self) -> bool:

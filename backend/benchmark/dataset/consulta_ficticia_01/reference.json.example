@@ -1,0 +1,15 @@
+{
+  "language": "es",
+  "speakers": [
+    { "id": "audiologist", "label": "Audioprotesista" },
+    { "id": "patient", "label": "Paciente" }
+  ],
+  "segments": [
+    { "speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "Buenos días, ¿en qué puedo ayudarle hoy?" },
+    { "speaker": "patient", "start_ms": null, "end_ms": null, "text": "Buenos días, desde hace unos meses noto que escucho peor, sobre todo por el oído izquierdo." },
+    { "speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "¿Ha notado pitidos o acúfenos?" },
+    { "speaker": "patient", "start_ms": null, "end_ms": null, "text": "Sí, tengo un pitido constante, más intenso en el oído izquierdo." },
+    { "speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "¿Y ha tenido episodios de vértigo o mareos?" },
+    { "speaker": "patient", "start_ms": null, "end_ms": null, "text": "No, vértigo no he tenido nunca." }
+  ]
+}

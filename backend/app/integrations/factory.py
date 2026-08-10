@@ -14,10 +14,15 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app.core.config import Settings
+from app.integrations.domain.audio_cost_estimator import AudioCostEstimator
 from app.integrations.domain.transcription_provider import TranscriptionProvider
+from app.integrations.mocks.mock_audio_cost_estimator import MockAudioCostEstimator
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
 from app.integrations.providers.assemblyai_transcription_provider import (
     AssemblyAITranscriptionProvider,
+)
+from app.integrations.providers.pricing_table_audio_cost_estimator import (
+    PricingTableAudioCostEstimator,
 )
 
 #: Registro único de proveedores de transcripción — consumido tanto por la
@@ -52,4 +57,26 @@ def build_transcription_provider(
             f"'{name}' no es un proveedor de transcripción reconocido. Valores válidos: "
             f"{', '.join(sorted(TRANSCRIPTION_PROVIDER_FACTORIES))}."
         ) from exc
+    return factory(settings)
+
+
+#: Registro de estimadores de coste por duración de audio — ver
+#: app/integrations/domain/audio_cost_estimator.py (por qué es un puerto
+#: distinto de `CostEstimator`, pensado para tokens de LLM). "mock" evita
+#: mostrar un coste real donde no lo hay; "assemblyai" usa la tabla de
+#: precios centralizada (`app/integrations/pricing.py`) porque AssemblyAI
+#: no devuelve un coste en su respuesta.
+AUDIO_COST_ESTIMATOR_FACTORIES: dict[str, Callable[[Settings], AudioCostEstimator]] = {
+    "mock": lambda settings: MockAudioCostEstimator(),
+    "assemblyai": lambda settings: PricingTableAudioCostEstimator(settings),
+}
+
+
+def build_audio_cost_estimator(
+    settings: Settings, provider_name: str | None = None
+) -> AudioCostEstimator:
+    name = provider_name or settings.transcription_provider
+    factory = AUDIO_COST_ESTIMATOR_FACTORIES.get(name)
+    if factory is None:
+        return MockAudioCostEstimator()
     return factory(settings)

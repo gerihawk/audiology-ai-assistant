@@ -68,7 +68,9 @@ class AssemblyAITranscriptionProvider:
             if owns_client:
                 await client.aclose()
 
-        return _normalize(transcript, default_language=self._language_code)
+        return _normalize(
+            transcript, default_language=self._language_code, requested_language=self._language_code
+        )
 
     def _headers(self) -> dict[str, str]:
         # La API key nunca se registra: solo vive en esta cabecera, nunca
@@ -113,7 +115,15 @@ class AssemblyAITranscriptionProvider:
             elapsed += self._poll_interval_seconds
 
 
-def _normalize(transcript: dict, *, default_language: str) -> TranscriptionResult:
+#: Nombres de campo donde distintas versiones/planes de la API de
+#: AssemblyAI han expuesto el modelo usado. Se prueban en orden y se usa
+#: el primero presente — nunca se inventa un valor si ninguno existe.
+_MODEL_FIELD_CANDIDATES = ("speech_model", "language_model", "acoustic_model")
+
+
+def _normalize(
+    transcript: dict, *, default_language: str, requested_language: str
+) -> TranscriptionResult:
     if transcript.get("status") == "error":
         raise RuntimeError(f"AssemblyAI devolvió un error: {transcript.get('error')}")
 
@@ -140,10 +150,27 @@ def _normalize(transcript: dict, *, default_language: str) -> TranscriptionResul
         else None
     )
 
+    model_name = next(
+        (transcript[field] for field in _MODEL_FIELD_CANDIDATES if transcript.get(field)), None
+    )
+    # Metadata segura y ya extraída — nunca el `raw_response` completo
+    # (ver docs/transcription-benchmark.md §Model traceability): qué se
+    # pidió realmente frente a lo que el proveedor confirma haber hecho.
+    provider_metadata = {
+        "transcript_id": transcript.get("id"),
+        "speaker_labels_requested": True,
+        "diarization_used": bool(segments),
+        "language_code_requested": requested_language,
+        "language_code_detected": transcript.get("language_code"),
+        "punctuate": transcript.get("punctuate"),
+    }
+
     return TranscriptionResult(
         text=transcript.get("text") or "",
         language=transcript.get("language_code") or default_language,
         confidence=confidence,
         duration_ms=duration_ms,
         segments=segments,
+        model_name=model_name,
+        provider_metadata=provider_metadata,
     )

@@ -44,11 +44,14 @@ def _success_handler(seen_auth_headers: list[str]):
             return httpx.Response(
                 200,
                 json={
+                    "id": "transcript-1",
                     "status": "completed",
                     "text": "El paciente refiere acúfenos.",
                     "language_code": "es",
                     "audio_duration": 12.5,
                     "confidence": 0.87,
+                    "speech_model": "best",
+                    "punctuate": True,
                     "utterances": [
                         {"speaker": "A", "start": 0, "end": 4300, "text": "Buenos días."},
                         {"speaker": "B", "start": 4300, "end": 9000, "text": "Hola, doctor."},
@@ -78,6 +81,92 @@ async def test_transcribe_normaliza_la_respuesta_completa():
         TranscriptionSegment(speaker="B", start_ms=4300, end_ms=9000, text="Hola, doctor."),
     ]
     assert all(header == "clave-ficticia-de-test" for header in seen_auth_headers)
+
+
+async def test_captura_model_name_desde_speech_model():
+    client = _client_with_handler(_success_handler([]))
+    provider = AssemblyAITranscriptionProvider(
+        api_key="clave-ficticia", http_client=client, poll_interval_seconds=0
+    )
+
+    result = await provider.transcribe(_AUDIO_INPUT)
+
+    assert result.model_name == "best"
+
+
+async def test_captura_provider_metadata_con_capacidades_activas_sin_raw_response_completo():
+    client = _client_with_handler(_success_handler([]))
+    provider = AssemblyAITranscriptionProvider(
+        api_key="clave-ficticia", http_client=client, poll_interval_seconds=0, language_code="es"
+    )
+
+    result = await provider.transcribe(_AUDIO_INPUT)
+
+    assert result.provider_metadata == {
+        "transcript_id": "transcript-1",
+        "speaker_labels_requested": True,
+        "diarization_used": True,
+        "language_code_requested": "es",
+        "language_code_detected": "es",
+        "punctuate": True,
+    }
+    # Nunca el raw_response completo: ni "text" ni "confidence" ni
+    # "audio_duration" (ya viven en TranscriptionResult, no duplicados aquí).
+    assert "text" not in result.provider_metadata
+    assert "confidence" not in result.provider_metadata
+
+
+async def test_model_name_es_none_si_ningun_campo_conocido_esta_presente():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v2/upload":
+            return httpx.Response(200, json={"upload_url": "https://cdn.assemblyai.com/x"})
+        if request.url.path == "/v2/transcript" and request.method == "POST":
+            return httpx.Response(200, json={"id": "transcript-1", "status": "queued"})
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "text": "hola",
+                "language_code": "es",
+                "utterances": [],
+            },
+        )
+
+    client = _client_with_handler(handler)
+    provider = AssemblyAITranscriptionProvider(
+        api_key="clave-ficticia", http_client=client, poll_interval_seconds=0
+    )
+
+    result = await provider.transcribe(_AUDIO_INPUT)
+
+    assert result.model_name is None  # nunca inventado
+
+
+async def test_model_name_prueba_los_campos_alternativos_en_orden():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v2/upload":
+            return httpx.Response(200, json={"upload_url": "https://cdn.assemblyai.com/x"})
+        if request.url.path == "/v2/transcript" and request.method == "POST":
+            return httpx.Response(200, json={"id": "transcript-1", "status": "queued"})
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "text": "hola",
+                "language_code": "es",
+                "language_model": "assemblyai_default",
+                "utterances": [],
+            },
+        )
+
+    client = _client_with_handler(handler)
+    provider = AssemblyAITranscriptionProvider(
+        api_key="clave-ficticia", http_client=client, poll_interval_seconds=0
+    )
+
+    result = await provider.transcribe(_AUDIO_INPUT)
+
+    assert result.model_name == "assemblyai_default"
 
 
 async def test_hace_polling_hasta_completed():

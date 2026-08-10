@@ -1,4 +1,5 @@
-"""BenchmarkRunner: ejecuta el mismo audio contra varios `TranscriptionProvider`.
+"""BenchmarkRunner: ejecuta el mismo caso del dataset contra varios
+`TranscriptionProvider`.
 
 Provider A / Provider B / Provider C -> Normalización -> Comparación ->
 Informe (ver docs/transcription-benchmark.md). La "normalización" ya la
@@ -13,7 +14,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 
 from app.core.config import Settings
 from app.integrations.domain.transcription_provider import (
@@ -22,6 +22,7 @@ from app.integrations.domain.transcription_provider import (
     TranscriptionResult,
 )
 from app.integrations.factory import build_transcription_provider
+from benchmark.dataset import DatasetCase
 
 _MIME_TYPES_BY_EXTENSION: dict[str, str] = {
     "mp3": "audio/mpeg",
@@ -32,10 +33,10 @@ _MIME_TYPES_BY_EXTENSION: dict[str, str] = {
 }
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class BenchmarkOutcome:
     provider: str
-    audio_file: str
+    audio_id: str
     ran_at: str
     response_time_ms: int
     result: TranscriptionResult | None
@@ -46,20 +47,20 @@ class BenchmarkOutcome:
         return self.error is None and self.result is not None
 
 
-def _mime_type_for(path: Path) -> str:
-    return _MIME_TYPES_BY_EXTENSION.get(path.suffix.lower().lstrip("."), "application/octet-stream")
+def _mime_type_for(extension: str) -> str:
+    return _MIME_TYPES_BY_EXTENSION.get(extension.lower().lstrip("."), "application/octet-stream")
 
 
 class BenchmarkRunner:
     def __init__(self, *, settings: Settings) -> None:
         self._settings = settings
 
-    async def run_one(self, provider_name: str, audio_path: Path) -> BenchmarkOutcome:
+    async def run_one(self, provider_name: str, case: DatasetCase) -> BenchmarkOutcome:
         ran_at = datetime.now(UTC).isoformat()
         started = time.perf_counter()
         try:
             provider = build_transcription_provider(self._settings, provider_name)
-            audio_bytes = audio_path.read_bytes()
+            audio_bytes = case.audio_path.read_bytes()
             transcription_input = TranscriptionInput(
                 # El benchmark no tiene una sesión clínica real: valor
                 # opaco exigido por el contrato, nunca persistido ni usado
@@ -68,8 +69,8 @@ class BenchmarkRunner:
                 clinical_session_id=uuid.uuid4(),
                 audio=AudioForTranscription(
                     audio_bytes=audio_bytes,
-                    mime_type=_mime_type_for(audio_path),
-                    filename=audio_path.name,
+                    mime_type=_mime_type_for(case.audio_path.suffix),
+                    filename=case.audio_path.name,
                 ),
             )
             result = await provider.transcribe(transcription_input)
@@ -77,7 +78,7 @@ class BenchmarkRunner:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             return BenchmarkOutcome(
                 provider=provider_name,
-                audio_file=audio_path.name,
+                audio_id=case.id,
                 ran_at=ran_at,
                 response_time_ms=elapsed_ms,
                 result=None,
@@ -87,12 +88,14 @@ class BenchmarkRunner:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return BenchmarkOutcome(
             provider=provider_name,
-            audio_file=audio_path.name,
+            audio_id=case.id,
             ran_at=ran_at,
             response_time_ms=elapsed_ms,
             result=result,
             error=None,
         )
 
-    async def run_many(self, provider_names: list[str], audio_path: Path) -> list[BenchmarkOutcome]:
-        return [await self.run_one(name, audio_path) for name in provider_names]
+    async def run_many(
+        self, provider_names: list[str], case: DatasetCase
+    ) -> list[BenchmarkOutcome]:
+        return [await self.run_one(name, case) for name in provider_names]

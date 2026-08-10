@@ -64,6 +64,12 @@ class PipelineStepOutcome:
     completed_at: datetime | None
     failure_reason: str | None
     skipped_reason: str | None
+    #: Metadata segura ya extraída del proveedor (Fase 5.1) — nunca el
+    #: `raw_response` completo. `None` salvo en `TranscriptionStep` con un
+    #: proveedor que la aporta (ver
+    #: docs/transcription-benchmark.md §Model traceability). Se persiste
+    #: en `AIGenerationRun.raw_response`.
+    provider_metadata: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

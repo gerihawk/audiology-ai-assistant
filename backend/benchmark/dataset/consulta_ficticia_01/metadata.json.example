@@ -1,0 +1,48 @@
+{
+  "id": "consulta_ficticia_01",
+  "description": "Consulta básica, ambiente limpio, dos hablantes distintos",
+  "language": "es",
+  "duration_expected_seconds": 120,
+  "number_of_speakers": 2,
+  "environment": "quiet_clinic",
+  "noise_level": "none",
+  "critical_terms": [
+    "hipoacusia",
+    "acúfenos",
+    "audiometría tonal",
+    "vía aérea",
+    "vía ósea",
+    "otoscopia",
+    "audífonos"
+  ],
+  "negation_cases": [
+    {
+      "concept": "vertigo",
+      "expected": "negated",
+      "patterns": {
+        "negated": ["no vértigo", "no he tenido vértigo", "niega vértigo"],
+        "affirmed": ["tiene vértigo", "sí vértigo", "refiere vértigo"]
+      }
+    },
+    {
+      "concept": "hearing_aid_use",
+      "expected": "negated",
+      "patterns": {
+        "negated": ["nunca ha utilizado audífonos", "no usa audífonos", "no ha usado audífonos"],
+        "affirmed": ["usa audífonos", "utiliza audífonos"]
+      }
+    }
+  ],
+  "laterality_cases": [
+    {
+      "concept": "tinnitus",
+      "laterality": "left",
+      "patterns": {
+        "left": ["oído izquierdo", "izquierdo"],
+        "right": ["oído derecho", "derecho"],
+        "bilateral": ["ambos oídos", "los dos oídos", "bilateral"]
+      }
+    }
+  ],
+  "notes": "Grabado con dos personas distintas para poder evaluar diarización de forma justa."
+}

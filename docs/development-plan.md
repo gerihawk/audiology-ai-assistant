@@ -454,9 +454,19 @@ comparando proveedores y obtener un JSON de resultados por proveedor en
 Pipeline ni el Mock Pipeline existente.
 
 **Deuda técnica explícita**: sin endpoint de descarga del binario; sin
-`RetentionCleanupService` todavía (sigue siendo Fase 7, sin cambios); sin
-cálculo de WER en el benchmark (preparado, no implementado — ver
-[transcription-benchmark.md](transcription-benchmark.md)).
+`RetentionCleanupService` todavía (sigue siendo Fase 7, sin cambios).
+
+### Fase 5.1 — Benchmark científico y reproducible
+
+Amplía el benchmark de la Fase 5 (misma numeración de fase, sin
+renumerar nada posterior): golden dataset (`benchmark/dataset/<id>/`,
+`reference.json`/`metadata.json`), WER real (`benchmark/metrics/wer.py`),
+métricas de terminología/negaciones/lateralidad/diarización específicas
+de audiología, `AudioCostEstimator` real (`pricing_table`, sustituye a
+`MockCostEstimator` para informar coste), trazabilidad de modelo de
+AssemblyAI (`model_name`/`provider_metadata`) y `python -m benchmark.compare`.
+Ver [transcription-benchmark.md](transcription-benchmark.md) para el
+diseño completo — WER ya no es deuda técnica de esta fase.
 
 ## Fase 6 — Exportación
 

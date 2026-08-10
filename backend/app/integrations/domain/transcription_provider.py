@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(slots=True, frozen=True)
@@ -60,6 +60,16 @@ class TranscriptionResult:
     confidence: int | None = None
     duration_ms: int | None = None
     segments: list[TranscriptionSegment] | None = None
+    #: Modelo realmente usado por el proveedor, si lo reporta (Fase 5.1) —
+    #: p. ej. AssemblyAI puede devolver `speech_model`. `None` si el
+    #: proveedor no expone esta información (nunca inventado).
+    model_name: str | None = None
+    #: Metadata segura y ya extraída (nunca el `raw_response` completo del
+    #: proveedor — ver docs/transcription-benchmark.md §Model traceability):
+    #: qué capacidades estaban realmente activas (diarización solicitada,
+    #: idioma pedido/detectado...). Se persiste tal cual en
+    #: `AIGenerationRun.raw_response`.
+    provider_metadata: dict[str, Any] | None = None
 
 
 class TranscriptionProvider(Protocol):

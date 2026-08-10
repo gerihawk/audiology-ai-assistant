@@ -1,7 +1,13 @@
-# `benchmark/audio/` — dataset de benchmark
+# `benchmark/audio/` — estructura legacy (superada)
 
-Carpeta para los ficheros de audio usados por `python -m benchmark.cli` al
-comparar proveedores de transcripción.
+**Desde la Fase 5.1, `python -m benchmark.cli`/`python -m benchmark.compare`
+ya no leen de aquí — usa `benchmark/dataset/<id>/` en su lugar** (ver
+`benchmark/dataset/README.md` y `docs/transcription-benchmark.md` §Golden
+dataset): permite asociar cada audio con su `reference.json`/
+`metadata.json` y calcular métricas (WER, terminología, negaciones,
+lateralidad, diarización), algo que esta carpeta plana no soportaba. Esta
+carpeta se conserva sin borrar (no había ningún audio real en ella) solo
+como referencia histórica del diseño anterior.
 
 ## Reglas no negociables (CLAUDE.md)
 

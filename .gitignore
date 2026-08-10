@@ -31,11 +31,15 @@ backend/data/
 backend/storage/
 *.sqlite3
 
-# Benchmark de transcripción (Fase 5): nunca audios ni resultados reales
-# en el repo, ver docs/transcription-benchmark.md.
+# Benchmark de transcripción (Fase 5 / 5.1): nunca audios ni resultados
+# reales en el repo, ver docs/transcription-benchmark.md.
+# Estructura legacy (superada por benchmark/dataset/, ver Fase 5.1):
 backend/benchmark/audio/*
 !backend/benchmark/audio/.gitkeep
 !backend/benchmark/audio/README.md
+# Golden dataset: solo el audio de cada caso queda fuera del repo —
+# reference.json/metadata.json/*.example/README.md sí se versionan.
+backend/benchmark/dataset/*/audio.*
 backend/benchmark/results/*
 !backend/benchmark/results/.gitkeep
 
