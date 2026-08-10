@@ -38,9 +38,28 @@ class TranscriptionStep:
     async def run(self, context: PipelineExecutionContext) -> PipelineStepOutcome:
         async def produce() -> tuple[dict[str, Any], int]:
             result = await self._provider.transcribe(
-                TranscriptionInput(clinical_session_id=context.clinical_session_id)
+                TranscriptionInput(
+                    clinical_session_id=context.clinical_session_id, audio=context.audio_input
+                )
             )
-            content = {"text": result.text, "language": result.language}
+            # `duration_ms`/`segments` (Fase 5) solo se añaden si el
+            # proveedor los devuelve (nunca el Mock): el `content` del Mock
+            # Pipeline sigue siendo exactamente `{"text", "language"}`, sin
+            # cambios — ver docs/ai-pipeline-architecture.md §7.1 y
+            # docs/transcription-benchmark.md.
+            content: dict[str, Any] = {"text": result.text, "language": result.language}
+            if result.duration_ms is not None:
+                content["duration_ms"] = result.duration_ms
+            if result.segments:
+                content["segments"] = [
+                    {
+                        "speaker": segment.speaker,
+                        "start_ms": segment.start_ms,
+                        "end_ms": segment.end_ms,
+                        "text": segment.text,
+                    }
+                    for segment in result.segments
+                ]
             confidence = result.confidence if result.confidence is not None else _DEFAULT_CONFIDENCE
             return content, confidence
 

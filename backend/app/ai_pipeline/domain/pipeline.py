@@ -19,6 +19,7 @@ from typing import Any, Protocol
 
 from app.ai_pipeline.domain.entities import AIArtifactType, AIGenerationRunStatus
 from app.integrations.domain.session_context import SessionContext
+from app.integrations.domain.transcription_provider import AudioForTranscription
 
 
 @dataclass(slots=True)
@@ -26,11 +27,17 @@ class PipelineExecutionContext:
     """Estado mutable de una ejecución del pipeline: la sesión sobre la que
     se ejecuta y las salidas ya producidas por pasos anteriores, indexadas
     por tipo de artefacto, para que un paso pueda consumir la salida de
-    otro sin que ninguno conozca al resto del grafo."""
+    otro sin que ninguno conozca al resto del grafo.
+
+    `audio_input` (Fase 5) es `None` en `run_pipeline` (Mock Pipeline,
+    comportamiento sin cambios): solo `AIPipelineService.transcribe_from_audio`
+    lo rellena, con los bytes ya leídos de `AudioStorage` — ver
+    `TranscriptionStep.run`."""
 
     clinical_session_id: uuid.UUID
     session_context: SessionContext
     outputs: dict[AIArtifactType, Any] = field(default_factory=dict)
+    audio_input: AudioForTranscription | None = None
 
 
 @dataclass(slots=True)

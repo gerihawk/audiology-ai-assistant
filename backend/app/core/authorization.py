@@ -121,6 +121,53 @@ def authorize_clinical_session_action(
         )
 
 
+class AudioRecordingAction(StrEnum):
+    UPLOAD = "upload"
+    READ = "read"
+    DELETE = "delete"
+    TRANSCRIBE = "transcribe"
+
+
+#: Mismo patrón que ClinicalSessionAction (Fase 5). `audio_recordings` no
+#: tiene rol propio en la matriz de negocio — hereda el criterio de
+#: "propiedad de la sesión clínica" ya establecido, resuelto vía
+#: `professional_id` de la `ClinicalSession` dueña del audio (nunca un
+#: campo del propio audio, que no tiene profesional responsable).
+AUDIO_RECORDING_PERMISSIONS: dict[Role, frozenset[AudioRecordingAction]] = {
+    Role.ADMIN: frozenset(AudioRecordingAction),
+    Role.AUDIOLOGIST: frozenset(AudioRecordingAction),
+    Role.VIEWER: frozenset({AudioRecordingAction.READ}),
+}
+
+_AUDIO_RECORDING_OWNERSHIP_REQUIRED: frozenset[AudioRecordingAction] = frozenset(
+    {AudioRecordingAction.UPLOAD, AudioRecordingAction.DELETE, AudioRecordingAction.TRANSCRIBE}
+)
+
+
+def authorize_audio_recording_action(
+    current_user: CurrentUser,
+    action: AudioRecordingAction,
+    *,
+    professional_id: uuid.UUID | None = None,
+) -> None:
+    """`professional_id` es el profesional responsable de la sesión clínica
+    dueña del audio (`None` para `READ`, sin restricción de propiedad)."""
+    if action not in AUDIO_RECORDING_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre grabaciones de audio."
+        )
+    if (
+        current_user.role == Role.AUDIOLOGIST
+        and action in _AUDIO_RECORDING_OWNERSHIP_REQUIRED
+        and professional_id != current_user.id
+    ):
+        raise ForbiddenError(
+            "Un audiologist solo puede subir/eliminar/transcribir audio de sus propias "
+            "sesiones clínicas."
+        )
+
+
 class AIPipelineAction(StrEnum):
     TRIGGER = "trigger"
     READ = "read"

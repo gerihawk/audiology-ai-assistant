@@ -15,13 +15,20 @@ dependencies = [
   "sqlalchemy>=2.0,<3.0",
   "alembic>=1.13,<2.0",
   "psycopg[binary]>=3.2,<4.0",
+  # httpx: cliente HTTP genérico para AssemblyAITranscriptionProvider (API
+  # REST oficial, sin SDK de terceros) — Fase 5. anyio: E/S de fichero
+  # asíncrona para LocalAudioStorage. Ambos ya eran dependencias
+  # transitivas de FastAPI/Starlette; se declaran explícitamente porque
+  # ahora el código de aplicación los importa directamente.
+  "httpx>=0.27,<1.0",
+  "anyio>=4.0,<5.0",
+  "python-multipart>=0.0.12,<1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3,<9.0",
   "pytest-asyncio>=0.24,<1.0",
-  "httpx>=0.27,<1.0",
   "ruff>=0.7,<1.0",
   "black>=24.10,<25.0",
 ]

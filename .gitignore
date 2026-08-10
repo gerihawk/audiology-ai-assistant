@@ -28,7 +28,16 @@ npm-debug.log*
 
 # Datos locales (audio ficticio, volúmenes montados fuera de Docker)
 backend/data/
+backend/storage/
 *.sqlite3
+
+# Benchmark de transcripción (Fase 5): nunca audios ni resultados reales
+# en el repo, ver docs/transcription-benchmark.md.
+backend/benchmark/audio/*
+!backend/benchmark/audio/.gitkeep
+!backend/benchmark/audio/README.md
+backend/benchmark/results/*
+!backend/benchmark/results/.gitkeep
 
 # Editor / OS
 .DS_Store

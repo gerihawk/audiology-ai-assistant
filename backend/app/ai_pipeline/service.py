@@ -48,6 +48,10 @@ from app.ai_pipeline.infrastructure.repository import (
     SqlAlchemyAIGenerationRunRepository,
     SqlAlchemyAIPipelineRunRepository,
 )
+from app.audio.domain.audio_storage import AudioStorage, StorageReference
+from app.audio.domain.repository import AudioRecordingRepository
+from app.audio.infrastructure.local_audio_storage import LocalAudioStorage
+from app.audio.infrastructure.repository import SqlAlchemyAudioRecordingRepository
 from app.audit_log.domain.entities import AuditLogEntry
 from app.audit_log.infrastructure.repository import SqlAlchemyAuditLogRepository
 from app.clinical_sessions.domain.entities import ClinicalSession
@@ -56,11 +60,15 @@ from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSe
 from app.core.authorization import (
     AIArtifactAction,
     AIPipelineAction,
+    AudioRecordingAction,
     authorize_ai_artifact_action,
     authorize_ai_pipeline_action,
+    authorize_audio_recording_action,
 )
+from app.core.config import get_settings
 from app.core.current_user import CurrentUser
 from app.core.exceptions import ConflictError, NotFoundError
+from app.core.processing_status import ProcessingStatus
 from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagsGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
@@ -68,7 +76,10 @@ from app.integrations.domain.missing_information_generator import MissingInforma
 from app.integrations.domain.session_context import SessionContext
 from app.integrations.domain.summary_generator import SummaryGenerator
 from app.integrations.domain.token_counter import TokenCounter
-from app.integrations.domain.transcription_provider import TranscriptionProvider
+from app.integrations.domain.transcription_provider import (
+    AudioForTranscription,
+    TranscriptionProvider,
+)
 from app.integrations.mocks.mock_anamnesis_generator import MockAnamnesisGenerator
 from app.integrations.mocks.mock_clinical_flags_generator import MockClinicalFlagsGenerator
 from app.integrations.mocks.mock_cost_estimator import MockCostEstimator
@@ -126,6 +137,9 @@ class AIPipelineService:
         anamnesis_generator: AnamnesisGenerator | None = None,
         token_counter: TokenCounter | None = None,
         cost_estimator: CostEstimator | None = None,
+        audio_repository: AudioRecordingRepository | None = None,
+        audio_storage: AudioStorage | None = None,
+        configured_transcription_provider: TranscriptionProvider | None = None,
     ) -> None:
         self._session = session
         self._artifacts = artifact_repository or SqlAlchemyAIArtifactRepository()
@@ -140,7 +154,9 @@ class AIPipelineService:
         # Todos los providers son Mock en esta fase — ver
         # docs/ai-pipeline-architecture.md §6.4. Inyectables para tests y
         # para el día que se sustituyan por proveedores reales, sin tocar
-        # el servicio ni el orquestador.
+        # el servicio ni el orquestador. `_transcription_provider` es
+        # EXCLUSIVO de `run_pipeline` (Mock Pipeline, comportamiento sin
+        # cambios en la Fase 5) — nunca se resuelve por configuración.
         self._transcription_provider = transcription_provider or MockTranscriptionProvider()
         self._summary_generator = summary_generator or MockSummaryGenerator()
         self._clinical_flags_generator = clinical_flags_generator or MockClinicalFlagsGenerator()
@@ -150,6 +166,18 @@ class AIPipelineService:
         self._anamnesis_generator = anamnesis_generator or MockAnamnesisGenerator()
         self._token_counter = token_counter or MockTokenCounter()
         self._cost_estimator = cost_estimator or MockCostEstimator()
+
+        # Fase 5 — solo usados por `transcribe_from_audio`.
+        # `_configured_transcription_provider` es el que sí se resuelve por
+        # `TRANSCRIPTION_PROVIDER` (ver app/integrations/factory.py):
+        # Mock Pipeline y "transcribir desde audio" son deliberadamente dos
+        # rutas independientes, cada una con su propio proveedor.
+        self._audio_recordings = audio_repository or SqlAlchemyAudioRecordingRepository()
+        settings = get_settings()
+        self._audio_storage = audio_storage or LocalAudioStorage(settings.audio_storage_local_dir)
+        self._configured_transcription_provider = (
+            configured_transcription_provider or MockTranscriptionProvider()
+        )
 
     # --- Disparo del pipeline --------------------------------------------
 
@@ -385,6 +413,188 @@ class AIPipelineService:
             current_version=persisted_version,
             generation_run=persisted_generation_run,
         )
+
+    # --- Transcripción desde audio real (Fase 5) --------------------------
+
+    async def transcribe_from_audio(
+        self, current_user: CurrentUser, audio_recording_id: uuid.UUID, request_id: str
+    ) -> AIArtifactDetail:
+        """`Audio -> TranscriptionProvider configurado -> AIArtifact
+        (transcript) -> Review` — ver docs/transcription-benchmark.md §Pipeline.
+
+        Independiente de `run_pipeline` (Mock Pipeline): solo toca el
+        artefacto `transcript` de la sesión, nunca Summary/ClinicalFlags/
+        MissingInformation/Anamnesis. Reutiliza `TranscriptionStep` y
+        `_persist_completed_outcome` — mismo mecanismo de versionado,
+        auditoría técnica y disposición humana que el resto del pipeline.
+        """
+        audio_recording = await self._audio_recordings.get_by_id(
+            self._session, current_user.clinic_id, audio_recording_id
+        )
+        if audio_recording is None:
+            raise NotFoundError("Grabación de audio no encontrada.")
+
+        clinical_session = await self._get_clinical_session_or_404(
+            current_user, audio_recording.clinical_session_id
+        )
+        authorize_audio_recording_action(
+            current_user,
+            AudioRecordingAction.TRANSCRIBE,
+            professional_id=clinical_session.professional_id,
+        )
+
+        if audio_recording.status not in (ProcessingStatus.READY, ProcessingStatus.TRANSCRIBED):
+            raise ConflictError(
+                "No se puede transcribir un audio en estado "
+                f"'{audio_recording.status.value}'. Debe estar 'ready' o 'transcribed'."
+            )
+
+        existing_active = await self._pipeline_runs.get_active_for_session(
+            self._session, current_user.clinic_id, audio_recording.clinical_session_id
+        )
+        if existing_active is not None:
+            raise ConflictError("Ya existe una ejecución del pipeline en curso para esta sesión.")
+
+        assert audio_recording.storage_reference is not None  # invariante de READY/TRANSCRIBED
+        audio_bytes = await self._audio_storage.read(
+            StorageReference(audio_recording.storage_reference)
+        )
+
+        settings = get_settings()
+        now = datetime.now(UTC)
+        pipeline_run = AIPipelineRun(
+            id=uuid.uuid4(),
+            clinical_session_id=audio_recording.clinical_session_id,
+            triggered_by=current_user.id,
+            status=AIPipelineRunStatus.PROCESSING,
+            started_at=now,
+            completed_at=None,
+            request_id=request_id,
+        )
+        step = TranscriptionStep(
+            self._configured_transcription_provider,
+            self._token_counter,
+            self._cost_estimator,
+            provider_name=settings.transcription_provider,
+            model_name=None,
+        )
+        context = PipelineExecutionContext(
+            clinical_session_id=audio_recording.clinical_session_id,
+            session_context=SessionContext(clinical_session_id=audio_recording.clinical_session_id),
+            audio_input=AudioForTranscription(
+                audio_bytes=audio_bytes,
+                mime_type=audio_recording.mime_type,
+                filename=audio_recording.original_filename,
+            ),
+        )
+
+        try:
+            persisted_run = await self._pipeline_runs.add(self._session, pipeline_run)
+            await self._audio_recordings.update_fields(
+                self._session,
+                current_user.clinic_id,
+                audio_recording.id,
+                {"status": ProcessingStatus.TRANSCRIBING.value},
+            )
+
+            outcome = await step.run(context)
+
+            if outcome.status == AIGenerationRunStatus.FAILED:
+                await self._generation_runs.add(
+                    self._session,
+                    AIGenerationRun(
+                        id=uuid.uuid4(),
+                        ai_pipeline_run_id=persisted_run.id,
+                        clinical_session_id=audio_recording.clinical_session_id,
+                        artifact_type=outcome.artifact_type,
+                        ai_artifact_id=None,
+                        resulting_version_number=None,
+                        status=outcome.status,
+                        provider_name=outcome.provider_name or settings.transcription_provider,
+                        model_name=outcome.model_name,
+                        prompt_template_id=None,
+                        prompt_template_version=None,
+                        input_token_count=outcome.input_token_count,
+                        output_token_count=outcome.output_token_count,
+                        estimated_cost_usd=outcome.estimated_cost_usd,
+                        latency_ms=outcome.latency_ms,
+                        execution_time_ms=outcome.execution_time_ms,
+                        rendered_system_prompt=None,
+                        rendered_user_prompt=None,
+                        raw_response=None,
+                        started_at=outcome.started_at or now,
+                        completed_at=outcome.completed_at,
+                        failure_reason=outcome.failure_reason,
+                        request_id=request_id,
+                    ),
+                )
+                await self._audio_recordings.update_fields(
+                    self._session,
+                    current_user.clinic_id,
+                    audio_recording.id,
+                    {
+                        "status": ProcessingStatus.FAILED.value,
+                        "failure_reason": outcome.failure_reason,
+                    },
+                )
+                await self._pipeline_runs.update_fields(
+                    self._session,
+                    persisted_run.id,
+                    {"status": AIPipelineRunStatus.FAILED.value, "completed_at": datetime.now(UTC)},
+                )
+                await self._write_audit(
+                    current_user,
+                    request_id,
+                    action="audio_recording.transcription_failed",
+                    entity_type="audio_recording",
+                    entity_id=audio_recording.id,
+                    metadata={"failure_reason": outcome.failure_reason},
+                )
+                detail = None
+            else:
+                detail = await self._persist_completed_outcome(
+                    current_user,
+                    persisted_run.id,
+                    audio_recording.clinical_session_id,
+                    outcome,
+                    request_id,
+                )
+                await self._audio_recordings.update_fields(
+                    self._session,
+                    current_user.clinic_id,
+                    audio_recording.id,
+                    {"status": ProcessingStatus.TRANSCRIBED.value, "failure_reason": None},
+                )
+                await self._pipeline_runs.update_fields(
+                    self._session,
+                    persisted_run.id,
+                    {
+                        "status": AIPipelineRunStatus.COMPLETED.value,
+                        "completed_at": datetime.now(UTC),
+                    },
+                )
+                await self._write_audit(
+                    current_user,
+                    request_id,
+                    action="audio_recording.transcribed",
+                    entity_type="audio_recording",
+                    entity_id=audio_recording.id,
+                    metadata={"provider_name": outcome.provider_name},
+                )
+
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        if outcome.status == AIGenerationRunStatus.FAILED:
+            raise ConflictError(
+                "La transcripción falló: "
+                f"{outcome.failure_reason or 'error desconocido del proveedor.'}"
+            )
+
+        assert detail is not None
+        return detail
 
     # --- Lectura -----------------------------------------------------------
 

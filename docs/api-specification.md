@@ -269,14 +269,37 @@ Orden estable: `created_at ASC, id ASC` (igual que `patients`, ver
   cancelled}` — explícitamente incluye `review_pending` como estado que
   **no** admite archivado.
 
-## Audio
+## Audio (Fase 5)
+
+Varias grabaciones por sesión, cada una direccionable por su propio ID —
+**supera al diseño anterior** de esta sección (un único audio por sesión,
+con endpoint de descarga), documentado así desde la Fase 5 (ver
+[development-plan.md](development-plan.md)). Sin `clinic_id` propio en
+`audio_recordings`: el aislamiento se resuelve mediante join contra
+`clinical_sessions` en cada consulta (ver
+[architecture.md](architecture.md) §10).
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| POST | `/clinical-sessions/{session_id}/audio` | clinician | Sube fichero de audio (multipart); crea `audio_recordings` en `uploaded`, dispara validación (tamaño/duración/extensión/MIME) hacia `validating` → `ready`/`failed` |
-| GET | `/clinical-sessions/{session_id}/audio` | clinician/admin | Metadatos del audio (no el binario) |
-| GET | `/clinical-sessions/{session_id}/audio/download` | clinician/admin | Descarga del binario vía `AudioStorage`, auditado |
-| DELETE | `/clinical-sessions/{session_id}/audio` | clinician/admin | Borrado físico manual vía `RetentionCleanupService` (`status → deleted`, `storage_reference` invalidado); metadatos conservados |
+| POST | `/clinical-sessions/{session_id}/audio-recordings` | admin/audiologist (propias sesiones) | Sube fichero de audio (multipart: campo `file` + `duration_seconds`); crea `audio_recordings` en `ready` o `failed` (validación síncrona de tamaño/duración/extensión/MIME; sin estado `validating` intermedio persistido en esta fase) |
+| GET | `/clinical-sessions/{session_id}/audio-recordings` | admin/audiologist/viewer | Lista las grabaciones de la sesión, más reciente primero |
+| DELETE | `/audio-recordings/{audio_recording_id}` | admin/audiologist (propias sesiones) | Borrado físico inmediato vía `AudioStorage.delete` (`status → deleted`, `storage_reference` invalidado); metadatos conservados; idempotente |
+| POST | `/audio-recordings/{audio_recording_id}/transcribe` | admin/audiologist (propias sesiones) | Transcribe el audio (debe estar `ready` o `transcribed`) con el `TranscriptionProvider` resuelto por `TRANSCRIPTION_PROVIDER`; crea o versiona el `AIArtifact` `transcript` — independiente del Mock Pipeline (`POST .../run-mock-pipeline`), que no cambia; `409` si el audio no está en un estado transcribible, si falla el proveedor, o si ya hay un `ai_pipeline_run` en curso para la sesión |
+
+**Deuda técnica explícita (Fase 5)**: sin
+`GET .../audio-recordings/{id}/download` (el diseño anterior lo incluía;
+fuera de alcance de esta fase); sin `RetentionCleanupService` todavía
+(borrado manual únicamente, sin política de expiración automática —
+sigue siendo Fase 7).
+
+### Autorización
+
+Mismo patrón que `clinical_sessions` (`AudioRecordingAction` en
+`core/authorization.py`, ver [architecture.md](architecture.md) §9):
+`admin` sin restricción; `audiologist` solo sobre grabaciones de sus
+propias sesiones (`professional_id == current_user.id`, resuelto vía la
+`ClinicalSession` dueña del audio — `audio_recordings` no tiene
+profesional responsable propio); `viewer` solo lectura (`GET`).
 
 ## AI Pipeline
 

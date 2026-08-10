@@ -1,11 +1,12 @@
-"""Endpoints del AI Pipeline (Fase 4.1 + historial de versiones para el frontend).
+"""Endpoints del AI Pipeline (Fase 4.1 + historial de versiones + Fase 5).
 
-Sin prefijo común: combina rutas bajo `/clinical-sessions/{id}/...` y
-`/ai-artifacts/{id}` — ver docs/development-plan.md Fase 4.6. Además de
-los 5 endpoints mínimos originales, `GET .../versions` (solo lectura,
-necesario para que el frontend pueda navegar el historial de versiones —
-sin él, "cambiar entre versiones" no tiene datos que mostrar).
-"""
+Sin prefijo común: combina rutas bajo `/clinical-sessions/{id}/...`,
+`/ai-artifacts/{id}` y `/audio-recordings/{id}/transcribe` — ver
+docs/development-plan.md Fase 4.6. `POST .../transcribe` vive aquí y no en
+`audio/api/router.py` porque su responsabilidad es producir un
+`AIArtifact` (transcript) a partir de un audio ya subido, con el
+`TranscriptionProvider` resuelto por configuración — ver
+docs/transcription-benchmark.md."""
 
 from __future__ import annotations
 
@@ -42,6 +43,17 @@ async def run_mock_pipeline(
 ) -> RunMockPipelineResponse:
     outcome = await service.run_pipeline(current_user, session_id, request_id)
     return RunMockPipelineResponse.from_outcome(outcome)
+
+
+@router.post("/audio-recordings/{audio_recording_id}/transcribe", response_model=AIArtifactResponse)
+async def transcribe_audio_recording(
+    audio_recording_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AIPipelineService = Depends(get_ai_pipeline_service),
+    request_id: str = Depends(get_request_id),
+) -> AIArtifactResponse:
+    detail = await service.transcribe_from_audio(current_user, audio_recording_id, request_id)
+    return AIArtifactResponse.from_detail(detail)
 
 
 @router.get("/clinical-sessions/{session_id}/artifacts", response_model=AIArtifactListResponse)

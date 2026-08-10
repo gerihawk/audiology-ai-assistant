@@ -175,7 +175,7 @@ Registro previsto para fases futuras (diseño, no implementado):
   `RetentionCleanupService`);
 - cambios de configuración de integraciones;
 - accesos de administrador al propio `audit_logs` (opcional, evaluar en
-  Fase 7).
+  Fase 8).
 
 Regla general: toda operación relevante debe poder asociarse a una
 entrada de `audit_log` — no se considera completa una funcionalidad que
@@ -211,7 +211,7 @@ ya existen.
   (`find_expired_audio`, `purge`) — ver [architecture.md](architecture.md)
   §4. En el MVP la ejecución es **manual** (endpoint de administración,
   ver [api-specification.md](api-specification.md) §Retention); no existe
-  scheduler/cron todavía, eso queda para la Fase 7 del
+  scheduler/cron todavía, eso queda para la Fase 8 del
   [plan de desarrollo](development-plan.md). El borrado físico invalida
   `storage_reference` pero conserva la fila de `audio_recordings`
   (`status = deleted`) para trazabilidad.

@@ -15,6 +15,9 @@
 
 Backend, capa de integración:
   integrations/    → TranscriptionProvider ──▶ MockTranscriptionProvider (MVP)
+                                             ──▶ AssemblyAITranscriptionProvider (Fase 5,
+                                                 real; selección por TRANSCRIPTION_PROVIDER,
+                                                 ver integrations/factory.py)
                     → LanguageModelProvider ──▶ MockLanguageModelProvider (MVP)
                     → SummaryGenerator ──▶ MockSummaryGenerator (MVP)
                     → ClinicalFlagsGenerator ──▶ MockClinicalFlagsGenerator (MVP, checklist basado en reglas)
@@ -84,13 +87,24 @@ backend/
       api/
         schemas.py             # Pydantic, separados del ORM
         router.py                # /api/v1/clinical-sessions/*
-    audio/
+    audio/                           # Fase 5 — ver development-plan.md
       domain/
-        audio_storage.py        # interfaz AudioStorage (puerto)
-        validation.py            # reglas de tamaño/duración/extensión/MIME
-        retention.py              # interfaz RetentionCleanupService
+        entities.py                   # AudioRecording (dataclass)
+        audio_storage.py                # interfaz AudioStorage (puerto)
+        validation.py                    # reglas de tamaño/duración/extensión/MIME
+        repository.py                     # interfaz AudioRecordingRepository (puerto)
+        retention.py                       # interfaz RetentionCleanupService —
+                                            # todavía sin implementar, Fase 7
       infrastructure/
-        local_audio_storage.py  # única implementación en el MVP
+        orm.py                          # AudioRecordingORM
+        repository.py                     # SqlAlchemyAudioRecordingRepository
+        local_audio_storage.py             # única implementación de AudioStorage
+      service.py                          # AudioRecordingService: autoriza →
+                                           # valida → almacena → audita → commit
+      api/
+        schemas.py
+        router.py                          # /api/v1/clinical-sessions/{id}/audio-recordings,
+                                            # /api/v1/audio-recordings/{id}
     ai_pipeline/                    # Fase 4 — diseño cerrado en
                                      # ai-pipeline-architecture.md; sustituye
                                      # por completo a los antiguos módulos
@@ -167,6 +181,12 @@ backend/
         mock_token_counter.py
         mock_patient_record_integration.py
         mock_calendar_integration.py
+      providers/            # Fase 5 — implementaciones reales (no Mock*)
+        assemblyai_transcription_provider.py  # AssemblyAITranscriptionProvider
+      factory.py             # build_transcription_provider(settings, name=None) —
+                              # único punto que resuelve TRANSCRIPTION_PROVIDER
+                              # por configuración (DI), ver development-plan.md
+                              # Fase 5 y transcription-benchmark.md
     core/
       config.py           # settings desde variables de entorno
       db.py                 # Base declarativa + engine/session SQLAlchemy
@@ -221,7 +241,7 @@ decisión 18).
 | `users` | Usuarios internos (`admin`/`audiologist`/`viewer`) por clínica. Sin autenticación real: solo resolución vía `CurrentUserProvider` (Fase 2). |
 | `patients` | Identidad y datos administrativos mínimos del paciente (ficticio), aislados por clínica. No contiene contenido clínico. |
 | `clinical_sessions` | Entidad central de la consulta: pertenece a una clínica, un paciente y un profesional responsable. Máquina de estados propia (`ClinicalSessionStatus`, Fase 3, diseño en [data-model.md](data-model.md) §8), borrado lógico (`is_archived`) independiente del estado. Base sobre la que cuelgan audio y el AI Pipeline. |
-| `audio` | Subida, validación (tamaño/duración/extensión/MIME) y almacenamiento de la grabación vía `AudioStorage`, incluida su eliminación física conforme a retención. |
+| `audio` | Subida, validación (tamaño/duración/extensión/MIME) y almacenamiento de la grabación vía `AudioStorage`; borrado físico manual bajo demanda (`DELETE /audio-recordings/{id}`, Fase 5) — el borrado automático por política de retención (`RetentionCleanupService`) sigue sin implementar, ver Fase 7 en [development-plan.md](development-plan.md). |
 | `ai_pipeline` | Orquesta la generación de artefactos de IA (transcripción, resumen, señales de alerta, información ausente, anamnesis) a partir de un grafo de dependencias (Fase 4, diseño cerrado en [ai-pipeline-architecture.md](ai-pipeline-architecture.md)); versionado, revisión humana y aprobación mediante la entidad genérica `AIArtifact`/`AIArtifactVersion`; auditoría técnica (proveedor, modelo, coste, tiempo) en `AIGenerationRun`. |
 | `clinical_flags` | Disposición humana por ítem (confirmar/descartar) sobre las señales de alerta generadas por el AI Pipeline — no genera contenido, solo gestiona su revisión individual (eje independiente de la disposición por documento de `AIArtifact`, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.2). |
 | `audit_log` | Registro append-only (tabla `audit_logs`) de acciones relevantes sobre pacientes, sesiones y artefactos de IA, escrito en la misma transacción que la entidad auditada. |
@@ -283,8 +303,11 @@ directo del módulo consumidor a la implementación concreta.
 Se define un enumerado compartido en `core/processing_status.py` con:
 `uploaded`, `validating`, `ready`, `transcribing`, `transcribed`,
 `failed`, `deleted`. **Aplica exclusivamente a `audio_recordings`**
-(fase futura, sin implementar todavía) — ver
-[data-model.md](data-model.md) §6.
+(implementado en la Fase 5 — ver [data-model.md](data-model.md) §6). La
+subida síncrona de esta fase no persiste el estado intermedio
+`validating` como fila propia (valida antes de insertar, inserta ya en
+`ready`/`failed`); las demás transiciones sí se validan y persisten
+explícitamente en `AudioRecordingService`.
 
 Las transiciones válidas (p. ej. `uploaded → validating → ready`, nunca
 `uploaded → deleted` directamente) se definen y verifican en la **capa de

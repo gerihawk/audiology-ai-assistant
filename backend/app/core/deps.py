@@ -8,11 +8,14 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_pipeline.service import AIPipelineService
+from app.audio.service import AudioRecordingService
 from app.clinical_sessions.service import ClinicalSessionService
 from app.core.config import get_settings
 from app.core.context import get_request_id
 from app.core.current_user import CurrentUser, CurrentUserProvider, FakeCurrentUserProvider
 from app.core.db import get_db_session
+from app.integrations.domain.transcription_provider import TranscriptionProvider
+from app.integrations.factory import build_transcription_provider
 from app.patients.service import PatientService
 
 __all__ = [
@@ -23,6 +26,8 @@ __all__ = [
     "get_patient_service",
     "get_clinical_session_service",
     "get_ai_pipeline_service",
+    "get_audio_recording_service",
+    "get_configured_transcription_provider",
 ]
 
 
@@ -32,6 +37,15 @@ def get_current_user_provider() -> CurrentUserProvider:
     ocurre una única vez, en la primera invocación (idealmente en el
     arranque de la app, ver app.main lifespan)."""
     return FakeCurrentUserProvider(get_settings())
+
+
+@lru_cache
+def get_configured_transcription_provider() -> TranscriptionProvider:
+    """Resuelve `TranscriptionProvider` según `TRANSCRIPTION_PROVIDER` — ver
+    app/integrations/factory.py. Se cachea: si la configuración es
+    inválida (p. ej. `assemblyai` sin API key), falla una única vez, en
+    el arranque (ver app.main lifespan), no en cada petición."""
+    return build_transcription_provider(get_settings())
 
 
 async def get_current_user(
@@ -54,7 +68,18 @@ async def get_clinical_session_service(
     return ClinicalSessionService(session)
 
 
+async def get_audio_recording_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> AudioRecordingService:
+    return AudioRecordingService(session)
+
+
 async def get_ai_pipeline_service(
     session: AsyncSession = Depends(get_db_session),
+    configured_transcription_provider: TranscriptionProvider = Depends(
+        get_configured_transcription_provider
+    ),
 ) -> AIPipelineService:
-    return AIPipelineService(session)
+    return AIPipelineService(
+        session, configured_transcription_provider=configured_transcription_provider
+    )

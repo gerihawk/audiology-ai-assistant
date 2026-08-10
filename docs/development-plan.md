@@ -398,9 +398,67 @@ segundo disparo del pipeline mientras hay uno en curso devuelve `409`.
 
 **Criterio de aceptación**: desde la UI se puede probar el ciclo completo
 (disparar → revisar → aprobar/rechazar/editar → exportar, una vez exista
-la Fase 5) con datos ficticios, sin audio real.
+la Fase 6) con datos ficticios, sin audio real.
 
-## Fase 5 — Exportación
+## Fase 5 — Audio + Benchmark de Transcripción
+
+Ampliación explícita del alcance original del MVP — ver "Fuera de las
+fases del MVP" más abajo: el diseño previo excluía cualquier proveedor de
+transcripción real hasta "un nuevo ciclo de análisis de alcance"; esta
+fase es ese ciclo, decidido explícitamente por el producto.
+
+- Módulo `audio` completo: entidad `AudioRecording` (ver
+  [data-model.md](data-model.md) §2), interfaz `AudioStorage` +
+  `LocalAudioStorage` (ver [architecture.md](architecture.md) §4),
+  validación de subida (tamaño/duración/extensión/MIME), repositorio,
+  servicio (`AudioRecordingService`) y API (`audio/api/`).
+- `ProcessingStatus` (`core/processing_status.py`) implementado por fin
+  para `audio_recordings` — ver [data-model.md](data-model.md) §6.
+- Endpoints: `POST`/`GET /clinical-sessions/{id}/audio-recordings`,
+  `DELETE /audio-recordings/{id}` — varias grabaciones direccionables por
+  su propio ID dentro de una misma sesión, no una única grabación por
+  sesión. **Supera al diseño previo** de
+  [api-specification.md](api-specification.md) §Audio (`.../audio`
+  singular, con endpoint de descarga) — esa sección queda pendiente de
+  actualizar; sin endpoint de descarga del binario en esta fase
+  (deuda técnica explícita, ver criterio de aceptación).
+- Ampliación cerrada del contrato `TranscriptionProvider` (ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1/§7.1):
+  `TranscriptionInput.audio` (opcional) y
+  `TranscriptionResult.duration_ms`/`segments` (opcionales) — el Mock
+  Pipeline (`run-mock-pipeline`) no cambia de comportamiento ni de
+  `content` persistido.
+- `AssemblyAITranscriptionProvider`: primer proveedor real, API REST
+  oficial vía `httpx` (sin SDK de terceros), credenciales únicamente por
+  variable de entorno. Selección exclusivamente por configuración
+  (`TRANSCRIPTION_PROVIDER=mock|assemblyai`) resuelta por Dependency
+  Injection en `app/integrations/factory.py` — añadir un proveedor nuevo
+  (Deepgram, OpenAI, Speechmatics...) es añadir una entrada a ese
+  registro, sin tocar el resto del sistema.
+- Endpoint `POST /audio-recordings/{id}/transcribe`: genera (o versiona)
+  el `AIArtifact` de tipo `transcript` a partir de un audio real y el
+  proveedor configurado — ruta independiente del Mock Pipeline, que
+  sigue funcionando exactamente igual; nunca toca
+  Summary/ClinicalFlags/MissingInformation/Anamnesis.
+- `benchmark/` (`backend/benchmark/`): plataforma independiente del AI
+  Pipeline (no toca la base de datos ni crea `AIArtifact`) para ejecutar
+  el mismo audio contra varios `TranscriptionProvider` y comparar
+  resultados normalizados — ver
+  [transcription-benchmark.md](transcription-benchmark.md).
+
+**Criterio de aceptación**: se puede subir un audio ficticio, elegir Mock
+o AssemblyAI mediante configuración, generar un `AIArtifact` de tipo
+`transcript` a partir de ese audio, ejecutar `python -m benchmark.cli`
+comparando proveedores y obtener un JSON de resultados por proveedor en
+`benchmark/results/<provider>/<audio>.json` — sin tocar el resto del AI
+Pipeline ni el Mock Pipeline existente.
+
+**Deuda técnica explícita**: sin endpoint de descarga del binario; sin
+`RetentionCleanupService` todavía (sigue siendo Fase 7, sin cambios); sin
+cálculo de WER en el benchmark (preparado, no implementado — ver
+[transcription-benchmark.md](transcription-benchmark.md)).
+
+## Fase 6 — Exportación
 
 - Interfaz `DocumentExporter` con `PdfDocumentExporter` y
   `TextDocumentExporter`.
@@ -412,7 +470,7 @@ la Fase 5) con datos ficticios, sin audio real.
 como texto plano con formato legible; un artefacto no aprobado devuelve
 error controlado y la UI no ofrece la opción.
 
-## Fase 6 — `integrations` (Noah/calendario), `consents`, retención
+## Fase 7 — `integrations` (Noah/calendario), `consents`, retención
 
 - Interfaces `PatientRecordIntegration` y `CalendarIntegration` +
   `Mock*`, sin llamadas de red reales.
@@ -431,13 +489,13 @@ configurable a nivel de aplicación, sin que exista código que llame a un
 servicio externo real. Se puede registrar consentimiento para un paciente
 y purgar manualmente audio que supere la retención configurada.
 
-## Fase 7 — RBAC más fino, scheduler de retención, hardening
+## Fase 8 — RBAC más fino, scheduler de retención, hardening
 
 - Revisión de permisos por endpoint según
   [privacy-and-security.md](privacy-and-security.md), incluida la matriz
   de `AIArtifactAction`/`AIPipelineAction` de la Fase 4.
 - Automatización opcional (scheduler/cron) sobre el
-  `RetentionCleanupService` ya existente desde la Fase 6 — el servicio no
+  `RetentionCleanupService` ya existente desde la Fase 7 — el servicio no
   cambia, solo se añade quién lo invoca periódicamente.
 - Revisión de seguridad general (dependencias, cabeceras HTTP, límites de
   tamaño de subida, rate limiting básico si el tiempo lo permite).
@@ -453,15 +511,28 @@ explícitamente si las hay.
 ## Fuera de las fases del MVP
 
 Cualquier integración real (Noah, calendario, o cualquier proveedor de
-transcripción o de modelo de lenguaje de pago — OpenAI, Anthropic, Claude
-API, Gemini, Ollama, Llama, Whisper, Azure, AWS), multi-tenant, selector
-de idioma en tiempo de ejecución (más allá de centralizar textos para
-prepararlo, ver [architecture.md](architecture.md) §8), grabación en
-vivo, scheduler automático de retención (Fase 6 solo prepara la interfaz,
-Fase 7 la automatiza si el tiempo lo permite), bloqueo forzado por
+modelo de lenguaje de pago — OpenAI, Anthropic, Claude API, Gemini,
+Ollama, Llama), multi-tenant, selector de idioma en tiempo de ejecución
+(más allá de centralizar textos para prepararlo, ver
+[architecture.md](architecture.md) §8), grabación en vivo, scheduler
+automático de retención (Fase 7 solo prepara la interfaz, Fase 8 la
+automatiza si el tiempo lo permite), bloqueo forzado por
 consentimiento de IA (preparado en la Fase 4, no forzado hasta que se
 decida explícitamente) o firma electrónica avanzada quedan fuera de este
 plan (ver [product-requirements.md](product-requirements.md) §4) y
 requerirían un nuevo ciclo de análisis de alcance — o, en el caso de un
 proveedor de IA real, además un acuerdo de tratamiento de datos previo —
 antes de planificarse.
+
+**Excepción ya decidida: AssemblyAI (Fase 5).** El párrafo anterior
+excluía "cualquier proveedor de transcripción... de pago" de forma
+genérica; esa exclusión quedó superada explícitamente en la Fase 5, que
+es el "nuevo ciclo de análisis de alcance" que este mismo párrafo pedía
+como condición. AssemblyAI es el único proveedor de transcripción
+integrado en el pipeline real (`POST /audio-recordings/{id}/transcribe`).
+El resto de proveedores de transcripción listados en
+[transcription-benchmark.md](transcription-benchmark.md) (Deepgram,
+OpenAI, Speechmatics, Azure Speech, Google Speech, AWS Transcribe,
+Whisper local) quedan preparados únicamente para `benchmark/` — ninguno
+está integrado en el pipeline real, y añadirlo ahí seguiría exigiendo
+este mismo ciclo de análisis de alcance, sesión por sesión.

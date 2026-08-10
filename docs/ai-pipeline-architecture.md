@@ -479,6 +479,20 @@ implementación `Mock*`; ninguna implementación real todavía.
 
 ### 6.1 Proveedores de contenido (`integrations/domain/`)
 
+> **Ampliación (Fase 5 — ver
+> [development-plan.md](development-plan.md)).** `TranscriptionInput`
+> gana un campo opcional `audio: AudioForTranscription | None` (bytes ya
+> leídos de `AudioStorage`, nunca la referencia de almacenamiento) y
+> `TranscriptionResult` gana `duration_ms: int | None` y
+> `segments: list[TranscriptionSegment] | None` (diarización:
+> `speaker`/`start_ms`/`end_ms`/`text`). `MockTranscriptionProvider`
+> ignora `audio` por completo y nunca puebla los campos nuevos — el Mock
+> Pipeline (`run_pipeline`) no cambia de comportamiento. Solo
+> `AssemblyAITranscriptionProvider`, invocado exclusivamente desde
+> `AIPipelineService.transcribe_from_audio` (nunca desde `run_pipeline`),
+> recibe `audio` y puebla los campos nuevos — ver
+> [transcription-benchmark.md](transcription-benchmark.md).
+
 ```python
 class TranscriptionProvider(Protocol):
     async def transcribe(self, input: TranscriptionInput) -> TranscriptionResult: ...
@@ -643,7 +657,7 @@ los artefactos que son "básicamente prosa":
 
 | `artifact_type` | Forma de `content` |
 |---|---|
-| `transcript` | `{"text": str, "language": str}` |
+| `transcript` | `{"text": str, "language": str}`, más `duration_ms: int` y `segments: [{"speaker": str \| null, "start_ms": int, "end_ms": int, "text": str}]` cuando el proveedor los aporta (Fase 5) — ambos ausentes con el Mock Pipeline, sin cambio de comportamiento |
 | `summary` | `{"text": str}` |
 | `clinical_flags` | `{"flags": [{"category": str, "description": str, "source_excerpt": str \| null, "ruleset_name": str}]}` |
 | `missing_information` | `{"items": [{"topic": str, "suggested_question": str}]}` |
@@ -1114,7 +1128,7 @@ Por subfase — ver desglose y dependencias completas en
   (valor por defecto) las columnas de prompt renderizado son siempre
   `NULL`.
 - **4.7 (exportación)**: ver [development-plan.md](development-plan.md)
-  Fase 5.
+  Fase 6.
 - **4.8 (frontend)**: desde la UI se puede disparar el pipeline, ver cada
   artefacto con su aviso de IA y su `confidence`, ver el historial de
   versiones, y aprobar/rechazar/editar — todo con datos ficticios, sin
