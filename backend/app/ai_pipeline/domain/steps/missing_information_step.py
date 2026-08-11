@@ -57,4 +57,5 @@ class MissingInformationStep:
             cost_estimator=self._cost_estimator,
             input_text=summary_text,
             produce=produce,
+            context=context,
         )

@@ -88,6 +88,7 @@ class TranscriptionStep:
             # referencia de audio/fixture, no texto (ver TranscriptionInput).
             input_text="",
             produce=produce,
+            context=context,
         )
 
         result = captured.get("result")

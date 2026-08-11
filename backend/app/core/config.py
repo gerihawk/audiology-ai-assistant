@@ -111,6 +111,24 @@ class Settings(BaseSettings):
     ai_processing_consent_enforced: bool = False
     ai_processing_consent_version: str = "1.0"
 
+    # --- Límite duro de coste LLM por sesión (Fase 6, hito 6.1) ---
+    # `False` en esta fase: sin proveedor real, `MockCostEstimator`
+    # siempre devuelve 0 y el límite nunca se alcanzaría de todos modos —
+    # ver docs/fase-6-rfc.md §6.3. Activarlo no cambia ningún test
+    # existente. Debe poder desactivarse explícitamente en
+    # development/test (encargo de la Fase 6.1, punto 9).
+    llm_cost_limit_enforced: bool = False
+    max_llm_cost_per_session_usd: Decimal | None = None
+    # Techo de tokens de salida usado SOLO para la estimación "peor caso
+    # razonable" previa a la llamada (§6.3) — nunca un límite real de
+    # generación, un proveedor puede devolver menos o más.
+    llm_max_output_tokens_estimate: int = 2000
+    # Reintentos automáticos acotados (§5.5) — máximo total, el step
+    # decide cuántos de esos corresponden a cada motivo de fallo.
+    ai_pipeline_max_general_retries: int = 2
+    ai_pipeline_max_regenerative_retries: int = 1
+    ai_pipeline_retry_backoff_base_seconds: float = 0.0
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

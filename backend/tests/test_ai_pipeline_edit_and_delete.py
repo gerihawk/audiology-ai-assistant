@@ -69,7 +69,7 @@ async def test_edit_content_creates_human_edited_version_and_reopens_review(
     response = await api_client.patch(
         f"/api/v1/ai-artifacts/{artifact['id']}/content",
         json={
-            "content": {"text": "texto corregido por el profesional"},
+            "content": {"text": "texto corregido por el profesional", "language": "es"},
             "change_note": "corrección",
         },
         headers=headers,
@@ -78,7 +78,7 @@ async def test_edit_content_creates_human_edited_version_and_reopens_review(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["version_number"] == 2
-    assert body["content"] == {"text": "texto corregido por el profesional"}
+    assert body["content"] == {"text": "texto corregido por el profesional", "language": "es"}
     assert body["status"] == "review_pending"
     assert body["approved_by"] is None
     assert body["approved_at"] is None
@@ -94,7 +94,7 @@ async def test_edit_content_persists_source_human_edited_in_version_history(
 
     await api_client.patch(
         f"/api/v1/ai-artifacts/{artifact['id']}/content",
-        json={"content": {"text": "editado"}, "change_note": None},
+        json={"content": {"text": "editado", "language": "es"}, "change_note": None},
         headers=headers,
     )
     response = await api_client.get(
@@ -119,7 +119,7 @@ async def test_edit_content_writes_audit_log_entry(
 
     await api_client.patch(
         f"/api/v1/ai-artifacts/{artifact['id']}/content",
-        json={"content": {"text": "editado"}, "change_note": None},
+        json={"content": {"text": "editado", "language": "es"}, "change_note": None},
         headers=headers,
     )
 
@@ -176,6 +176,112 @@ async def test_audiologist_cannot_edit_artifact_of_others_session(
         headers=dev_headers(clinic_with_users.audiologist),
     )
     assert response.status_code == 403
+
+
+# --- Edición humana: no puede romper el contrato estructural (hito 6.1) ----
+
+
+async def _run_pipeline_and_get_artifact(
+    api_client: AsyncClient, headers: dict[str, str], session_id: str, artifact_type: str
+) -> dict:
+    response = await api_client.post(
+        f"/api/v1/clinical-sessions/{session_id}/run-mock-pipeline", headers=headers
+    )
+    assert response.status_code == 201, response.text
+    return next(a for a in response.json()["artifacts"] if a["artifact_type"] == artifact_type)
+
+
+async def test_edit_content_con_esquema_valido_se_acepta(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    headers = dev_headers(clinic_with_users.admin)
+    artifact = await _run_pipeline_and_get_artifact(
+        api_client, headers, clinical_session["id"], "summary"
+    )
+
+    response = await api_client.patch(
+        f"/api/v1/ai-artifacts/{artifact['id']}/content",
+        json={"content": {"text": "resumen corregido a mano"}, "change_note": None},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+
+
+async def test_edit_content_con_campo_obligatorio_ausente_se_rechaza(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    """docs/fase-6-rfc.md §10 (encargo, punto 5): la edición humana NUNCA
+    puede introducir una estructura inválida — aquí falta `language`,
+    obligatorio en `transcript`."""
+    headers = dev_headers(clinic_with_users.admin)
+    artifact = await _run_pipeline_and_get_artifact(
+        api_client, headers, clinical_session["id"], "transcript"
+    )
+
+    response = await api_client.patch(
+        f"/api/v1/ai-artifacts/{artifact['id']}/content",
+        json={"content": {"text": "solo texto, sin idioma"}, "change_note": None},
+        headers=headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "schema_validation_error"
+
+
+async def test_edit_content_con_campo_desconocido_se_rechaza(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    headers = dev_headers(clinic_with_users.admin)
+    artifact = await _run_pipeline_and_get_artifact(
+        api_client, headers, clinical_session["id"], "summary"
+    )
+
+    response = await api_client.patch(
+        f"/api/v1/ai-artifacts/{artifact['id']}/content",
+        json={"content": {"text": "ok", "campo_inventado": "no"}, "change_note": None},
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+async def test_edit_content_con_enum_invalido_de_anamnesis_se_rechaza(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    headers = dev_headers(clinic_with_users.admin)
+    artifact = await _run_pipeline_and_get_artifact(
+        api_client, headers, clinical_session["id"], "anamnesis"
+    )
+    content = dict(artifact["content"])
+    first_field = next(iter(content))
+    content[first_field] = {"value": "", "status": "estado_inventado"}
+
+    response = await api_client.patch(
+        f"/api/v1/ai-artifacts/{artifact['id']}/content",
+        json={"content": content, "change_note": None},
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+async def test_edit_content_invalido_no_crea_nueva_version(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    """Fallo tipado del punto 17 del encargo: si la validación falla, no
+    queda ninguna `AIArtifactVersion` nueva ni `current_version_id` avanza."""
+    headers = dev_headers(clinic_with_users.admin)
+    artifact = await _run_pipeline_and_get_artifact(
+        api_client, headers, clinical_session["id"], "transcript"
+    )
+
+    await api_client.patch(
+        f"/api/v1/ai-artifacts/{artifact['id']}/content",
+        json={"content": {"text": "solo texto"}, "change_note": None},
+        headers=headers,
+    )
+
+    unchanged = await api_client.get(f"/api/v1/ai-artifacts/{artifact['id']}", headers=headers)
+    assert unchanged.json()["version_number"] == 1
+    assert unchanged.json()["content"] == artifact["content"]
 
 
 # --- Soft-delete ---------------------------------------------------------------

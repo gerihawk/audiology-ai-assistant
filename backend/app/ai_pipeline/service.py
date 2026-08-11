@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_pipeline.domain.artifact_repository import AIArtifactRepository
+from app.ai_pipeline.domain.cost_budget import SessionCostBudget
 from app.ai_pipeline.domain.entities import (
     PIPELINE_STEP_ORDER,
     AIArtifact,
@@ -38,6 +39,9 @@ from app.ai_pipeline.domain.pipeline import (
     SequentialPipelineOrchestrator,
 )
 from app.ai_pipeline.domain.pipeline_run_repository import AIPipelineRunRepository
+from app.ai_pipeline.domain.prompt_template_repository import PromptTemplateRepository
+from app.ai_pipeline.domain.retry_policy import RetryConfig
+from app.ai_pipeline.domain.schemas import validate_content_schema
 from app.ai_pipeline.domain.steps.anamnesis_step import AnamnesisStep
 from app.ai_pipeline.domain.steps.clinical_flags_step import ClinicalFlagsStep
 from app.ai_pipeline.domain.steps.missing_information_step import MissingInformationStep
@@ -47,6 +51,7 @@ from app.ai_pipeline.infrastructure.repository import (
     SqlAlchemyAIArtifactRepository,
     SqlAlchemyAIGenerationRunRepository,
     SqlAlchemyAIPipelineRunRepository,
+    SqlAlchemyPromptTemplateRepository,
 )
 from app.audio.domain.audio_storage import AudioStorage, StorageReference
 from app.audio.domain.repository import AudioRecordingRepository
@@ -70,7 +75,7 @@ from app.core.authorization import (
 )
 from app.core.config import get_settings
 from app.core.current_user import CurrentUser
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, SchemaValidationError
 from app.core.processing_status import ProcessingStatus
 from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagsGenerator
@@ -144,11 +149,18 @@ class AIPipelineService:
         audio_storage: AudioStorage | None = None,
         configured_transcription_provider: TranscriptionProvider | None = None,
         consent_repository: ConsentRepository | None = None,
+        prompt_template_repository: PromptTemplateRepository | None = None,
     ) -> None:
         self._session = session
         self._artifacts = artifact_repository or SqlAlchemyAIArtifactRepository()
         self._generation_runs = generation_run_repository or SqlAlchemyAIGenerationRunRepository()
         self._pipeline_runs = pipeline_run_repository or SqlAlchemyAIPipelineRunRepository()
+        # Fase 6.1 (docs/fase-6-rfc.md §10): repositorio activado vía DI,
+        # listo para que un futuro step lo use — ningún generator lo
+        # consume todavía (los `Mock*Generator` siguen con su prompt
+        # hardcodeado hasta que el hito 6.3 conecte un proveedor real,
+        # momento en el que de todos modos hay que tocar cada generator).
+        self._prompt_templates = prompt_template_repository or SqlAlchemyPromptTemplateRepository()
         self._clinical_sessions = (
             clinical_session_repository or SqlAlchemyClinicalSessionRepository()
         )
@@ -217,9 +229,15 @@ class AIPipelineService:
         try:
             persisted_run = await self._pipeline_runs.add(self._session, pipeline_run)
 
+            cost_budget, retry_config, max_output_tokens_estimate = (
+                await self._build_execution_guardrails(clinical_session_id)
+            )
             context = PipelineExecutionContext(
                 clinical_session_id=clinical_session_id,
                 session_context=SessionContext(clinical_session_id=clinical_session_id),
+                cost_budget=cost_budget,
+                retry_config=retry_config,
+                max_output_tokens_estimate=max_output_tokens_estimate,
             )
             result = await self._orchestrator.run(context, self._build_steps())
 
@@ -383,7 +401,7 @@ class AIPipelineService:
             version_number=next_version_number,
             content=outcome.content or {},
             confidence=outcome.confidence,
-            source_map=None,
+            source_map=outcome.source_map,
             source=AIArtifactVersionSource.AI_GENERATED,
             generation_run_id=persisted_generation_run.id,
             created_by=None,
@@ -484,6 +502,9 @@ class AIPipelineService:
             provider_name=settings.transcription_provider,
             model_name=None,
         )
+        cost_budget, retry_config, max_output_tokens_estimate = (
+            await self._build_execution_guardrails(audio_recording.clinical_session_id)
+        )
         context = PipelineExecutionContext(
             clinical_session_id=audio_recording.clinical_session_id,
             session_context=SessionContext(clinical_session_id=audio_recording.clinical_session_id),
@@ -492,6 +513,9 @@ class AIPipelineService:
                 mime_type=audio_recording.mime_type,
                 filename=audio_recording.original_filename,
             ),
+            cost_budget=cost_budget,
+            retry_config=retry_config,
+            max_output_tokens_estimate=max_output_tokens_estimate,
         )
 
         try:
@@ -783,6 +807,19 @@ class AIPipelineService:
             professional_id=clinical_session.professional_id,
         )
 
+        # Hito 6.1 (docs/fase-6-rfc.md §10, encargo punto 5): una edición
+        # humana puede cambiar el contenido y reabrir revisión, pero nunca
+        # puede romper el contrato estructural del artifact_type — a
+        # diferencia de la generación automática, NO pasa por
+        # `GroundingValidator`/`SafetyValidator` (pensados para confiar o
+        # no en una salida de IA, no en la palabra de un profesional).
+        schema_result = validate_content_schema(existing.artifact_type, content)
+        if not schema_result.valid:
+            raise SchemaValidationError(
+                "El contenido editado no cumple el esquema de este tipo de artefacto.",
+                errors=list(schema_result.errors),
+            )
+
         now = datetime.now(UTC)
         next_version_number = (
             await self._artifacts.latest_version_number(self._session, artifact_id) + 1
@@ -925,6 +962,32 @@ class AIPipelineService:
         if clinical_session is None:
             raise NotFoundError("Sesión clínica no encontrada.")
         return clinical_session
+
+    async def _build_execution_guardrails(
+        self, clinical_session_id: uuid.UUID
+    ) -> tuple[SessionCostBudget | None, RetryConfig, int]:
+        """Resuelve una única vez, desde `Settings`/BD, los guardarraíles
+        de runtime del hito 6.1 que `PipelineExecutionContext` hace
+        circular hacia `run_provider_step` — ver docs/fase-6-rfc.md §6.3.
+
+        `cost_budget=None` (límite desactivado, valor por defecto en
+        development/test) evita la consulta de coste acumulado: ni
+        siquiera se toca la BD para algo que no va a bloquear nada."""
+        settings = get_settings()
+        cost_budget: SessionCostBudget | None = None
+        if settings.llm_cost_limit_enforced:
+            accumulated = await self._generation_runs.sum_estimated_cost_for_session(
+                self._session, clinical_session_id
+            )
+            cost_budget = SessionCostBudget(
+                limit_usd=settings.max_llm_cost_per_session_usd, accumulated_usd=accumulated
+            )
+        retry_config = RetryConfig(
+            max_general_retries=settings.ai_pipeline_max_general_retries,
+            max_regenerative_retries=settings.ai_pipeline_max_regenerative_retries,
+            backoff_base_seconds=settings.ai_pipeline_retry_backoff_base_seconds,
+        )
+        return cost_budget, retry_config, settings.llm_max_output_tokens_estimate
 
     async def _ensure_ai_processing_consent(
         self, current_user: CurrentUser, patient_id: uuid.UUID

@@ -17,9 +17,16 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from app.ai_pipeline.domain.cost_budget import SessionCostBudget
 from app.ai_pipeline.domain.entities import AIArtifactType, AIGenerationRunStatus
+from app.ai_pipeline.domain.retry_policy import RetryConfig
 from app.integrations.domain.session_context import SessionContext
 from app.integrations.domain.transcription_provider import AudioForTranscription
+
+#: Techo de tokens de salida para la estimación "peor caso razonable"
+#: previa a la llamada (§6.3) cuando no se recibe uno explícito desde
+#: `Settings` — ver `AIPipelineService`.
+DEFAULT_MAX_OUTPUT_TOKENS_ESTIMATE = 2000
 
 
 @dataclass(slots=True)
@@ -32,12 +39,23 @@ class PipelineExecutionContext:
     `audio_input` (Fase 5) es `None` en `run_pipeline` (Mock Pipeline,
     comportamiento sin cambios): solo `AIPipelineService.transcribe_from_audio`
     lo rellena, con los bytes ya leídos de `AudioStorage` — ver
-    `TranscriptionStep.run`."""
+    `TranscriptionStep.run`.
+
+    `cost_budget`/`retry_config`/`max_output_tokens_estimate` (Fase 6.1)
+    son la única vía por la que `run_provider_step` conoce los guardarraíles
+    de runtime — resueltos una vez por `AIPipelineService` desde
+    `Settings`/BD, nunca leídos directamente por un `PipelineStep` (que
+    sigue sin tocar BD, ver docs/fase-6-rfc.md §5). `cost_budget=None`
+    (valor por defecto) desactiva el límite de coste — mismo criterio que
+    `Settings.llm_cost_limit_enforced=False`."""
 
     clinical_session_id: uuid.UUID
     session_context: SessionContext
     outputs: dict[AIArtifactType, Any] = field(default_factory=dict)
     audio_input: AudioForTranscription | None = None
+    cost_budget: SessionCostBudget | None = None
+    retry_config: RetryConfig = field(default_factory=RetryConfig)
+    max_output_tokens_estimate: int = DEFAULT_MAX_OUTPUT_TOKENS_ESTIMATE
 
 
 @dataclass(slots=True)
@@ -70,6 +88,12 @@ class PipelineStepOutcome:
     #: docs/transcription-benchmark.md §Model traceability). Se persiste
     #: en `AIGenerationRun.raw_response`.
     provider_metadata: dict[str, Any] | None = None
+    #: JSONB top-level de `AIArtifactVersion` (Fase 6.1) — agregado por
+    #: `validation_pipeline.py` a partir de los `source_excerpt` ya
+    #: validados contra el transcript, nunca aportado por el proveedor
+    #: como autoridad (ver docs/fase-6-rfc.md §5.4). `None` si el
+    #: artefacto no declara ningún campo con evidencia.
+    source_map: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

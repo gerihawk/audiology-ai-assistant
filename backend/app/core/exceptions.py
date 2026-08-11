@@ -34,3 +34,17 @@ class ForbiddenError(DomainError):
 
 class UnauthenticatedError(DomainError):
     """No se pudo resolver un usuario actual válido."""
+
+
+class SchemaValidationError(DomainError):
+    """El `content` enviado no cumple el esquema estructural cerrado de su
+    `artifact_type` (ver app/ai_pipeline/domain/schemas.py) — p. ej. una
+    edición humana (`PATCH .../content`) que rompe el contrato. Distinto
+    de `RequestValidationError` (formato de la petición HTTP): esto es una
+    regla de dominio sobre el contenido clínico, no del transporte.
+    `errors` son mensajes ya seguros para el cliente (nombres de campo,
+    tipos esperados) — nunca el contenido clínico enviado."""
+
+    def __init__(self, message: str, *, errors: list[str]) -> None:
+        super().__init__(message)
+        self.errors = errors

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
@@ -318,6 +319,16 @@ class SqlAlchemyAIGenerationRunRepository:
             )
         )
         return [_generation_run_to_domain(row) for row in result.scalars().all()]
+
+    async def sum_estimated_cost_for_session(
+        self, session: AsyncSession, clinical_session_id: uuid.UUID
+    ) -> Decimal:
+        result = await session.execute(
+            select(
+                func.coalesce(func.sum(AIGenerationRunORM.estimated_cost_usd), Decimal("0"))
+            ).where(AIGenerationRunORM.clinical_session_id == clinical_session_id)
+        )
+        return result.scalar_one()
 
 
 class SqlAlchemyAIPipelineRunRepository:

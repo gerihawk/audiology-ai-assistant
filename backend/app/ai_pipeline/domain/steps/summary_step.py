@@ -50,4 +50,5 @@ class SummaryStep:
             cost_estimator=self._cost_estimator,
             input_text=transcript_text,
             produce=produce,
+            context=context,
         )

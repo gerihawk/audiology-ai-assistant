@@ -9,7 +9,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError
+from app.core.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    SchemaValidationError,
+    UnauthenticatedError,
+)
 
 logger = logging.getLogger("app.errors")
 
@@ -67,6 +73,21 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={"error": {"code": "conflict", "message": str(exc), "field": exc.field}},
+        )
+
+    @app.exception_handler(SchemaValidationError)
+    async def handle_schema_validation_error(
+        request: Request, exc: SchemaValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "error": {
+                    "code": "schema_validation_error",
+                    "message": str(exc),
+                    "details": exc.errors,
+                }
+            },
         )
 
     @app.exception_handler(ForbiddenError)

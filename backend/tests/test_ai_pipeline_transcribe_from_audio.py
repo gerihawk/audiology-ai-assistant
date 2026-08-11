@@ -228,6 +228,11 @@ async def test_no_se_puede_transcribir_un_audio_sin_subir_correctamente(
 async def test_fallo_del_proveedor_persiste_el_fallo_y_lanza_conflicterror(
     db_session: AsyncSession, clinic_with_users: ClinicWithUsers, clinical_session: dict
 ):
+    """Desde el hito 6.1 (docs/fase-6-rfc.md §5.5/§7), `failure_reason` es
+    siempre uno de los motivos tipados — nunca el texto libre de la
+    excepción del proveedor (evita filtrar detalles internos/sensibles).
+    Un `RuntimeError` genérico de un proveedor se clasifica como
+    `unexpected_internal_error` (no retryable)."""
     audio_storage = _InMemoryAudioStorage()
     admin = current_user_from(clinic_with_users.admin)
     recording = await _upload_ready_audio(
@@ -239,14 +244,14 @@ async def test_fallo_del_proveedor_persiste_el_fallo_y_lanza_conflicterror(
 
     from app.core.exceptions import ConflictError
 
-    with pytest.raises(ConflictError, match="fallo simulado del proveedor"):
+    with pytest.raises(ConflictError, match="unexpected_internal_error"):
         await service.transcribe_from_audio(admin, recording.id, "req-1")
 
     updated_recording = await SqlAlchemyAudioRecordingRepository().get_by_id(
         db_session, admin.clinic_id, recording.id
     )
     assert updated_recording.status == ProcessingStatus.FAILED
-    assert "fallo simulado" in updated_recording.failure_reason
+    assert updated_recording.failure_reason == "unexpected_internal_error"
 
 
 async def test_no_se_puede_transcribir_dos_veces_a_la_vez(
