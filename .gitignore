@@ -43,6 +43,13 @@ backend/benchmark/dataset/*/audio.*
 backend/benchmark/results/*
 !backend/benchmark/results/.gitkeep
 
+# Benchmark de generación LLM (Fase 6.2): input.json/reference.json/
+# metadata.json de benchmark/generation_dataset/ SÍ se versionan (nunca
+# audio, sin binarios que excluir) — solo los resultados quedan fuera del
+# repo, ver docs/generation-benchmark.md.
+backend/benchmark/generation_results/*
+!backend/benchmark/generation_results/.gitkeep
+
 # Editor / OS
 .DS_Store
 .idea/

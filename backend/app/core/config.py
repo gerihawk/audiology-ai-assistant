@@ -129,6 +129,17 @@ class Settings(BaseSettings):
     ai_pipeline_max_regenerative_retries: int = 1
     ai_pipeline_retry_backoff_base_seconds: float = 0.0
 
+    # --- Benchmark de generación LLM (Fase 6.2) — ver docs/generation-benchmark.md ---
+    # OpenRouter es EXCLUSIVO de `benchmark/generation/` (RFC v2 §6.1): la
+    # app productiva arranca sin `OPENROUTER_API_KEY` configurada — solo
+    # `benchmark.generation` la lee, y falla explícitamente (nunca en
+    # silencio) si se le pide ejecutar sin ella. Nunca se convierte en
+    # `LanguageModelProvider` productivo en este hito.
+    generation_benchmark_enabled: bool = False
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_timeout_seconds: float = 120.0
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

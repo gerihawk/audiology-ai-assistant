@@ -1,0 +1,78 @@
+{
+  "id": "consulta_ficticia_01__missing_information",
+  "description": "Información ausente de una consulta audioprotésica inicial ficticia — comparado contra los 20 ANAMNESIS_FIELDS, qué no se preguntó.",
+  "artifact_type": "missing_information",
+  "required_facts": [],
+  "forbidden_facts": [
+    {
+      "description": "no debe señalar los antecedentes familiares como ausentes (sí se preguntaron)",
+      "patterns": [
+        "antecedentes familiares",
+        "historia familiar de pérdida"
+      ]
+    },
+    {
+      "description": "no debe señalar la exposición al ruido laboral como ausente (sí se preguntó)",
+      "patterns": [
+        "exposición al ruido",
+        "exposición laboral"
+      ]
+    },
+    {
+      "description": "no debe señalar los acúfenos/tinnitus como ausentes (sí se preguntaron)",
+      "patterns": [
+        "acúfenos",
+        "tinnitus"
+      ]
+    },
+    {
+      "description": "no debe señalar el vértigo como ausente (sí se preguntó, y se negó)",
+      "patterns": [
+        "vértigo"
+      ]
+    }
+  ],
+  "critical_terms": [],
+  "negation_cases": [],
+  "laterality_cases": [],
+  "numeric_cases": [],
+  "expected_missing_topics": [
+    {
+      "description": "otalgia / dolor de oído (no se preguntó)",
+      "patterns": [
+        "otalgia",
+        "dolor de oído",
+        "dolor en el oído"
+      ]
+    },
+    {
+      "description": "otorrea / supuración (no se preguntó)",
+      "patterns": [
+        "otorrea",
+        "supuración"
+      ]
+    },
+    {
+      "description": "sensación de plenitud ótica (no se preguntó)",
+      "patterns": [
+        "plenitud",
+        "taponamiento"
+      ]
+    },
+    {
+      "description": "uso previo de audífonos u otros dispositivos auditivos (no se preguntó al paciente, solo se mencionó del padre)",
+      "patterns": [
+        "uso previo de audífonos",
+        "ha usado audífonos"
+      ]
+    },
+    {
+      "description": "expectativas del paciente respecto al tratamiento (no se preguntó)",
+      "patterns": [
+        "expectativas"
+      ]
+    }
+  ],
+  "max_length": null,
+  "notes": "expected_missing_topics derivados por comparación estructural contra los 20 ANAMNESIS_FIELDS (docs/data-model.md §3) frente a lo literalmente cubierto en la transcripción — nunca un juicio clínico nuevo."
+}

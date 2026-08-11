@@ -1,0 +1,235 @@
+{
+  "id": "consulta_ficticia_01__summary",
+  "description": "Resumen profesional de una consulta audioprotésica inicial ficticia — pérdida auditiva progresiva, acúfenos, exposición laboral a ruido.",
+  "artifact_type": "summary",
+  "required_facts": [
+    {
+      "description": "pérdida auditiva progresiva de varios meses, más marcada en el oído izquierdo",
+      "patterns": [
+        "oído izquierdo",
+        "peor",
+        "pérdida"
+      ]
+    },
+    {
+      "description": "acúfenos/pitidos, más intensos en el oído izquierdo, sobre todo por la noche",
+      "patterns": [
+        "acúfenos",
+        "pitido",
+        "pitidos"
+      ]
+    },
+    {
+      "description": "exposición laboral a ruido (fábrica de cerámica, unos 25 años)",
+      "patterns": [
+        "ruido",
+        "fábrica",
+        "cerámica",
+        "exposición"
+      ]
+    },
+    {
+      "description": "antecedentes familiares de pérdida auditiva (padre con audífonos)",
+      "patterns": [
+        "padre",
+        "antecedentes familiares",
+        "audífonos"
+      ]
+    },
+    {
+      "description": "antecedentes de otitis en la infancia",
+      "patterns": [
+        "otitis"
+      ]
+    },
+    {
+      "description": "medicación actual para la tensión arterial",
+      "patterns": [
+        "tensión arterial",
+        "medicación"
+      ]
+    },
+    {
+      "description": "plan: otoscopia y audiometría tonal por vía aérea y ósea",
+      "patterns": [
+        "otoscopia",
+        "audiometría"
+      ]
+    }
+  ],
+  "forbidden_facts": [
+    {
+      "description": "vértigo o mareos frecuentes (el paciente lo niega explícitamente)",
+      "patterns": [
+        "vértigo",
+        "mareos frecuentes"
+      ]
+    },
+    {
+      "description": "cirugía de oídos (nunca operado)",
+      "patterns": [
+        "cirugía",
+        "operado",
+        "intervención quirúrgica"
+      ]
+    },
+    {
+      "description": "alergias medicamentosas (el paciente las niega)",
+      "patterns": [
+        "alergias"
+      ]
+    },
+    {
+      "description": "diagnóstico confirmado de hipoacusia neurosensorial (pendiente de pruebas, no determinado todavía)",
+      "patterns": [
+        "diagnóstico confirmado",
+        "hipoacusia neurosensorial confirmada"
+      ]
+    }
+  ],
+  "critical_terms": [
+    "pérdida auditiva",
+    "acúfenos",
+    "otitis",
+    "audiometría tonal",
+    "vía aérea",
+    "vía ósea"
+  ],
+  "negation_cases": [
+    {
+      "concept": "vertigo",
+      "expected": "negated",
+      "patterns": {
+        "negated": [
+          "vértigo no he tenido nunca",
+          "no vértigo"
+        ],
+        "affirmed": [
+          "he tenido vértigo",
+          "sí vértigo"
+        ]
+      }
+    },
+    {
+      "concept": "ear_surgery",
+      "expected": "negated",
+      "patterns": {
+        "negated": [
+          "nunca me han operado de los oídos",
+          "no ha sido operado"
+        ],
+        "affirmed": [
+          "me han operado de los oídos",
+          "cirugía de oído"
+        ]
+      }
+    },
+    {
+      "concept": "other_medication",
+      "expected": "negated",
+      "patterns": {
+        "negated": [
+          "no tomo ningún otro tratamiento",
+          "solo medicación para la tensión"
+        ],
+        "affirmed": [
+          "toma otro tratamiento"
+        ]
+      }
+    },
+    {
+      "concept": "drug_allergies",
+      "expected": "negated",
+      "patterns": {
+        "negated": [
+          "no tengo alergias conocidas",
+          "sin alergias"
+        ],
+        "affirmed": [
+          "tiene alergias"
+        ]
+      }
+    }
+  ],
+  "laterality_cases": [
+    {
+      "concept": "hearing_loss",
+      "laterality": "left",
+      "patterns": {
+        "left": [
+          "oído izquierdo"
+        ],
+        "right": [
+          "oído derecho"
+        ],
+        "bilateral": [
+          "los dos",
+          "ambos oídos",
+          "los dos oídos",
+          "bilateral"
+        ]
+      }
+    },
+    {
+      "concept": "tinnitus",
+      "laterality": "left",
+      "patterns": {
+        "left": [
+          "oído izquierdo"
+        ],
+        "right": [
+          "oído derecho"
+        ],
+        "bilateral": [
+          "ambos oídos",
+          "los dos oídos",
+          "bilateral"
+        ]
+      }
+    }
+  ],
+  "numeric_cases": [
+    {
+      "concept": "duracion_perdida_auditiva",
+      "expected_patterns": [
+        "ocho o nueve meses",
+        "8 o 9 meses",
+        "ocho meses",
+        "nueve meses"
+      ],
+      "incorrect_patterns": [
+        "dos meses",
+        "seis meses",
+        "un año",
+        "doce meses"
+      ]
+    },
+    {
+      "concept": "anos_exposicion_ruido",
+      "expected_patterns": [
+        "veinticinco años",
+        "25 años"
+      ],
+      "incorrect_patterns": [
+        "quince años",
+        "diez años",
+        "treinta años"
+      ]
+    },
+    {
+      "concept": "edad_padre_audifonos",
+      "expected_patterns": [
+        "setenta años",
+        "70 años"
+      ],
+      "incorrect_patterns": [
+        "sesenta años",
+        "ochenta años",
+        "cincuenta años"
+      ]
+    }
+  ],
+  "expected_missing_topics": [],
+  "max_length": null,
+  "notes": "Invariantes derivadas directamente de la transcripción — nunca inventadas. Ver benchmark/dataset/consulta_ficticia_01/metadata.json para los negation_cases/laterality_cases originales (mismo audio, mismos conceptos)."
+}

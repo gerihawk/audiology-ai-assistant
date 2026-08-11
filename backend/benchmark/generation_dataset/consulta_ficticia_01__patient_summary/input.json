@@ -1,0 +1,151 @@
+{
+  "id": "consulta_ficticia_01__patient_summary",
+  "language": "es",
+  "artifact_type": "patient_summary",
+  "session_type": "INITIAL_ASSESSMENT",
+  "transcript": "AUDIOPROTESISTA: Buenos días. Soy Gerard. Tome asiento. ¿En qué puedo ayudarle hoy?\nPACIENTE: Buenos días. Desde hace unos meses noto que escucho peor, sobre todo por el oído izquierdo. Mi mujer dice que tengo que subir mucho el volumen de la televisión y que muchas veces le hago repetir las cosas.\nAUDIOPROTESISTA: ¿Recuerda aproximadamente cuándo empezó a notar esa pérdida de audición?\nPACIENTE: Pues diría que hace unos ocho o nueve meses. Al principio pensaba que era algo puntual, pero cada vez me cuesta más entender las conversaciones cuando hay ruido.\nAUDIOPROTESISTA: ¿Tiene esa sensación en los dos oídos o solamente en uno?\nPACIENTE: En los dos, pero bastante más en el oído izquierdo.\nAUDIOPROTESISTA: ¿Ha notado pitidos o acúfenos?\nPACIENTE: Sí. Tengo un pitido constante, sobre todo por la noche. Es más intenso en el oído izquierdo.\nAUDIOPROTESISTA: ¿Y ha tenido episodios de vértigo o mareos?\nPACIENTE: No. Vértigo no he tenido nunca. Algún mareo puntual hace años, pero nada importante.\nAUDIOPROTESISTA: ¿Ha tenido otitis frecuentes o alguna cirugía en los oídos?\nPACIENTE: Otitis de pequeño sí tuve varias veces, pero nunca me han operado de los oídos.\nAUDIOPROTESISTA: ¿Y tiene antecedentes familiares de pérdida auditiva?\nPACIENTE: Sí. Mi padre empezó a utilizar audífonos con unos setenta años. Mi madre escucha perfectamente.\nAUDIOPROTESISTA: ¿A qué se dedica o a qué se ha dedicado?\nPACIENTE: He trabajado durante veinticinco años en una fábrica de cerámica. Había bastante ruido. Muchas veces utilizábamos protección auditiva, pero otras no.\nAUDIOPROTESISTA: ¿Toma alguna medicación actualmente?\nPACIENTE: Solo medicación para la tensión arterial. No tomo ningún otro tratamiento y no tengo alergias conocidas.\nAUDIOPROTESISTA: Perfecto. Vamos a realizar una otoscopia y después una audiometría tonal por vía aérea y vía ósea para valorar exactamente el grado de pérdida auditiva.\nPACIENTE: De acuerdo, perfecto.\nAUDIOPROTESISTA: Cuando tengamos los resultados veremos si presenta una hipoacusia neurosensorial o de otro tipo y hablaremos de las opciones de tratamiento, incluyendo audífonos si fueran necesarios.\nPACIENTE: Muy bien. Muchas gracias.",
+  "transcript_segments": [
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Buenos días. Soy Gerard. Tome asiento. ¿En qué puedo ayudarle hoy?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Buenos días. Desde hace unos meses noto que escucho peor, sobre todo por el oído izquierdo. Mi mujer dice que tengo que subir mucho el volumen de la televisión y que muchas veces le hago repetir las cosas."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Recuerda aproximadamente cuándo empezó a notar esa pérdida de audición?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Pues diría que hace unos ocho o nueve meses. Al principio pensaba que era algo puntual, pero cada vez me cuesta más entender las conversaciones cuando hay ruido."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Tiene esa sensación en los dos oídos o solamente en uno?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "En los dos, pero bastante más en el oído izquierdo."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Ha notado pitidos o acúfenos?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Sí. Tengo un pitido constante, sobre todo por la noche. Es más intenso en el oído izquierdo."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Y ha tenido episodios de vértigo o mareos?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "No. Vértigo no he tenido nunca. Algún mareo puntual hace años, pero nada importante."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Ha tenido otitis frecuentes o alguna cirugía en los oídos?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Otitis de pequeño sí tuve varias veces, pero nunca me han operado de los oídos."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Y tiene antecedentes familiares de pérdida auditiva?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Sí. Mi padre empezó a utilizar audífonos con unos setenta años. Mi madre escucha perfectamente."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿A qué se dedica o a qué se ha dedicado?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "He trabajado durante veinticinco años en una fábrica de cerámica. Había bastante ruido. Muchas veces utilizábamos protección auditiva, pero otras no."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Toma alguna medicación actualmente?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Solo medicación para la tensión arterial. No tomo ningún otro tratamiento y no tengo alergias conocidas."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Perfecto. Vamos a realizar una otoscopia y después una audiometría tonal por vía aérea y vía ósea para valorar exactamente el grado de pérdida auditiva."
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "De acuerdo, perfecto."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Cuando tengamos los resultados veremos si presenta una hipoacusia neurosensorial o de otro tipo y hablaremos de las opciones de tratamiento, incluyendo audífonos si fueran necesarios."
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Muy bien. Muchas gracias."
+    }
+  ],
+  "context": {
+    "summary_text": "[PENDIENTE — el profesional debe aportar este contenido antes de ejecutar el benchmark real. Ver docs/generation-benchmark.md.]"
+  },
+  "prompt_template": {
+    "name": "patient_summary_es_v1"
+  },
+  "case_metadata": {
+    "source_transcript_id": "consulta_ficticia_01",
+    "notes": "PENDIENTE: 'context.summary_text' puede dejarse vacío ('') si se quiere evaluar sin resumen técnico previo, o rellenarse con el resumen de referencia real una vez exista — ver informe previo a llamadas reales."
+  }
+}

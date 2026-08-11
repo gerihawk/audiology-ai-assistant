@@ -161,7 +161,7 @@ nueva en `ai_artifact_versions`.
 |---|---|---|
 | id | UUID PK | |
 | clinical_session_id | FK clinical_sessions.id | |
-| artifact_type | enum (`AIArtifactType`) | `transcript`, `summary`, `clinical_flags`, `missing_information`, `anamnesis` |
+| artifact_type | enum (`AIArtifactType`) | `transcript`, `summary`, `clinical_flags`, `missing_information`, `anamnesis`, `patient_summary` (contrato cerrado en el hito 6.2 — RFC v2 §4.3; no producido en producción hasta el hito 6.3) |
 | status | enum (`AIArtifactStatus`) | `review_pending`, `approved`, `rejected` — ver §10 |
 | current_version_id | FK ai_artifact_versions.id | La versión vigente; nunca nulo tras la creación |
 | confidence | int, nullable | 0-100; espejo desnormalizado de `current_version.confidence`, actualizado en la misma transacción que `current_version_id`. Nunca se usa para aprobar automáticamente — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §8 |

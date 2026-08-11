@@ -22,6 +22,11 @@ class AIArtifactType(StrEnum):
     CLINICAL_FLAGS = "clinical_flags"
     MISSING_INFORMATION = "missing_information"
     ANAMNESIS = "anamnesis"
+    #: Contrato de dominio cerrado por docs/fase-6-rfc.md §4.3 (hito 6.2,
+    #: precondición de arquitectura). Deliberadamente ausente de
+    #: `PIPELINE_STEP_ORDER`: sin `PipelineStep`, sin entrada en el catálogo
+    #: de `service.py`, nunca se genera en producción hasta el hito 6.3.
+    PATIENT_SUMMARY = "patient_summary"
 
 
 class AIArtifactStatus(StrEnum):

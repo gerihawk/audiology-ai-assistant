@@ -4,8 +4,14 @@ verdad única de la forma cerrada de cada artefacto (ver docs/fase-6-rfc.md
 
 Cubre únicamente los tipos ya implementados y con estructura cerrada hoy:
 `TRANSCRIPT`, `SUMMARY`, `CLINICAL_FLAGS`, `MISSING_INFORMATION`,
-`ANAMNESIS`. `PATIENT_SUMMARY`/`SESSION_NOTES` no existen todavía en
-`AIArtifactType` (hito 6.4) — no se les inventa un esquema aquí.
+`ANAMNESIS`, `PATIENT_SUMMARY`. `SESSION_NOTES` no existe todavía en
+`AIArtifactType` (hito 6.4) — no se le inventa un esquema aquí.
+
+`PATIENT_SUMMARY` (contrato cerrado por docs/fase-6-rfc.md §4.3, hito 6.2
+— precondición de arquitectura): `{"text": str}`, misma forma que
+`SUMMARY` porque la RFC declara la misma salida ("lenguaje llano") sin
+más estructura. No implica que el artefacto se genere ya en producción —
+sigue sin `PipelineStep` ni entrada en `PIPELINE_STEP_ORDER` (hito 6.3).
 
 `ANAMNESIS` valida la estructura cerrada de HOY: 20 campos de
 `ANAMNESIS_FIELDS`, cada uno `{"value": str, "status": <enum>}`. El
@@ -139,6 +145,11 @@ def _validate_clinical_flags(content: Any) -> SchemaValidationResult:
     return _fail(errors) if errors else _ok()
 
 
+def _validate_patient_summary(content: Any) -> SchemaValidationResult:
+    errors = _check_object(content, "content", required={"text": str})
+    return _fail(errors) if errors else _ok()
+
+
 def _validate_missing_information(content: Any) -> SchemaValidationResult:
     errors = _check_object(content, "content", required={"items": list})
     if isinstance(content, dict) and isinstance(content.get("items"), list):
@@ -180,6 +191,7 @@ _VALIDATORS: dict[AIArtifactType, Callable[[Any], SchemaValidationResult]] = {
     AIArtifactType.CLINICAL_FLAGS: _validate_clinical_flags,
     AIArtifactType.MISSING_INFORMATION: _validate_missing_information,
     AIArtifactType.ANAMNESIS: _validate_anamnesis,
+    AIArtifactType.PATIENT_SUMMARY: _validate_patient_summary,
 }
 
 

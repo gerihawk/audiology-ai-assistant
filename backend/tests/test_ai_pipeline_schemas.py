@@ -89,6 +89,27 @@ def test_summary_campo_desconocido():
     assert result.valid is False
 
 
+# --- patient_summary ------------------------------------------------------
+
+
+def test_patient_summary_valido():
+    content = {"text": "resumen en lenguaje llano"}
+    assert validate_content_schema(AIArtifactType.PATIENT_SUMMARY, content).valid is True
+
+
+def test_patient_summary_falta_campo_obligatorio():
+    assert validate_content_schema(AIArtifactType.PATIENT_SUMMARY, {}).valid is False
+
+
+def test_patient_summary_tipo_invalido():
+    assert validate_content_schema(AIArtifactType.PATIENT_SUMMARY, {"text": 5}).valid is False
+
+
+def test_patient_summary_campo_desconocido():
+    content = {"text": "ok", "audience": "patient"}
+    assert validate_content_schema(AIArtifactType.PATIENT_SUMMARY, content).valid is False
+
+
 # --- clinical_flags --------------------------------------------------------
 
 

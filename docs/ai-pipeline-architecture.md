@@ -312,6 +312,10 @@ class AIArtifactType(StrEnum):
     CLINICAL_FLAGS = "clinical_flags"
     MISSING_INFORMATION = "missing_information"
     ANAMNESIS = "anamnesis"
+    PATIENT_SUMMARY = "patient_summary"  # Fase 6.2 (RFC v2 §4.3): contrato de
+    # dominio cerrado como precondición del benchmark de generación. Sin
+    # PipelineStep ni entrada en PIPELINE_STEP_ORDER — no se produce en
+    # producción hasta el hito 6.3.
 
 
 class AIArtifactStatus(StrEnum):
@@ -692,6 +696,7 @@ los artefactos que son "básicamente prosa":
 | `clinical_flags` | `{"flags": [{"category": str, "description": str, "source_excerpt": str \| null, "ruleset_name": str}]}` |
 | `missing_information` | `{"items": [{"topic": str, "suggested_question": str}]}` |
 | `anamnesis` | Objeto con los 20 campos de `ANAMNESIS_FIELDS` ([data-model.md](data-model.md) §3), cada uno `{"value": str, "status": "informado"\|"negado_explicitamente"\|"no_preguntado"\|"no_determinado"}` — `informacion_ausente`/`observaciones_profesional` no forman parte de este objeto |
+| `patient_summary` | `{"text": str}` en lenguaje llano dirigido al paciente (RFC v2 §4.3) — misma forma que `summary`, ciclo de revisión/aprobación independiente. Contrato de dominio cerrado desde el hito 6.2; sin `PipelineStep` todavía (hito 6.3) |
 
 Incluso `summary`/`transcript` (prosa) se envuelven en un objeto JSON con
 un campo `text`, nunca como una cadena suelta en la raíz de `content`.

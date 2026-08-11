@@ -1,0 +1,97 @@
+{
+  "id": "consulta_ficticia_01__patient_summary",
+  "description": "Explicación en lenguaje llano para el paciente de una consulta audioprotésica inicial ficticia.",
+  "artifact_type": "patient_summary",
+  "required_facts": [
+    {
+      "description": "menciona que se ha notado peor audición recientemente, más en el oído izquierdo",
+      "patterns": [
+        "oído izquierdo",
+        "escuchar peor",
+        "audición"
+      ]
+    },
+    {
+      "description": "menciona los pitidos/acúfenos",
+      "patterns": [
+        "pitido",
+        "pitidos",
+        "zumbido"
+      ]
+    },
+    {
+      "description": "menciona los próximos pasos: pruebas (otoscopia y audiometría)",
+      "patterns": [
+        "prueba",
+        "pruebas",
+        "otoscopia",
+        "audiometría"
+      ]
+    }
+  ],
+  "forbidden_facts": [
+    {
+      "description": "diagnóstico o tratamiento ya decidido (las pruebas todavía están pendientes)",
+      "patterns": [
+        "diagnóstico confirmado",
+        "tratamiento decidido",
+        "hipoacusia neurosensorial confirmada"
+      ]
+    },
+    {
+      "description": "vértigo (nunca mencionado por el paciente, lo negó explícitamente)",
+      "patterns": [
+        "vértigo"
+      ]
+    },
+    {
+      "description": "recomendación concreta de audífonos ya decidida (solo se mencionó como posible opción futura)",
+      "patterns": [
+        "necesita audífonos",
+        "le recomendamos audífonos"
+      ]
+    }
+  ],
+  "critical_terms": [],
+  "negation_cases": [
+    {
+      "concept": "vertigo",
+      "expected": "negated",
+      "patterns": {
+        "negated": [
+          "vértigo no he tenido nunca",
+          "no vértigo",
+          "sin vértigo"
+        ],
+        "affirmed": [
+          "ha tenido vértigo",
+          "sí vértigo"
+        ]
+      }
+    }
+  ],
+  "laterality_cases": [
+    {
+      "concept": "hearing_loss",
+      "laterality": "left",
+      "patterns": {
+        "left": [
+          "oído izquierdo"
+        ],
+        "right": [
+          "oído derecho"
+        ],
+        "bilateral": [
+          "los dos",
+          "ambos oídos",
+          "los dos oídos",
+          "bilateral"
+        ]
+      }
+    }
+  ],
+  "numeric_cases": [],
+  "expected_missing_topics": [],
+  "max_length": null,
+  "notes": "Invariantes en lenguaje llano, coherentes con las de 'consulta_ficticia_01__summary' pero sin exigir terminología técnica (audiencia distinta, RFC v2 §4.3)."
+}
