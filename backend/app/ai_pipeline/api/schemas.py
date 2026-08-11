@@ -33,6 +33,16 @@ class ArtifactRejectRequest(BaseModel):
     rejection_reason: str | None = Field(default=None, max_length=_REJECTION_REASON_MAX_LENGTH)
 
 
+_CHANGE_NOTE_MAX_LENGTH = 2000
+
+
+class ArtifactEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: dict[str, Any]
+    change_note: str | None = Field(default=None, max_length=_CHANGE_NOTE_MAX_LENGTH)
+
+
 class AIArtifactResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

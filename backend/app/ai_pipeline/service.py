@@ -57,6 +57,9 @@ from app.audit_log.infrastructure.repository import SqlAlchemyAuditLogRepository
 from app.clinical_sessions.domain.entities import ClinicalSession
 from app.clinical_sessions.domain.repository import ClinicalSessionRepository
 from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSessionRepository
+from app.consents.domain.entities import ConsentType
+from app.consents.domain.repository import ConsentRepository
+from app.consents.infrastructure.repository import SqlAlchemyConsentRepository
 from app.core.authorization import (
     AIArtifactAction,
     AIPipelineAction,
@@ -140,6 +143,7 @@ class AIPipelineService:
         audio_repository: AudioRecordingRepository | None = None,
         audio_storage: AudioStorage | None = None,
         configured_transcription_provider: TranscriptionProvider | None = None,
+        consent_repository: ConsentRepository | None = None,
     ) -> None:
         self._session = session
         self._artifacts = artifact_repository or SqlAlchemyAIArtifactRepository()
@@ -149,6 +153,7 @@ class AIPipelineService:
             clinical_session_repository or SqlAlchemyClinicalSessionRepository()
         )
         self._audit = audit_repository or SqlAlchemyAuditLogRepository()
+        self._consents = consent_repository or SqlAlchemyConsentRepository()
         self._orchestrator = orchestrator or SequentialPipelineOrchestrator()
 
         # Todos los providers son Mock en esta fase — ver
@@ -190,6 +195,7 @@ class AIPipelineService:
         authorize_ai_pipeline_action(
             current_user, AIPipelineAction.TRIGGER, professional_id=clinical_session.professional_id
         )
+        await self._ensure_ai_processing_consent(current_user, clinical_session.patient_id)
 
         existing_active = await self._pipeline_runs.get_active_for_session(
             self._session, current_user.clinic_id, clinical_session_id
@@ -742,6 +748,144 @@ class AIPipelineService:
 
         return await self._to_detail(updated)
 
+    # --- Edición humana y borrado lógico (Fase 6, hito 6.0) --------------------
+
+    async def edit_content(
+        self,
+        current_user: CurrentUser,
+        artifact_id: uuid.UUID,
+        request_id: str,
+        *,
+        content: dict,
+        change_note: str | None,
+    ) -> AIArtifactDetail:
+        """Crea una nueva `AIArtifactVersion` con `source=HUMAN_EDITED` — ver
+        docs/fase-6-rfc.md §2/§9.1. Reabre la revisión humana igual que una
+        regeneración por IA (`_persist_completed_outcome`), incluso si la
+        versión anterior estaba `approved`/`rejected`. Un artefacto con
+        soft-delete no es editable (`get_by_id` lo excluye por defecto,
+        404 antes de llegar aquí)."""
+        existing = await self._artifacts.get_by_id(
+            self._session, current_user.clinic_id, artifact_id
+        )
+        if existing is None:
+            raise NotFoundError("Artefacto de IA no encontrado.")
+
+        clinical_session = await self._clinical_sessions.get_by_id(
+            self._session, current_user.clinic_id, existing.clinical_session_id
+        )
+        assert (
+            clinical_session is not None
+        )  # invariante: el artefacto solo existe si la sesión existe
+        authorize_ai_artifact_action(
+            current_user,
+            AIArtifactAction.EDIT,
+            professional_id=clinical_session.professional_id,
+        )
+
+        now = datetime.now(UTC)
+        next_version_number = (
+            await self._artifacts.latest_version_number(self._session, artifact_id) + 1
+        )
+        version = AIArtifactVersion(
+            id=uuid.uuid4(),
+            ai_artifact_id=artifact_id,
+            version_number=next_version_number,
+            content=content,
+            confidence=None,
+            source_map=None,
+            source=AIArtifactVersionSource.HUMAN_EDITED,
+            generation_run_id=None,
+            created_by=current_user.id,
+            change_note=change_note,
+            created_at=now,
+        )
+
+        try:
+            persisted_version = await self._artifacts.insert_version(self._session, version)
+            updated = await self._artifacts.update_disposition(
+                self._session,
+                current_user.clinic_id,
+                artifact_id,
+                {
+                    "current_version_id": persisted_version.id,
+                    "confidence": None,
+                    "status": AIArtifactStatus.REVIEW_PENDING.value,
+                    "approved_by": None,
+                    "approved_at": None,
+                    "rejected_by": None,
+                    "rejected_at": None,
+                    "rejection_reason": None,
+                    "updated_at": now,
+                },
+            )
+            assert updated is not None
+            await self._write_audit(
+                current_user,
+                request_id,
+                action="ai_artifact.human_edited",
+                entity_type="ai_artifact",
+                entity_id=artifact_id,
+                metadata={"version_number": next_version_number},
+            )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        return AIArtifactDetail(
+            artifact=updated, current_version=persisted_version, generation_run=None
+        )
+
+    async def delete_artifact(
+        self, current_user: CurrentUser, artifact_id: uuid.UUID, request_id: str
+    ) -> None:
+        """Soft-delete auditado — ver docs/fase-6-rfc.md §7.3/§9.1. No
+        introduce un tercer eje de estado: `deleted_by`/`deleted_at` son
+        independientes de `AIArtifactStatus` (mismo patrón que
+        `AudioService.delete`, ver app/audio/service.py)."""
+        existing = await self._artifacts.get_by_id(
+            self._session, current_user.clinic_id, artifact_id, include_deleted=True
+        )
+        if existing is None:
+            raise NotFoundError("Artefacto de IA no encontrado.")
+
+        clinical_session = await self._clinical_sessions.get_by_id(
+            self._session, current_user.clinic_id, existing.clinical_session_id
+        )
+        assert (
+            clinical_session is not None
+        )  # invariante: el artefacto solo existe si la sesión existe
+        authorize_ai_artifact_action(
+            current_user,
+            AIArtifactAction.DELETE,
+            professional_id=clinical_session.professional_id,
+        )
+
+        if existing.deleted_at is not None:
+            return  # no-op idempotente
+
+        try:
+            now = datetime.now(UTC)
+            updated = await self._artifacts.update_disposition(
+                self._session,
+                current_user.clinic_id,
+                artifact_id,
+                {"deleted_by": current_user.id, "deleted_at": now, "updated_at": now},
+            )
+            assert updated is not None
+            await self._write_audit(
+                current_user,
+                request_id,
+                action="ai_artifact.deleted",
+                entity_type="ai_artifact",
+                entity_id=artifact_id,
+            )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
     # --- Helpers internos -----------------------------------------------------
 
     def _build_steps(self) -> list[PipelineStep]:
@@ -781,6 +925,28 @@ class AIPipelineService:
         if clinical_session is None:
             raise NotFoundError("Sesión clínica no encontrada.")
         return clinical_session
+
+    async def _ensure_ai_processing_consent(
+        self, current_user: CurrentUser, patient_id: uuid.UUID
+    ) -> None:
+        """Precondición del hito 6.0 de la Fase 6 — ver
+        docs/ai-pipeline-architecture.md §7.3. Con el flag desactivado
+        (valor por defecto mientras `run_pipeline` solo use proveedores
+        Mock) es un no-op, idéntico al comportamiento histórico."""
+        settings = get_settings()
+        if not settings.ai_processing_consent_enforced:
+            return
+        consent = await self._consents.get_latest(
+            self._session, current_user.clinic_id, patient_id, ConsentType.PROCESAMIENTO_IA
+        )
+        if (
+            consent is None
+            or not consent.granted
+            or consent.consent_version != settings.ai_processing_consent_version
+        ):
+            raise ConflictError(
+                "Falta consentimiento válido de procesamiento IA para este paciente."
+            )
 
     async def _write_audit(
         self,

@@ -661,7 +661,7 @@ los artefactos que son "básicamente prosa":
 | `summary` | `{"text": str}` |
 | `clinical_flags` | `{"flags": [{"category": str, "description": str, "source_excerpt": str \| null, "ruleset_name": str}]}` |
 | `missing_information` | `{"items": [{"topic": str, "suggested_question": str}]}` |
-| `anamnesis` | Objeto con los 22 campos de [data-model.md](data-model.md) §3, cada uno `{"value": str, "status": "informado"\|"negado_explicitamente"\|"no_preguntado"\|"no_determinado"}` |
+| `anamnesis` | Objeto con los 20 campos de `ANAMNESIS_FIELDS` ([data-model.md](data-model.md) §3), cada uno `{"value": str, "status": "informado"\|"negado_explicitamente"\|"no_preguntado"\|"no_determinado"}` — `informacion_ausente`/`observaciones_profesional` no forman parte de este objeto |
 
 Incluso `summary`/`transcript` (prosa) se envuelven en un objeto JSON con
 un campo `text`, nunca como una cadena suelta en la raíz de `content`.
@@ -709,14 +709,18 @@ de `consents` con `consent_type = procesamiento_ia`, `granted = true`,
 `consent_version` y `recorded_at` (ya existente, cumple el rol de
 `consent_timestamp`).
 
-`AIPipelineService.run_pipeline` incluye, desde esta fase, el punto de
-extensión donde se comprobaría el consentimiento — **en el MVP no
-bloquea**: si no existe un registro, se asume `true` implícitamente
-(comportamiento idéntico al actual, sin cambios de conducta). El día que
-el consentimiento deba exigirse explícitamente, este mismo punto pasa a
-lanzar `ConflictError` si no hay un `consents` con `granted = true` y la
-`consent_version` vigente — sin rediseñar nada, solo activando una
-comprobación ya prevista.
+`AIPipelineService.run_pipeline` incluye, desde la Fase 6 (hito 6.0), el
+punto de extensión donde se comprueba el consentimiento, gobernado por
+`AI_PROCESSING_CONSENT_ENFORCED` (config, por defecto `false`). Con el
+flag desactivado el comportamiento es idéntico al histórico (no bloquea,
+sin cambios de conducta) — necesario porque todos los proveedores de
+`run_pipeline` siguen siendo `Mock` en 6.0, ver [fase-6-rfc.md](fase-6-rfc.md)
+§6.1. Con el flag activo, lanza `ConflictError` si no hay un `consents`
+con `granted = true` y la `consent_version` vigente
+(`AI_PROCESSING_CONSENT_VERSION`) para el paciente de la sesión. El
+hito 6.3 (proveedor LLM real) decide cuándo activar el flag en
+producción — sin rediseñar nada, solo activando una comprobación ya
+construida.
 
 ### 7.4 Gestión de prompts
 

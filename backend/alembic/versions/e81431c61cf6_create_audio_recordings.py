@@ -46,9 +46,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["uploaded_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_audio_recordings_session", "audio_recordings", ["clinical_session_id"]
-    )
+    op.create_index("ix_audio_recordings_session", "audio_recordings", ["clinical_session_id"])
     op.create_index(
         "ix_audio_recordings_session_status",
         "audio_recordings",

@@ -103,6 +103,14 @@ class Settings(BaseSettings):
     deepgram_diarization_addon_per_minute_usd: Decimal | None = None
     deepgram_keyterm_addon_per_minute_usd: Decimal | None = None
 
+    # --- Consentimiento de procesamiento IA (Fase 6, hito 6.0) ---
+    # `False` en esta fase: todos los proveedores de `run_pipeline` siguen
+    # siendo Mock (ver docs/fase-6-rfc.md §6.1) — activarlo no cambia
+    # ningún test existente. El hito 6.3 (proveedor LLM real) decide su
+    # activación en producción — ver docs/ai-pipeline-architecture.md §7.3.
+    ai_processing_consent_enforced: bool = False
+    ai_processing_consent_version: str = "1.0"
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

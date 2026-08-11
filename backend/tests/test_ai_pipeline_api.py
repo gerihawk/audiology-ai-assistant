@@ -16,6 +16,7 @@ from app.ai_pipeline.domain.entities import (
     AIPipelineRun,
     AIPipelineRunStatus,
 )
+from app.ai_pipeline.domain.safety import FORBIDDEN_CLINICAL_LANGUAGE
 from app.ai_pipeline.infrastructure.orm import (
     AIArtifactORM,
     AIArtifactVersionORM,
@@ -139,11 +140,10 @@ async def test_run_pipeline_rejects_forbidden_and_diagnostic_language(
     _, body = await _run_pipeline(
         api_client, dev_headers(clinic_with_users.admin), clinical_session["id"]
     )
-    forbidden = ["el paciente tiene", "diagnóstico confirmado", "tratamiento recomendado"]
 
     for artifact in body["artifacts"]:
         rendered = str(artifact["content"]).lower()
-        for phrase in forbidden:
+        for phrase in FORBIDDEN_CLINICAL_LANGUAGE:
             assert phrase not in rendered
 
 

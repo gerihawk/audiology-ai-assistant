@@ -303,17 +303,36 @@ Nota de implementación: en el ORM, el atributo Python no puede llamarse
 como `audit_metadata` a la columna `metadata`.
 
 ### `consents`
+Implementada en la Fase 6 (hito 6.0) como módulo propio `consents`
+(dominio + infraestructura, sin servicio ni endpoint todavía — ver
+[fase-6-rfc.md](fase-6-rfc.md) §9.1 y §10, hito 6.0). `clinic_id` se
+añade respecto al diseño original para mantener el mismo aislamiento por
+clínica que el resto de entidades clínicas (`patients`,
+`clinical_sessions`, `ai_artifacts`, `audit_logs`), en vez de resolverlo
+por join a través de `patients`.
+
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
+| clinic_id | FK clinics.id | Aísla por clínica igual que el resto de entidades clínicas |
 | patient_id | FK patients.id | |
 | clinical_session_id | FK clinical_sessions.id, nullable | |
 | consent_type | enum | `grabacion_audio`, `procesamiento_ia`, `almacenamiento` |
 | granted | bool | |
-| consent_version | string, nullable | Versión de la política de consentimiento aceptada. Añadida en la Fase 4 para el consentimiento de `procesamiento_ia` — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.3: en el MVP el pipeline no bloquea por ausencia de consentimiento (se asume `true` si no hay registro), pero el campo ya existe para cuando deba exigirse |
+| consent_version | string, nullable | Versión de la política de consentimiento aceptada. Para `procesamiento_ia`, un consentimiento solo es válido si `consent_version` coincide con la versión vigente configurada (`AI_PROCESSING_CONSENT_VERSION`) — ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.3 |
 | granted_by | FK users.id | Quien registra el consentimiento en el sistema |
 | recorded_at | timestamp | Cumple el rol de "consent_timestamp" |
 | notes | text, nullable | |
+
+`AIPipelineService.run_pipeline` comprueba el consentimiento de
+`procesamiento_ia` cuando `AI_PROCESSING_CONSENT_ENFORCED=true`
+(por defecto `false` en esta fase, ya que todos los proveedores de
+`run_pipeline` siguen siendo `Mock` — activar la comprobación no cambia
+ningún test existente). Sin un registro `granted=true` con la
+`consent_version` vigente, la llamada falla con `ConflictError` antes de
+crear ningún `AIPipelineRun`. No existe todavía endpoint para conceder
+consentimiento — es infraestructura preparada para cuando el hito 6.3
+active un proveedor LLM real.
 
 ### `integration_configs`
 Estado de activación de cada integración abstracta (todas `mock` en el
@@ -331,8 +350,9 @@ MVP), para preparar el interruptor futuro sin tocar código.
 ## 3. Campos de la anamnesis y sus estados
 
 `ai_artifact_versions.content` de la versión vigente de un `ai_artifacts`
-con `artifact_type = anamnesis` (ver §2) almacena un objeto con, como
-mínimo, estos campos — antes vivía en
+con `artifact_type = anamnesis` (ver §2) almacena un objeto con
+exactamente los 20 campos de `ANAMNESIS_FIELDS`
+(`app/integrations/domain/anamnesis_generator.py`) — antes vivía en
 `anamnesis_documents.current_content`/`ai_generated_content`, tabla ya
 eliminada de este documento (ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md)).
 Cada campo tiene un valor de texto (posiblemente vacío) **y** un estado
@@ -343,7 +363,9 @@ independiente:
 - `no_preguntado`
 - `no_determinado`
 
-Campos:
+Los 20 campos generados por IA (`ANAMNESIS_FIELDS`, forma canónica
+cerrada por [fase-6-rfc.md](fase-6-rfc.md) §0/§11.1 — esta fase no
+introduce una variante de 22 campos):
 
 1. motivo_consulta
 2. percepcion_subjetiva_perdida_auditiva
@@ -365,14 +387,23 @@ Campos:
 18. uso_previo_audifonos
 19. expectativas
 20. impacto_social_laboral_familiar
-21. informacion_ausente (lista derivada, calculada por el backend a
-    partir de los campos en `no_preguntado` — **no** generada por IA;
-    convenience field, distinta de la lista de sugerencias de
-    seguimiento del artefacto `missing_information`, generado antes que
-    la anamnesis y usado como una de sus entradas — ver
-    [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.3)
-22. observaciones_profesional (campo libre, **no generado por IA** — solo
-    editable por el profesional)
+
+Dos campos administrativos adicionales, **fuera** del objeto anterior y
+**no generados por IA** — no forman parte del `content` de la versión ni
+de `ANAMNESIS_FIELDS`:
+
+- `informacion_ausente`: lista derivada, calculada por el backend a
+  partir de los campos en `no_preguntado`; distinta de la lista de
+  sugerencias de seguimiento del artefacto `missing_information`,
+  generado antes que la anamnesis y usado como una de sus entradas — ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.3.
+- `observaciones_profesional`: campo libre, exclusivamente editable por
+  el profesional.
+
+Ninguno de los dos está implementado todavía (sin cálculo de
+`informacion_ausente` ni campo editable `observaciones_profesional` en el
+backend); se documentan aquí como diseño no implementado, no como salida
+de `AnamnesisGenerator`.
 
 Regla de generación: `AnamnesisGenerator` (incluido el mock) nunca asigna
 `informado` a un campo sin una cita/fragmento de respaldo en la

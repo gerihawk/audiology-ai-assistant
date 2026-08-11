@@ -16,8 +16,18 @@ from app.ai_pipeline.domain.entities import AIArtifact, AIArtifactType, AIArtifa
 
 class AIArtifactRepository(Protocol):
     async def get_by_id(
-        self, session: AsyncSession, clinic_id: uuid.UUID, artifact_id: uuid.UUID
-    ) -> AIArtifact | None: ...
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        artifact_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
+    ) -> AIArtifact | None:
+        """Excluye por defecto los artefactos con soft-delete
+        (`deleted_at IS NOT NULL`) — ver docs/fase-6-rfc.md §7.3.
+        `include_deleted=True` solo lo usa el propio flujo de borrado,
+        para su comprobación de idempotencia."""
+        ...
 
     async def get_by_session_and_type(
         self,
@@ -25,11 +35,15 @@ class AIArtifactRepository(Protocol):
         clinic_id: uuid.UUID,
         clinical_session_id: uuid.UUID,
         artifact_type: AIArtifactType,
-    ) -> AIArtifact | None: ...
+    ) -> AIArtifact | None:
+        """Excluye por defecto los artefactos con soft-delete."""
+        ...
 
     async def list_by_session(
         self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_id: uuid.UUID
-    ) -> list[AIArtifact]: ...
+    ) -> list[AIArtifact]:
+        """Excluye por defecto los artefactos con soft-delete."""
+        ...
 
     async def latest_version_number(self, session: AsyncSession, ai_artifact_id: uuid.UUID) -> int:
         """Devuelve el `version_number` más alto ya persistido, o 0 si no

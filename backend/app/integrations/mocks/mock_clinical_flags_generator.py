@@ -13,6 +13,10 @@ from app.integrations.domain.session_context import SessionContext
 
 RULESET_NAME = "demo_generic_v1"
 
+#: Caracteres de contexto a cada lado del match para construir el
+#: `source_excerpt` real — ver docs/fase-6-rfc.md §4.4.
+_EXCERPT_PADDING = 60
+
 #: Coincidencias palabra clave -> señal. Checklist de demostración,
 #: deliberadamente simple y determinista (sin IA de por medio).
 _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
@@ -41,6 +45,21 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
 )
 
 
+def _build_excerpt(transcript: str, lowered: str, keywords: tuple[str, ...]) -> str:
+    """Ventana real de contexto alrededor de la(s) coincidencia(s) que
+    dispararon la regla — nunca `transcript[:200]` decorativo. Cubre desde
+    el inicio de la primera keyword encontrada hasta el final de la
+    última, con `_EXCERPT_PADDING` caracteres de margen a cada lado."""
+    matches = [
+        (idx, idx + len(keyword)) for keyword in keywords if (idx := lowered.find(keyword)) != -1
+    ]
+    start = min(m[0] for m in matches)
+    end = max(m[1] for m in matches)
+    window_start = max(0, start - _EXCERPT_PADDING)
+    window_end = min(len(transcript), end + _EXCERPT_PADDING)
+    return transcript[window_start:window_end]
+
+
 class MockClinicalFlagsGenerator:
     async def generate(
         self, transcript: str, *, context: SessionContext
@@ -56,7 +75,7 @@ class MockClinicalFlagsGenerator:
                     ClinicalFlagDraft(
                         category=category,
                         description=description,
-                        source_excerpt=transcript[:200],
+                        source_excerpt=_build_excerpt(transcript, lowered, keywords),
                         ruleset_name=RULESET_NAME,
                     )
                 )

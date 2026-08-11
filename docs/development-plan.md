@@ -515,7 +515,21 @@ Dos partes independientes:
   [transcription-benchmark.md](transcription-benchmark.md) §20 para el
   diseño completo.
 
-## Fase 6 — Exportación
+## Fase 6 — Exportación, documentación clínica completa e IA real
+
+**Ampliación explícita de alcance** (equivalente a la ya declarada en
+Fase 5), formalizada en [fase-6-rfc.md](fase-6-rfc.md) v2, documento
+normativo para toda la Fase 6 a partir de aquí:
+
+1. activación controlada de un proveedor LLM real;
+2. guardarraíles de seguridad y grounding en runtime;
+3. edición humana real y borrado lógico auditado de `AIArtifact` como
+   precondiciones;
+4. nuevos artefactos `PATIENT_SUMMARY` y `SESSION_NOTES`;
+5. actualización explícita y acotada de anamnesis (`AnamnesisUpdateStep`);
+6. vista longitudinal de solo lectura mediante `clinical_record`.
+
+El compromiso original de exportación se mantiene íntegro:
 
 - Interfaz `DocumentExporter` con `PdfDocumentExporter` y
   `TextDocumentExporter`.
@@ -525,15 +539,22 @@ Dos partes independientes:
 
 **Criterio de aceptación**: un artefacto aprobado se descarga como PDF y
 como texto plano con formato legible; un artefacto no aprobado devuelve
-error controlado y la UI no ofrece la opción.
+error controlado y la UI no ofrece la opción. Ver
+[fase-6-rfc.md](fase-6-rfc.md) §10 para el roadmap de hitos (6.0-6.7) y
+los criterios de aceptación de cada uno.
 
 ## Fase 7 — `integrations` (Noah/calendario), `consents`, retención
 
 - Interfaces `PatientRecordIntegration` y `CalendarIntegration` +
   `Mock*`, sin llamadas de red reales.
 - Endpoints de configuración de integraciones (`GET/PATCH /integrations`).
-- Endpoints y pantalla de registro de consentimiento (`consents`,
-  incluida `consent_version`, ya añadida al modelo en la Fase 4).
+- Endpoints y pantalla de registro de consentimiento. El modelo
+  (`consents`, dominio + infraestructura + migración) y la comprobación
+  bloqueante en `AIPipelineService.run_pipeline` ya existen desde la
+  Fase 6 (hito 6.0, ver [fase-6-rfc.md](fase-6-rfc.md) §9.1); a esta fase
+  le queda únicamente construir cómo se concede el consentimiento
+  (endpoint + pantalla en la ficha de paciente), que hasta ahora no
+  existía en ningún punto del código.
 - Interfaz `RetentionCleanupService` (`find_expired_audio`, `purge`) y
   endpoints manuales de retención (`GET/POST /retention/expired-audio...`)
   usando `RETENTION_DAYS_DEFAULT` (30 días); sin scheduler todavía.
@@ -556,9 +577,10 @@ y purgar manualmente audio que supere la retención configurada.
   cambia, solo se añade quién lo invoca periódicamente.
 - Revisión de seguridad general (dependencias, cabeceras HTTP, límites de
   tamaño de subida, rate limiting básico si el tiempo lo permite).
-- Evaluar si activar el bloqueo por consentimiento de `procesamiento_ia`
-  (punto de extensión ya preparado desde la Fase 4, no forzado hasta
-  ahora).
+- Evaluar si activar en producción, por defecto, el flag
+  `AI_PROCESSING_CONSENT_ENFORCED` (comprobación construida y disponible
+  desde la Fase 6, hito 6.0 — ver [fase-6-rfc.md](fase-6-rfc.md) §9.1;
+  esta fase decide su activación por defecto, no su existencia).
 
 **Criterio de aceptación**: checklist de
 [privacy-and-security.md](privacy-and-security.md) revisado punto por

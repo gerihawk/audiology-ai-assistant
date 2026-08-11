@@ -31,9 +31,7 @@ def upgrade() -> None:
         sa.Column("description", sa.String(length=500), nullable=True),
         sa.Column("system_prompt", sa.String(), nullable=True),
         sa.Column("user_prompt_template", sa.String(), nullable=False),
-        sa.Column(
-            "variables_schema", postgresql.JSONB(astext_type=sa.Text()), nullable=False
-        ),
+        sa.Column("variables_schema", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("is_active", sa.Boolean(), server_default="false", nullable=False),
         sa.Column("created_by", sa.Uuid(), nullable=False),
         sa.Column("change_note", sa.String(length=2000), nullable=True),
@@ -211,9 +209,7 @@ def downgrade() -> None:
     op.drop_constraint(_CURRENT_VERSION_FK, "ai_artifacts", type_="foreignkey")
 
     op.drop_index("ux_ai_artifact_versions_artifact_number", table_name="ai_artifact_versions")
-    op.drop_index(
-        "ix_ai_artifact_versions_artifact_number_desc", table_name="ai_artifact_versions"
-    )
+    op.drop_index("ix_ai_artifact_versions_artifact_number_desc", table_name="ai_artifact_versions")
     op.drop_table("ai_artifact_versions")
 
     op.drop_index("ix_ai_generation_runs_session_type", table_name="ai_generation_runs")

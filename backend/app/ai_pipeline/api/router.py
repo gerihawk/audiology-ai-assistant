@@ -19,6 +19,7 @@ from app.ai_pipeline.api.schemas import (
     AIArtifactResponse,
     AIArtifactVersionListResponse,
     AIArtifactVersionResponse,
+    ArtifactEditRequest,
     ArtifactRejectRequest,
     RunMockPipelineResponse,
 )
@@ -116,3 +117,31 @@ async def reject_ai_artifact(
         rejection_reason=payload.rejection_reason if payload else None,
     )
     return AIArtifactResponse.from_detail(detail)
+
+
+@router.patch("/ai-artifacts/{artifact_id}/content", response_model=AIArtifactResponse)
+async def edit_ai_artifact_content(
+    artifact_id: uuid.UUID,
+    payload: ArtifactEditRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AIPipelineService = Depends(get_ai_pipeline_service),
+    request_id: str = Depends(get_request_id),
+) -> AIArtifactResponse:
+    detail = await service.edit_content(
+        current_user,
+        artifact_id,
+        request_id,
+        content=payload.content,
+        change_note=payload.change_note,
+    )
+    return AIArtifactResponse.from_detail(detail)
+
+
+@router.delete("/ai-artifacts/{artifact_id}", status_code=204)
+async def delete_ai_artifact(
+    artifact_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AIPipelineService = Depends(get_ai_pipeline_service),
+    request_id: str = Depends(get_request_id),
+) -> None:
+    await service.delete_artifact(current_user, artifact_id, request_id)

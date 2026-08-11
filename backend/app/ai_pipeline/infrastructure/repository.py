@@ -124,15 +124,23 @@ def _prompt_template_to_domain(row: PromptTemplateORM) -> PromptTemplate:
 
 class SqlAlchemyAIArtifactRepository:
     async def get_by_id(
-        self, session: AsyncSession, clinic_id: uuid.UUID, artifact_id: uuid.UUID
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        artifact_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
     ) -> AIArtifact | None:
         from app.clinical_sessions.infrastructure.orm import ClinicalSessionORM
 
-        result = await session.execute(
+        query = (
             select(AIArtifactORM)
             .join(ClinicalSessionORM, AIArtifactORM.clinical_session_id == ClinicalSessionORM.id)
             .where(AIArtifactORM.id == artifact_id, ClinicalSessionORM.clinic_id == clinic_id)
         )
+        if not include_deleted:
+            query = query.where(AIArtifactORM.deleted_at.is_(None))
+        result = await session.execute(query)
         row = result.scalar_one_or_none()
         return _artifact_to_domain(row) if row is not None else None
 
@@ -152,6 +160,7 @@ class SqlAlchemyAIArtifactRepository:
                 AIArtifactORM.clinical_session_id == clinical_session_id,
                 AIArtifactORM.artifact_type == artifact_type.value,
                 ClinicalSessionORM.clinic_id == clinic_id,
+                AIArtifactORM.deleted_at.is_(None),
             )
         )
         row = result.scalar_one_or_none()
@@ -168,6 +177,7 @@ class SqlAlchemyAIArtifactRepository:
             .where(
                 AIArtifactORM.clinical_session_id == clinical_session_id,
                 ClinicalSessionORM.clinic_id == clinic_id,
+                AIArtifactORM.deleted_at.is_(None),
             )
             .order_by(AIArtifactORM.artifact_type.asc())
         )

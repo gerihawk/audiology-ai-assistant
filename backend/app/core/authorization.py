@@ -177,6 +177,8 @@ class AIArtifactAction(StrEnum):
     READ = "read"
     APPROVE = "approve"
     REJECT = "reject"
+    EDIT = "edit"
+    DELETE = "delete"
 
 
 #: Mismo patrón de permisos que ClinicalSessionAction — ver
@@ -199,7 +201,12 @@ AI_ARTIFACT_PERMISSIONS: dict[Role, frozenset[AIArtifactAction]] = {
 #: que leer sesiones clínicas).
 _AI_PIPELINE_OWNERSHIP_REQUIRED: frozenset[AIPipelineAction] = frozenset({AIPipelineAction.TRIGGER})
 _AI_ARTIFACT_OWNERSHIP_REQUIRED: frozenset[AIArtifactAction] = frozenset(
-    {AIArtifactAction.APPROVE, AIArtifactAction.REJECT}
+    {
+        AIArtifactAction.APPROVE,
+        AIArtifactAction.REJECT,
+        AIArtifactAction.EDIT,
+        AIArtifactAction.DELETE,
+    }
 )
 
 
@@ -247,6 +254,32 @@ def authorize_ai_artifact_action(
         and professional_id != current_user.id
     ):
         raise ForbiddenError(
-            "Un audiologist solo puede aprobar/rechazar artefactos de sus propias "
-            "sesiones clínicas."
+            "Un audiologist solo puede aprobar/rechazar/editar/eliminar artefactos de "
+            "sus propias sesiones clínicas."
+        )
+
+
+class ClinicalDocumentAction(StrEnum):
+    EXPORT = "export"
+
+
+#: Precondición del hito 6.0 de la Fase 6 (docs/fase-6-rfc.md §9.1,
+#: §10) — permiso declarado antes de que exista el servicio de
+#: exportación (hito 6.6), mismo patrón que `HUMAN_EDITED` (declarado en
+#: Fase 4, activado en Fase 6). VIEWER puede revisar pero no descargar —
+#: ver docs/fase-6-rfc.md §7.5.
+CLINICAL_DOCUMENT_PERMISSIONS: dict[Role, frozenset[ClinicalDocumentAction]] = {
+    Role.ADMIN: frozenset(ClinicalDocumentAction),
+    Role.AUDIOLOGIST: frozenset(ClinicalDocumentAction),
+    Role.VIEWER: frozenset(),
+}
+
+
+def authorize_clinical_document_action(
+    current_user: CurrentUser, action: ClinicalDocumentAction
+) -> None:
+    if action not in CLINICAL_DOCUMENT_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre documentos clínicos."
         )
