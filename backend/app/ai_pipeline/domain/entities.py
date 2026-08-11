@@ -148,3 +148,35 @@ class PromptTemplate:
     created_by: uuid.UUID
     change_note: str | None
     created_at: datetime
+    #: Añadidos en la Fase 6.0.5 (docs/development-plan.md) para permitir
+    #: seleccionar la plantilla activa por artefacto e idioma sin depender
+    #: de una convención de nombres. `variables_schema` declara las
+    #: variables de esta plantilla como
+    #: `{"required": [...], "optional": [...]}` — ver prompt_renderer.py.
+    artifact_type: AIArtifactType
+    language: str
+
+
+@dataclass(slots=True, frozen=True)
+class RenderContext:
+    """Entrada de `PromptRenderer.render()` — variables tipadas (`str`) a
+    sustituir en una `PromptTemplate` ya seleccionada. No decide qué
+    plantilla usar (eso es responsabilidad del llamador vía
+    `PromptTemplateRepository.get_active()`) ni conoce ningún proveedor
+    LLM — ver docs/ai-pipeline-architecture.md §5 (tabla de
+    responsabilidades)."""
+
+    variables: dict[str, str]
+
+
+@dataclass(slots=True, frozen=True)
+class PromptRenderResult:
+    """Salida de `PromptRenderer.render()`. Nunca se construye con un
+    prompt incompleto: si faltara una variable obligatoria o sobrara una
+    no declarada, `render()` lanza antes de llegar aquí."""
+
+    system_prompt: str | None
+    user_prompt: str
+    variables_used: dict[str, str]
+    template_id: uuid.UUID
+    template_version: int

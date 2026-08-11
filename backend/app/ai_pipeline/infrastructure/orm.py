@@ -153,6 +153,15 @@ class PromptTemplateORM(Base):
             unique=True,
             postgresql_where=text("is_active"),
         ),
+        # Fase 6.0.5: selección real de la plantilla activa por artefacto e
+        # idioma — como máximo una plantilla activa por combinación.
+        Index(
+            "ux_prompt_templates_artifact_type_language_active",
+            "artifact_type",
+            "language",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -170,3 +179,5 @@ class PromptTemplateORM(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    artifact_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    language: Mapped[str] = mapped_column(String(8), nullable=False)

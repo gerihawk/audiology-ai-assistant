@@ -119,6 +119,8 @@ def _prompt_template_to_domain(row: PromptTemplateORM) -> PromptTemplate:
         created_by=row.created_by,
         change_note=row.change_note,
         created_at=row.created_at,
+        artifact_type=AIArtifactType(row.artifact_type),
+        language=row.language,
     )
 
 
@@ -379,6 +381,19 @@ class SqlAlchemyPromptTemplateRepository:
         row = result.scalar_one_or_none()
         return _prompt_template_to_domain(row) if row is not None else None
 
+    async def get_active(
+        self, session: AsyncSession, artifact_type: AIArtifactType, language: str
+    ) -> PromptTemplate | None:
+        result = await session.execute(
+            select(PromptTemplateORM).where(
+                PromptTemplateORM.artifact_type == artifact_type.value,
+                PromptTemplateORM.language == language,
+                PromptTemplateORM.is_active.is_(True),
+            )
+        )
+        row = result.scalar_one_or_none()
+        return _prompt_template_to_domain(row) if row is not None else None
+
     async def add(self, session: AsyncSession, template: PromptTemplate) -> PromptTemplate:
         row = PromptTemplateORM(
             id=template.id,
@@ -391,6 +406,8 @@ class SqlAlchemyPromptTemplateRepository:
             is_active=template.is_active,
             created_by=template.created_by,
             change_note=template.change_note,
+            artifact_type=template.artifact_type.value,
+            language=template.language,
         )
         session.add(row)
         await session.flush()
@@ -404,3 +421,13 @@ class SqlAlchemyPromptTemplateRepository:
         )
         row = result.scalar_one_or_none()
         return _prompt_template_to_domain(row) if row is not None else None
+
+    async def deactivate(self, session: AsyncSession, template_id: uuid.UUID) -> None:
+        result = await session.execute(
+            select(PromptTemplateORM).where(PromptTemplateORM.id == template_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return
+        row.is_active = False
+        await session.flush()

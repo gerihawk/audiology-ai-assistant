@@ -428,6 +428,8 @@ class PromptTemplate:
     created_by: uuid.UUID
     change_note: str | None
     created_at: datetime
+    artifact_type: AIArtifactType   # Fase 6.0.5 — selección real por artefacto
+    language: str                   # Fase 6.0.5 — selección real por idioma
 
 
 @dataclass(slots=True)
@@ -598,6 +600,22 @@ class PromptRenderer(Protocol):
     def render(self, template: PromptTemplate, variables: dict[str, Any]) -> RenderedPrompt: ...
 ```
 
+**Actualización (Fase 6.0.5 — implementado, ver
+docs/development-plan.md).** `PromptRenderer` se implementó como clase
+concreta, no como `Protocol` (una única implementación determinista, sin
+proveedor de por medio; no hay razón para una interfaz sustituible
+todavía — YAGNI). Firma real:
+`PromptRenderer.render(template: PromptTemplate, context: RenderContext) -> PromptRenderResult`,
+en `ai_pipeline/domain/prompt_renderer.py`. `RenderContext` (variables
+tipadas `dict[str, str]`) y `PromptRenderResult` (`system_prompt`,
+`user_prompt`, `variables_used`, `template_id`, `template_version`) viven
+en `ai_pipeline/domain/entities.py`. Sustitución vía `string.Template`
+(`$variable`), nunca `str.format` (colisionaría con las llaves de los
+ejemplos JSON de los prompts reales). Toda variable obligatoria ausente,
+variable no declarada en `variables_schema`, variable no-`str` o
+placeholder de la plantilla sin valor aborta el render — nunca hay
+sustitución silenciosa ni prompt incompleto.
+
 ### 6.3 Repositorios (`ai_pipeline/domain/`)
 
 Mismo patrón que `ClinicalSessionRepository`: `Protocol` con métodos
@@ -626,6 +644,18 @@ class AIArtifactRepository(Protocol):
 `AIGenerationRunRepository`, `AIPipelineRunRepository` y
 `PromptTemplateRepository` siguen el mismo patrón CRUD mínimo que el
 resto de repositorios del proyecto.
+
+**Actualización (Fase 6.0.5 — implementado).** `PromptTemplateRepository`
+añade `get_active(session, artifact_type, language) -> PromptTemplate |
+None` (selección real, junto al `get_active_by_name` ya existente de la
+Fase 4.1, que se conserva sin cambios) y `deactivate(session,
+template_id) -> None` (publicar una versión nueva es `add()` con
+`is_active=True` tras `deactivate()` de la anterior — dos pasos
+explícitos del llamador, append-only, ver §7.4). `require_active_template()`
+en el mismo módulo es la política de fallback documentada: si no existe
+una plantilla activa para `(artifact_type, language)`, lanza
+`PromptTemplateNotFoundError` en vez de sustituir en silencio por otro
+idioma o versión.
 
 ### 6.4 Mocks
 
