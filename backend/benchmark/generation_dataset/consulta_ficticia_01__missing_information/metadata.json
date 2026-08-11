@@ -63,7 +63,9 @@
       "description": "uso previo de audífonos u otros dispositivos auditivos (no se preguntó al paciente, solo se mencionó del padre)",
       "patterns": [
         "uso previo de audífonos",
-        "ha usado audífonos"
+        "ha usado audífonos",
+        "uso_previo_audifonos",
+        "dispositivo auditivo anteriormente"
       ]
     },
     {
@@ -71,8 +73,34 @@
       "patterns": [
         "expectativas"
       ]
+    },
+    {
+      "description": "medicación ototóxica — solo se preguntó de forma genérica por la medicación actual, sin identificar el fármaco ni explorar ototoxicidad específicamente (parcialmente explorado)",
+      "patterns": [
+        "ototóxic",
+        "medicación ototóxica",
+        "nombre del medicamento"
+      ]
+    },
+    {
+      "description": "situaciones auditivas problemáticas — solo se mencionaron incidentalmente la televisión y el ruido de fondo, sin explorar otras situaciones concretas (parcialmente explorado)",
+      "patterns": [
+        "situaciones auditivas",
+        "restaurantes",
+        "reuniones",
+        "llamadas telefónicas"
+      ]
+    },
+    {
+      "description": "impacto social, laboral y familiar — solo se mencionó impacto familiar incidental, sin preguntar por impacto laboral ni social (parcialmente explorado)",
+      "patterns": [
+        "impacto laboral",
+        "impacto social",
+        "vida laboral",
+        "relaciones sociales"
+      ]
     }
   ],
   "max_length": null,
-  "notes": "expected_missing_topics derivados por comparación estructural contra los 20 ANAMNESIS_FIELDS (docs/data-model.md §3) frente a lo literalmente cubierto en la transcripción — nunca un juicio clínico nuevo."
+  "notes": "expected_missing_topics derivados por comparación estructural contra los 20 ANAMNESIS_FIELDS (docs/data-model.md §3) frente a lo literalmente cubierto en la transcripción — nunca un juicio clínico nuevo. Incluye los 5 campos no explorados y los 3 parcialmente explorados (medicacion_ototoxica_declarada, situaciones_auditivas_problematicas, impacto_social_laboral_familiar) — todos representan información que requiere seguimiento, coherente con reference.json."
 }

@@ -139,13 +139,13 @@
     }
   ],
   "context": {
-    "summary_text": "[PENDIENTE — el profesional debe aportar este contenido antes de ejecutar el benchmark real. Ver docs/generation-benchmark.md.]"
+    "summary_text": "Paciente que refiere empeoramiento de la audición desde hace aproximadamente ocho o nueve meses, de forma bilateral pero más acusado en el oído izquierdo, con dificultad para comprender conversaciones en ambientes ruidosos y necesidad de aumentar el volumen de la televisión y pedir repeticiones. Refiere acúfeno constante, más perceptible por la noche y más intenso en el oído izquierdo. Niega episodios de vértigo, aunque refiere algún mareo puntual hace años. Antecedentes de otitis de repetición en la infancia, sin cirugía ótica. Antecedente familiar paterno de pérdida auditiva con uso de audífonos alrededor de los setenta años. Exposición laboral a ruido durante veinticinco años en una fábrica de cerámica, con uso irregular de protección auditiva. Toma medicación para la tensión arterial, niega otros tratamientos y alergias conocidas. Se planifica realizar otoscopia y audiometría tonal por vía aérea y vía ósea para valorar la pérdida auditiva."
   },
   "prompt_template": {
     "name": "patient_summary_es_v1"
   },
   "case_metadata": {
     "source_transcript_id": "consulta_ficticia_01",
-    "notes": "PENDIENTE: 'context.summary_text' puede dejarse vacío ('') si se quiere evaluar sin resumen técnico previo, o rellenarse con el resumen de referencia real una vez exista — ver informe previo a llamadas reales."
+    "notes": "context.summary_text contiene el resumen humano de referencia del caso, no generado por IA."
   }
 }

@@ -1,5 +1,6 @@
 {
   "artifact_type": "patient_summary",
-  "content": null,
-  "notes": "[PENDIENTE — el profesional debe aportar este contenido antes de ejecutar el benchmark real. Ver docs/generation-benchmark.md.]"
+  "content": {
+    "text": "Ha comentado que desde hace varios meses nota que oye peor, especialmente por el oído izquierdo, y que le cuesta más entender las conversaciones cuando hay ruido. También refiere un pitido constante, más intenso en el oído izquierdo y especialmente perceptible por la noche. Ha explicado que tuvo otitis de pequeño, que ha trabajado muchos años en un ambiente con ruido y que su padre utilizó audífonos. No refiere vértigo ni operaciones de oído y no tiene alergias conocidas. El siguiente paso será revisar los oídos y realizar pruebas auditivas para conocer mejor su audición. Con los resultados se podrán valorar la causa de las dificultades y las opciones disponibles."
+  }
 }

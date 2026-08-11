@@ -139,14 +139,14 @@
     }
   ],
   "context": {
-    "summary_text": "[PENDIENTE — el profesional debe aportar este contenido antes de ejecutar el benchmark real. Ver docs/generation-benchmark.md.]",
-    "clinical_flags_text": "[PENDIENTE — el profesional debe aportar este contenido antes de ejecutar el benchmark real. Ver docs/generation-benchmark.md.]"
+    "summary_text": "Paciente que refiere empeoramiento de la audición desde hace aproximadamente ocho o nueve meses, de forma bilateral pero más acusado en el oído izquierdo, con dificultad para comprender conversaciones en ambientes ruidosos y necesidad de aumentar el volumen de la televisión y pedir repeticiones. Refiere acúfeno constante, más perceptible por la noche y más intenso en el oído izquierdo. Niega episodios de vértigo, aunque refiere algún mareo puntual hace años. Antecedentes de otitis de repetición en la infancia, sin cirugía ótica. Antecedente familiar paterno de pérdida auditiva con uso de audífonos alrededor de los setenta años. Exposición laboral a ruido durante veinticinco años en una fábrica de cerámica, con uso irregular de protección auditiva. Toma medicación para la tensión arterial, niega otros tratamientos y alergias conocidas. Se planifica realizar otoscopia y audiometría tonal por vía aérea y vía ósea para valorar la pérdida auditiva.",
+    "clinical_flags_text": "- Categoría: tinnitus_unilateral\n  Descripción: Acúfenos referidos en un único oído — posible motivo de derivación según el protocolo configurado.\n  Evidencia: \"ce unos meses noto que escucho peor, sobre todo por el oído izquierdo. Mi mujer dice que tengo que subir mucho el volumen de la televisión y que muchas veces le hago repetir las cosas.\nAUDIOPROTESISTA: ¿Recuerda aproximadamente cuándo empezó a notar esa pérdida de audición?\nPACIENTE: Pues diría que hace unos ocho o nueve meses. Al principio pensaba que era algo puntual, pero cada vez me cuesta más entender las conversaciones cuando hay ruido.\nAUDIOPROTESISTA: ¿Tiene esa sensación en los dos oídos o solamente en uno?\nPACIENTE: En los dos, pero bastante más en el oído izquierdo.\nAUDIOPROTESISTA: ¿Ha notado pitidos o acúfenos?\nPACIENTE: Sí. Tengo un pitido constante, sobre todo por la\"\n  Ruleset: demo_generic_v1"
   },
   "prompt_template": {
     "name": "missing_information_es_v1"
   },
   "case_metadata": {
     "source_transcript_id": "consulta_ficticia_01",
-    "notes": "PENDIENTE: 'context.summary_text' y 'context.clinical_flags_text' necesitan contenido real de referencia (el resumen y las señales de alerta de esta consulta) antes de poder ejecutar este caso — ver informe previo a llamadas reales."
+    "notes": "context.summary_text contiene el resumen humano de referencia. context.clinical_flags_text debe obtenerse exclusivamente ejecutando el ruleset determinista de Clinical Flags existente sobre el transcript, nunca mediante LLM ni interpretación manual."
   }
 }

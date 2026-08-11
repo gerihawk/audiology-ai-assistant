@@ -1,5 +1,39 @@
 {
   "artifact_type": "missing_information",
-  "content": null,
-  "notes": "[PENDIENTE — el profesional debe aportar este contenido antes de ejecutar el benchmark real. Ver docs/generation-benchmark.md.]"
+  "content": {
+    "items": [
+      {
+        "topic": "[NO EXPLORADO] otalgia",
+        "suggested_question": "No se preguntó por dolor de oído en ningún momento de la consulta. ¿Ha notado dolor de oído en algún momento?"
+      },
+      {
+        "topic": "[NO EXPLORADO] otorrea",
+        "suggested_question": "No se preguntó por secreción del oído en ningún momento de la consulta. ¿Ha notado secreción o supuración en el oído?"
+      },
+      {
+        "topic": "[NO EXPLORADO] sensacion_plenitud",
+        "suggested_question": "No se preguntó por sensación de taponamiento u ocupación del oído. ¿Ha notado sensación de plenitud o presión en el oído?"
+      },
+      {
+        "topic": "[NO EXPLORADO] uso_previo_audifonos",
+        "suggested_question": "Solo se mencionó que el padre del paciente usa audífonos; nunca se preguntó si el propio paciente los ha usado antes. ¿Ha utilizado usted mismo audífonos u otro dispositivo auditivo anteriormente?"
+      },
+      {
+        "topic": "[NO EXPLORADO] expectativas",
+        "suggested_question": "No se preguntó qué espera el paciente del proceso. ¿Qué espera conseguir con la valoración o un posible tratamiento?"
+      },
+      {
+        "topic": "[PARCIAL] medicacion_ototoxica_declarada",
+        "suggested_question": "Se sabe que toma medicación para la tensión arterial y que niega otros tratamientos, pero no se identificó el nombre del fármaco ni se exploró específicamente la posible ototoxicidad. ¿Podría indicar el nombre del medicamento para la tensión? ¿Toma o ha tomado algún fármaco potencialmente ototóxico?"
+      },
+      {
+        "topic": "[PARCIAL] situaciones_auditivas_problematicas",
+        "suggested_question": "Se mencionó dificultad con el volumen de la televisión y en conversaciones con ruido de fondo, pero no se preguntó por otras situaciones concretas. ¿En qué otras situaciones nota más dificultad para oír (restaurantes, reuniones con varias personas, llamadas telefónicas)?"
+      },
+      {
+        "topic": "[PARCIAL] impacto_social_laboral_familiar",
+        "suggested_question": "Se mencionó impacto familiar (la esposa señala el volumen de la televisión y tener que repetir las cosas), pero no se preguntó por el impacto laboral actual ni social. ¿Cómo le afecta esta dificultad auditiva en su trabajo actual o en sus relaciones sociales?"
+      }
+    ]
+  }
 }

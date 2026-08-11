@@ -93,7 +93,15 @@ class TestReferenceRequirement:
         await seed_prompt_templates(db_session, repository, created_by=clinic_with_users.admin.id)
         await db_session.commit()
 
-        case = load_generation_case(_REAL_DATASET_DIR, "consulta_ficticia_01__summary")
+        from dataclasses import replace
+
+        # El caso real ya tiene reference.json relleno (ver informe de la
+        # Fase 6.2) — se fuerza a None aquí para aislar este test del
+        # estado del dataset, sin depender de que un caso concreto quede
+        # siempre sin referencia.
+        case = replace(
+            load_generation_case(_REAL_DATASET_DIR, "consulta_ficticia_01__summary"), reference=None
+        )
         assert case.reference is None  # confirma la precondición del test
 
         runner = GenerationBenchmarkRunner(

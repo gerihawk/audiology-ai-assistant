@@ -143,8 +143,9 @@ class TestDatasetLoader:
         assert case.id == case_id
         assert case.input.transcript
         assert case.metadata is not None
-        # Referencia humana todavía pendiente de aportar — ver README.md.
-        assert case.reference is None
+        # Referencia humana aportada y validada (ver informe de la Fase 6.2).
+        assert case.reference is not None
+        assert case.reference.content is not None
 
     def test_los_3_casos_reales_listados(self):
         ids = list_generation_case_ids(_REAL_DATASET_DIR)
