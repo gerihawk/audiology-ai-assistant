@@ -51,6 +51,7 @@ from benchmark.generation.metrics import (
     evaluate_numeric,
     evaluate_required_facts,
     flatten_content_text,
+    flatten_missing_information_topics,
 )
 from benchmark.generation.openrouter_client import (
     BenchmarkLLMClient,
@@ -80,6 +81,13 @@ class MetricsBundle:
     terminology: TerminologyReport | None
     missing_information_completeness: MissingInformationCompletenessReport | None
     evidence_coverage: EvidenceCoverageReport | None
+    #: MISSING_INFORMATION únicamente — mismo `HallucinationReport` que
+    #: `hallucination`, pero para un concepto distinto (RFC diagnóstico
+    #: post-mortem 2026-08-12): un `topic` que coincide con un patrón que
+    #: metadata declara ya suficientemente cubierto no es una alucinación
+    #: clínica, así que nunca comparte gate/severidad con `hallucination`
+    #: — ver `classify_findings` y docs/generation-benchmark.md.
+    missing_topic_false_positives: HallucinationReport | None
 
 
 @dataclass(slots=True, frozen=True)
@@ -293,6 +301,7 @@ class GenerationBenchmarkRunner:
     ) -> GenerationBenchmarkOutcome:
         required_facts = hallucination = negations = laterality = numeric = None
         terminology = missing_information_completeness = None
+        missing_topic_false_positives = None
         evidence_coverage = evaluate_evidence_coverage(validation.content, validation.source_map)
 
         if validation.ok and case.metadata is not None:
@@ -302,9 +311,28 @@ class GenerationBenchmarkRunner:
                     generated_text, case.metadata.required_facts
                 )
             if case.metadata.forbidden_facts:
-                hallucination = evaluate_forbidden_facts(
-                    generated_text, case.metadata.forbidden_facts
-                )
+                if case.input.artifact_type is AIArtifactType.MISSING_INFORMATION:
+                    # MISSING_INFORMATION: un `topic` que coincide con un
+                    # forbidden_fact no es una alucinación clínica — el
+                    # modelo no afirma ningún hecho fabricado, solo
+                    # propone revisitar algo que metadata ya declara
+                    # suficientemente cubierto (encargo Fase 6.2,
+                    # diagnóstico post-mortem 2026-08-12, caso real:
+                    # sonnet-5 proponiendo "exposición laboral" ya
+                    # conocida). Nunca alimenta `hallucination`/GATE 2 —
+                    # ver `classify_findings` (MAJOR,
+                    # `missing_topic_false_positive`) y
+                    # docs/generation-benchmark.md. Sigue mirando solo
+                    # `items[].topic`, no `suggested_question` (mismo
+                    # razonamiento que motivó ese scoping).
+                    missing_topic_false_positives = evaluate_forbidden_facts(
+                        flatten_missing_information_topics(validation.content),
+                        case.metadata.forbidden_facts,
+                    )
+                else:
+                    hallucination = evaluate_forbidden_facts(
+                        generated_text, case.metadata.forbidden_facts
+                    )
             if case.metadata.negation_cases:
                 negations = evaluate_negations(generated_text, case.metadata.negation_cases)
             if case.metadata.laterality_cases:
@@ -338,6 +366,7 @@ class GenerationBenchmarkRunner:
             numeric=numeric,
             terminology=terminology,
             missing_information_completeness=missing_information_completeness,
+            missing_topic_false_positives=missing_topic_false_positives,
         )
 
         return GenerationBenchmarkOutcome(
@@ -360,6 +389,7 @@ class GenerationBenchmarkRunner:
                 terminology=terminology,
                 missing_information_completeness=missing_information_completeness,
                 evidence_coverage=evidence_coverage,
+                missing_topic_false_positives=missing_topic_false_positives,
             ),
             gates=gates,
             findings=findings,

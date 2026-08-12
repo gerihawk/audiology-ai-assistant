@@ -15,7 +15,16 @@ Solo tras superar los 4 se comparan completeness/grounding/latencia/coste
 Clasificación CRITICAL/MAJOR/MINOR derivada estructuralmente de qué
 categoría de comprobación falló (RFC §22, citada literalmente en los
 comentarios de cada rama), nunca de una heurística subjetiva sobre el
-contenido."""
+contenido.
+
+**GATE 2 no cubre `missing_topic_false_positives`** (diagnóstico
+post-mortem 2026-08-12, ver docs/generation-benchmark.md): en
+`MISSING_INFORMATION` un `topic` que coincide con vocabulario de
+`forbidden_facts` no es un hecho clínico fabricado — el modelo no afirma
+nada, solo propone revisitar algo que metadata ya declara cubierto. Es
+MAJOR (calidad de la propuesta), nunca CRITICAL, y nunca bloquea
+`hallucination_gate`. `hallucination`/GATE 2 sigue significando
+exactamente lo mismo que antes para SUMMARY/PATIENT_SUMMARY."""
 
 from __future__ import annotations
 
@@ -102,6 +111,7 @@ def classify_findings(
     numeric: NumericReport | None,
     terminology: TerminologyReport | None,
     missing_information_completeness: MissingInformationCompletenessReport | None,
+    missing_topic_false_positives: HallucinationReport | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
 
@@ -170,6 +180,25 @@ def classify_findings(
             )
             for d in missing_information_completeness.details
             if not d.matched
+        ]
+
+    # MAJOR — MISSING_INFORMATION: `topic` que coincide con un patrón que
+    # metadata declara ya suficientemente cubierto (encargo Fase 6.2,
+    # diagnóstico post-mortem 2026-08-12: caso real sonnet-5 proponiendo
+    # revisitar "exposición laboral" ya conocida por el transcript). El
+    # modelo no afirma ningún hecho fabricado — solo propone una pregunta
+    # redundante — así que nunca es CRITICAL ni categoría `hallucination`
+    # (ver docs/generation-benchmark.md, distinción "hallucinated clinical
+    # fact" vs "false-positive missing topic").
+    if missing_topic_false_positives is not None:
+        findings += [
+            Finding(
+                "major",
+                "missing_topic_false_positive",
+                f"Topic propuesto ya suficientemente cubierto: {d.description}",
+            )
+            for d in missing_topic_false_positives.details
+            if d.matched
         ]
 
     # MINOR — "diferencias sin impacto semántico" (RFC §22): terminología no

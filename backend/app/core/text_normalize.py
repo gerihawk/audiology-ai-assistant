@@ -23,8 +23,15 @@ import unicodedata
 
 #: Puntuación que se retira SOLO cuando actúa como separador (rodeada de
 #: espacio o en un borde de palabra) — nunca dentro de un token como
-#: "vía-aérea" o "d'Artagnan", que se conservan tal cual.
-_PUNCTUATION_PATTERN = re.compile(r"[¿?¡!.,;:()\"“”«»\[\]{}]")
+#: "vía-aérea" o "d'Artagnan", que se conservan tal cual. `/` se incluye
+#: aquí (no junto a los guiones): a diferencia del guion interno de una
+#: palabra compuesta, `/` en español clínico siempre separa dos términos
+#: distintos ("pitido/acúfeno", "vía aérea/vía ósea") — nunca forma parte
+#: de un único token — así que debe convertirse en espacio como el resto
+#: de puntuación de frase, o fusiona artificialmente dos palabras en una
+#: que ningún patrón de metadata puede matchear (diagnóstico post-mortem
+#: 2026-08-12, ver docs/generation-benchmark.md §9.5).
+_PUNCTUATION_PATTERN = re.compile(r"[¿?¡!.,;:()\"“”«»\[\]{}/]")
 _WHITESPACE_PATTERN = re.compile(r"\s+")
 
 

@@ -39,12 +39,6 @@
       ]
     },
     {
-      "description": "vértigo (nunca mencionado por el paciente, lo negó explícitamente)",
-      "patterns": [
-        "vértigo"
-      ]
-    },
-    {
       "description": "recomendación concreta de audífonos ya decidida (solo se mencionó como posible opción futura)",
       "patterns": [
         "necesita audífonos",

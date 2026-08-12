@@ -36,6 +36,29 @@ def flatten_content_text(content: Any) -> str:
     return " ".join(text for _, text in iter_string_leaves(content))
 
 
+def flatten_missing_information_topics(content: Any) -> str:
+    """Concatena únicamente `items[].topic` de un `content` de
+    `MISSING_INFORMATION` — nunca `suggested_question`.
+
+    `topic` es lo único que declara explícitamente qué gap afirma el
+    modelo; `suggested_question` es redacción auxiliar que puede
+    mencionar legítimamente conceptos ya cubiertos al formular una
+    pregunta de seguimiento más concreta (encargo Fase 6.2, diagnóstico
+    post-mortem 2026-08-12: los falsos positivos de `forbidden_facts`
+    venían de comprobar todo el output aplanado, incluida la pregunta).
+    Uso exclusivo de `evaluate_forbidden_facts` en `runner.py` para este
+    artifact_type — `evaluate_missing_information_completeness` sigue
+    usando `topic + suggested_question` deliberadamente (pregunta
+    distinta: si el modelo identificó el gap, no cómo tituló el topic).
+
+    Mismo manejo defensivo de estructuras inválidas que
+    `evaluate_missing_information_completeness` — nunca lanza, nunca
+    asume forma."""
+    items = content.get("items") if isinstance(content, dict) else None
+    topics = (item.get("topic") for item in (items or []) if isinstance(item, dict))
+    return " ".join(topic for topic in topics if isinstance(topic, str))
+
+
 def _matches_any(haystack_padded: str, patterns: list[str]) -> str | None:
     for pattern in patterns:
         normalized = normalize_text(pattern)

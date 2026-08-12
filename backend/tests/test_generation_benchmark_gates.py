@@ -165,3 +165,41 @@ class TestClassifyFindings:
             missing_information_completeness=None,
         )
         assert findings == []
+
+    def test_missing_topic_false_positive_produce_major_no_critical(self):
+        # Diagnóstico post-mortem 2026-08-12: un topic de MISSING_INFORMATION
+        # que coincide con un forbidden_fact es MAJOR (calidad de la
+        # propuesta), nunca CRITICAL/`hallucination` — el modelo no afirma
+        # ningún hecho fabricado, solo propone revisitar algo ya cubierto.
+        missing_topic_false_positives = evaluate_forbidden_facts(
+            "uso de protección auditiva y exposición laboral",
+            [FactCase(description="exposición laboral", patterns=["exposición laboral"])],
+        )
+        findings = classify_findings(
+            validation=_OK_VALIDATION,
+            hallucination=None,
+            required_facts=None,
+            negations=None,
+            laterality=None,
+            numeric=None,
+            terminology=None,
+            missing_information_completeness=None,
+            missing_topic_false_positives=missing_topic_false_positives,
+        )
+        assert len(findings) == 1
+        assert findings[0].severity == "major"
+        assert findings[0].category == "missing_topic_false_positive"
+
+    def test_missing_topic_false_positive_no_afecta_hallucination_gate(self):
+        # `missing_topic_false_positives` nunca se pasa a `evaluate_gates`
+        # (solo `hallucination` lo hace) — confirma que el routing en
+        # `runner.py` es la única pieza que decide el gate, no `gates.py`.
+        missing_topic_false_positives = evaluate_forbidden_facts(
+            "exposición laboral", [FactCase(description="x", patterns=["exposición laboral"])]
+        )
+        result = evaluate_gates(
+            validation=_OK_VALIDATION, hallucination=None, negations=None, laterality=None
+        )
+        assert result.hallucination_gate is None
+        assert result.passed_all is True
+        assert missing_topic_false_positives.forbidden_found == 1  # detectado, solo no bloquea

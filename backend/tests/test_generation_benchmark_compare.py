@@ -105,6 +105,54 @@ class TestBuildComparison:
         comparison = build_comparison("caso_1", results)
         assert comparison["winner"] == "modelo_barato"
 
+    def test_criterio_oficial_retries_desempata_antes_que_latencia_y_coste(self):
+        # Menos hallazgos empatados; el modelo con MENOS retries gana
+        # aunque tenga mayor latencia Y mayor coste — orden oficial fijado
+        # en el diagnóstico post-mortem 2026-08-12 (calidad -> retries ->
+        # latencia -> coste), nunca coste primero.
+        results = {
+            "mas_retries_pero_barato_y_rapido": _report(
+                execution={
+                    "attempts": 3,
+                    "latency_ms": 500,
+                    "estimated_cost_usd": "0.01",
+                    "cost_source": "pricing_table",
+                },
+            ),
+            "menos_retries_pero_caro_y_lento": _report(
+                execution={
+                    "attempts": 1,
+                    "latency_ms": 9000,
+                    "estimated_cost_usd": "0.50",
+                    "cost_source": "pricing_table",
+                },
+            ),
+        }
+        comparison = build_comparison("caso_1", results)
+        assert comparison["winner"] == "menos_retries_pero_caro_y_lento"
+
+    def test_criterio_oficial_latencia_desempata_antes_que_coste_cuando_retries_empatan(self):
+        results = {
+            "mas_barato_pero_lento": _report(
+                execution={
+                    "attempts": 1,
+                    "latency_ms": 9000,
+                    "estimated_cost_usd": "0.01",
+                    "cost_source": "pricing_table",
+                },
+            ),
+            "mas_caro_pero_rapido": _report(
+                execution={
+                    "attempts": 1,
+                    "latency_ms": 500,
+                    "estimated_cost_usd": "0.50",
+                    "cost_source": "pricing_table",
+                },
+            ),
+        }
+        comparison = build_comparison("caso_1", results)
+        assert comparison["winner"] == "mas_caro_pero_rapido"
+
     def test_ningun_modelo_pasa_los_gates_no_hay_ganador(self):
         results = {
             "modelo_a": _report(

@@ -146,6 +146,21 @@ def _metrics_block(outcome: GenerationBenchmarkOutcome) -> dict[str, Any]:
                 "coverage": metrics.evidence_coverage.coverage,
             }
         ),
+        "missing_topic_false_positives": (
+            None
+            if metrics.missing_topic_false_positives is None
+            else {
+                "forbidden_found": metrics.missing_topic_false_positives.forbidden_found,
+                "details": [
+                    {
+                        "description": d.description,
+                        "matched": d.matched,
+                        "matched_pattern": d.matched_pattern,
+                    }
+                    for d in metrics.missing_topic_false_positives.details
+                ],
+            }
+        ),
     }
 
 

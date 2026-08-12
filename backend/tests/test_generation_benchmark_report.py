@@ -47,6 +47,7 @@ def _outcome(**overrides) -> GenerationBenchmarkOutcome:
             terminology=None,
             missing_information_completeness=None,
             evidence_coverage=None,
+            missing_topic_false_positives=None,
         ),
         gates=GateResult(
             safety_gate=True,

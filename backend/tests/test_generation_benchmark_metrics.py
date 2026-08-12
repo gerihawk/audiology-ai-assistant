@@ -12,6 +12,7 @@ from benchmark.generation.metrics import (
     evaluate_numeric,
     evaluate_required_facts,
     flatten_content_text,
+    flatten_missing_information_topics,
 )
 
 
@@ -106,6 +107,139 @@ class TestMissingInformationCompleteness:
         result = evaluate_missing_information_completeness(content, cases)
         assert result.expected_present == 0
         assert result.expected_missing == 1
+
+
+class TestFlattenMissingInformationTopics:
+    def test_solo_extrae_topic_nunca_suggested_question(self):
+        content = {
+            "items": [
+                {"topic": "Detalles de mareo", "suggested_question": "¿Ha tenido vértigo?"},
+                {"topic": "Historial previo", "suggested_question": "¿Acúfenos antes?"},
+            ]
+        }
+        result = flatten_missing_information_topics(content)
+        assert "vértigo" not in result.lower()
+        assert "acúfenos" not in result.lower()
+        assert "Detalles de mareo" in result
+        assert "Historial previo" in result
+
+    def test_estructura_invalida_no_lanza(self):
+        assert flatten_missing_information_topics({}) == ""
+        assert flatten_missing_information_topics({"items": None}) == ""
+        assert flatten_missing_information_topics({"items": "no es una lista"}) == ""
+        assert flatten_missing_information_topics({"items": [{"topic": None}]}) == ""
+        assert flatten_missing_information_topics(None) == ""
+
+
+class TestMissingInformationForbiddenTopicScoping:
+    """Separación de responsabilidades acordada en el diagnóstico
+    post-mortem 2026-08-12: los falsos positivos de `forbidden_facts`
+    (grupo B — temas ya cubiertos) se evalúan EXCLUSIVAMENTE sobre
+    `items[].topic`; `evaluate_missing_information_completeness` (recall)
+    sigue evaluando `topic + suggested_question` sin cambios, porque
+    responde a una pregunta distinta."""
+
+    _forbidden = [
+        FactCase(description="vértigo ya cubierto", patterns=["vértigo"]),
+        FactCase(description="acúfenos ya cubiertos", patterns=["acúfenos"]),
+        FactCase(description="exposición laboral ya cubierta", patterns=["exposición laboral"]),
+    ]
+
+    def test_a_forbidden_en_topic_se_detecta(self):
+        content = {
+            "items": [{"topic": "[NO EXPLORADO] vértigo", "suggested_question": "cualquier texto"}]
+        }
+        haystack = flatten_missing_information_topics(content)
+        result = evaluate_forbidden_facts(haystack, self._forbidden)
+        assert result.forbidden_found > 0
+
+    def test_b_mencion_en_suggested_question_no_dispara(self):
+        content = {
+            "items": [
+                {
+                    "topic": "[PARCIAL] equilibrio reciente",
+                    "suggested_question": (
+                        "Aunque no ha tenido vértigo, ¿en el último año ha tenido "
+                        "inestabilidad...?"
+                    ),
+                }
+            ]
+        }
+        haystack = flatten_missing_information_topics(content)
+        result = evaluate_forbidden_facts(haystack, self._forbidden)
+        assert result.forbidden_found == 0
+
+    def test_c_mencion_de_acufenos_solo_en_pregunta_no_dispara(self):
+        content = {
+            "items": [
+                {
+                    "topic": "[PARCIAL] historial de consultas previas",
+                    "suggested_question": (
+                        "¿Se ha hecho alguna audiometría antes o ha consultado "
+                        "previamente por la audición o los acúfenos?"
+                    ),
+                }
+            ]
+        }
+        haystack = flatten_missing_information_topics(content)
+        result = evaluate_forbidden_facts(haystack, self._forbidden)
+        assert result.forbidden_found == 0
+
+    def test_d_forbidden_genuino_en_topic_sigue_siendo_detectable(self):
+        # El fix no debe ocultar un topic extra real: si el patrón aparece
+        # en el propio topic (no solo en la pregunta), sigue siendo un
+        # candidato a falso positivo genuino.
+        content = {
+            "items": [
+                {
+                    "topic": "Uso de protección auditiva y exposición laboral",
+                    "suggested_question": "¿Con qué frecuencia usaba protección?",
+                }
+            ]
+        }
+        haystack = flatten_missing_information_topics(content)
+        result = evaluate_forbidden_facts(haystack, self._forbidden)
+        assert result.forbidden_found > 0
+
+    def test_e_expected_topic_presente_solo_en_suggested_question_cuenta_para_recall(self):
+        # evaluate_missing_information_completeness NO cambia: sigue
+        # buscando en topic + suggested_question combinados.
+        content = {
+            "items": [
+                {
+                    "topic": "[PARCIAL] equilibrio reciente",
+                    "suggested_question": "¿Ha tenido vértigo en el último año?",
+                }
+            ]
+        }
+        expected = [FactCase(description="vértigo", patterns=["vértigo"])]
+        result = evaluate_missing_information_completeness(content, expected)
+        assert result.expected_present == 1
+        assert result.expected_missing == 0
+
+    def test_f_expected_topic_presente_en_topic_cuenta_para_recall(self):
+        content = {"items": [{"topic": "Vértigo no explorado", "suggested_question": "n/a"}]}
+        expected = [FactCase(description="vértigo", patterns=["vértigo"])]
+        result = evaluate_missing_information_completeness(content, expected)
+        assert result.expected_present == 1
+
+    def test_g_expected_topic_ausente_en_ambos_campos_es_omitido(self):
+        content = {"items": [{"topic": "Otro tema", "suggested_question": "otra pregunta"}]}
+        expected = [FactCase(description="vértigo", patterns=["vértigo"])]
+        result = evaluate_missing_information_completeness(content, expected)
+        assert result.expected_present == 0
+        assert result.expected_missing == 1
+
+    def test_i_summary_sigue_usando_flatten_content_text_sin_cambios(self):
+        # SUMMARY/PATIENT_SUMMARY no tienen items[] — el scoping nuevo es
+        # exclusivo de MISSING_INFORMATION (aplicado en runner.py, no aquí)
+        # — esta prueba confirma que flatten_content_text (el mecanismo que
+        # SUMMARY/PATIENT_SUMMARY siguen usando) es indiferente a la nueva
+        # función y sigue aplanando todo el contenido, sin scoping.
+        content = {"text": "Diagnóstico confirmado de hipoacusia neurosensorial."}
+        forbidden = [FactCase(description="diagnóstico", patterns=["diagnóstico confirmado"])]
+        result = evaluate_forbidden_facts(flatten_content_text(content), forbidden)
+        assert result.forbidden_found == 1
 
 
 class TestEvidenceCoverage:

@@ -69,3 +69,42 @@ def test_excerpt_de_solo_normalizacion_no_reporta_offsets_originales():
     assert result.grounded is True
     assert result.original_start is None
     assert result.original_end is None
+
+
+class TestSlashSeparator:
+    """Diagnóstico post-mortem 2026-08-12: `/` no se trataba como
+    separador — un excerpt con `/` no se encontraba en un transcript sin
+    `/` (o viceversa), aunque ambos expresaran el mismo contenido. Sigue
+    exigiendo substring contiguo tras normalizar — no introduce matching
+    difuso ni relaja el grounding a nivel semántico (ver test de control
+    de conceptos distintos abajo)."""
+
+    _TRANSCRIPT_CON_BARRA = (
+        "El paciente refiere pitido/acúfeno constante por la noche, "
+        "más intenso en el oído izquierdo."
+    )
+
+    def test_excerpt_sin_barra_encuentra_transcript_con_barra(self):
+        result = verify_excerpt("pitido acúfeno constante", self._TRANSCRIPT_CON_BARRA)
+        assert result.grounded is True
+
+    def test_excerpt_con_barra_encuentra_transcript_sin_barra(self):
+        transcript_sin_barra = "El paciente refiere pitido acúfeno constante."
+        result = verify_excerpt("pitido/acúfeno constante", transcript_sin_barra)
+        assert result.grounded is True
+
+    def test_control_conceptos_distintos_con_barra_no_generan_match_indebido(self):
+        # "/" no se convierte en un OR difuso entre conceptos no
+        # relacionados — el excerpt sigue exigiendo aparecer como
+        # substring contiguo real.
+        transcript = "Antecedente de otitis. Exposición a ruido laboral."
+        result = verify_excerpt("otitis/ruido", transcript)
+        assert result.grounded is False
+
+    def test_control_substrings_no_contiguos_siguen_sin_verificar(self):
+        # El transcript contiene "pitido" y "acúfeno" en cláusulas
+        # distintas (no contiguas) — no debe verificarse solo porque
+        # ambas palabras existan en algún punto del texto.
+        transcript = "El paciente refiere pitido. También menciona acúfeno en otra ocasión."
+        result = verify_excerpt("pitido acúfeno", transcript)
+        assert result.grounded is False

@@ -315,6 +315,78 @@ class TestSafetyAndSchemaFailures:
         assert outcome.gates.passed_all is False
         assert any(f.category == "safety" for f in outcome.findings)
 
+    async def test_missing_information_safety_violation_en_suggested_question_bloquea(
+        self, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+    ):
+        # El re-routing de `forbidden_facts` (hallucination ->
+        # missing_topic_false_positives) para MISSING_INFORMATION no toca
+        # `SafetyValidator` en absoluto — sigue recorriendo TODOS los
+        # strings hoja del content (incluida `suggested_question`) desde
+        # `validate_generated_content`, antes de que se calcule ninguna
+        # métrica de este módulo. No se debilita seguridad por este cambio.
+        forbidden = json.dumps(
+            {
+                "items": [
+                    {
+                        "topic": "Antecedentes familiares",
+                        "suggested_question": "Diagnóstico confirmado de hipoacusia, ¿verdad?",
+                    }
+                ]
+            }
+        )
+        case, repository = await _seed_and_load_case(
+            db_session, clinic_with_users.admin.id, "consulta_ficticia_01__missing_information"
+        )
+        client = _FakeLlmClient([_response(forbidden)] * 2)
+        runner = GenerationBenchmarkRunner(
+            settings=_settings(ai_pipeline_max_regenerative_retries=1),
+            prompt_template_repository=repository,
+            db_session=db_session,
+            llm_client=client,
+        )
+
+        outcome = await runner.run_one(case, model="test/model")
+
+        assert outcome.succeeded is False
+        assert outcome.validation.failure_reason == AIGenerationFailureReason.SAFETY_POLICY_FAILED
+        assert outcome.gates.safety_gate is False
+        assert outcome.gates.passed_all is False
+        assert any(f.category == "safety" and f.severity == "critical" for f in outcome.findings)
+
+    async def test_missing_information_topic_neutral_no_penalizado(
+        self, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+    ):
+        # Un topic que no coincide ni con `forbidden_facts` ni con
+        # `expected_missing_topics` es neutral — no genera ningún finding
+        # por sí mismo (ni MAJOR ni CRITICAL). No confundir con "todos los
+        # topics extra están bien": si coincidiera con alguno de los dos
+        # catálogos, seguiría penalizándose exactamente igual que antes.
+        case, repository = await _seed_and_load_case(
+            db_session, clinic_with_users.admin.id, "consulta_ficticia_01__missing_information"
+        )
+        content = {
+            "items": [
+                {
+                    "topic": "Preferencia de color para el audífono",
+                    "suggested_question": "¿Tiene alguna preferencia estética?",
+                }
+            ]
+        }
+        client = _FakeLlmClient([_response(json.dumps(content))])
+        runner = GenerationBenchmarkRunner(
+            settings=_settings(),
+            prompt_template_repository=repository,
+            db_session=db_session,
+            llm_client=client,
+        )
+
+        outcome = await runner.run_one(case, model="test/model")
+
+        assert outcome.succeeded is True
+        assert outcome.metrics.missing_topic_false_positives is not None
+        assert outcome.metrics.missing_topic_false_positives.forbidden_found == 0
+        assert not any(f.category == "missing_topic_false_positive" for f in outcome.findings)
+
     async def test_schema_invalido_falla_schema_gate(
         self, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
     ):
@@ -346,11 +418,25 @@ class TestMetricsWiring:
         case, repository = await _seed_and_load_case(
             db_session, clinic_with_users.admin.id, "consulta_ficticia_01__summary"
         )
-        # metadata.json de este caso declara "vértigo" como forbidden_fact.
+        # metadata.json de este caso declara "diagnóstico confirmado de
+        # hipoacusia neurosensorial" como forbidden_fact — el único que
+        # queda tras retirar "vértigo"/"alergias"/"cirugía de oídos"
+        # (cubiertos en exclusiva por negation_cases, ver diagnóstico
+        # post-mortem de la ronda de benchmark del 2026-08-12). No depende
+        # de polaridad/negación: es un hecho afirmado inequívocamente
+        # incorrecto. Se usa el patrón "hipoacusia neurosensorial
+        # confirmada" (no "diagnóstico confirmado") a propósito: esa otra
+        # frase es también lenguaje clínico prohibido por `SafetyValidator`
+        # (docs/clinical-safety.md §3), lo que dispararía un reintento
+        # regenerativo y contaminaría este test de hallucination.
         assert case.metadata is not None
-        assert any("vértigo" in fc.description for fc in case.metadata.forbidden_facts)
+        assert any(
+            "diagnóstico confirmado" in fc.description for fc in case.metadata.forbidden_facts
+        )
 
-        hallucinated = json.dumps({"text": "El paciente refiere vértigo intenso y persistente."})
+        hallucinated = json.dumps(
+            {"text": "Hipoacusia neurosensorial confirmada en oído izquierdo."}
+        )
         client = _FakeLlmClient([_response(hallucinated)])
         runner = GenerationBenchmarkRunner(
             settings=_settings(),
@@ -366,3 +452,103 @@ class TestMetricsWiring:
         assert outcome.metrics.hallucination.forbidden_found >= 1
         assert outcome.gates.passed_all is False
         assert outcome.gates.blocking_gate == "hallucination"
+
+    async def test_missing_information_no_dispara_falso_positivo_por_suggested_question(
+        self, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+    ):
+        # Reproduce el falso positivo real de GPT-5.2/Sonnet 5 (ronda de
+        # benchmark 2026-08-12): "vértigo"/"acúfenos" solo aparecen dentro
+        # de suggested_question, formulando una pregunta de seguimiento
+        # distinta — el topic declarado es otro. `evaluate_forbidden_facts`
+        # para MISSING_INFORMATION ahora solo mira `items[].topic` (vía
+        # `flatten_missing_information_topics`), no `suggested_question` —
+        # y alimenta `missing_topic_false_positives`, nunca `hallucination`
+        # (esa métrica queda `None` para este artifact_type, ver
+        # diagnóstico post-mortem 2026-08-12).
+        case, repository = await _seed_and_load_case(
+            db_session, clinic_with_users.admin.id, "consulta_ficticia_01__missing_information"
+        )
+        assert case.metadata is not None
+        assert any("vértigo" in fc.description for fc in case.metadata.forbidden_facts)
+        assert any("acúfenos" in fc.description for fc in case.metadata.forbidden_facts)
+
+        content = {
+            "items": [
+                {
+                    "topic": "Detalles actuales de mareo/equilibrio",
+                    "suggested_question": (
+                        "Aunque no ha tenido vértigo, ¿en el último año ha tenido "
+                        "inestabilidad, sensación de balanceo o caídas?"
+                    ),
+                },
+                {
+                    "topic": "Historial de consultas previas",
+                    "suggested_question": (
+                        "¿Se ha hecho alguna audiometría antes o ha consultado "
+                        "previamente por la audición o los acúfenos?"
+                    ),
+                },
+            ]
+        }
+        client = _FakeLlmClient([_response(json.dumps(content))])
+        runner = GenerationBenchmarkRunner(
+            settings=_settings(),
+            prompt_template_repository=repository,
+            db_session=db_session,
+            llm_client=client,
+        )
+
+        outcome = await runner.run_one(case, model="test/model")
+
+        assert outcome.succeeded is True
+        assert outcome.metrics.hallucination is None
+        assert outcome.metrics.missing_topic_false_positives is not None
+        assert outcome.metrics.missing_topic_false_positives.forbidden_found == 0
+        assert outcome.gates.hallucination_gate is None
+        assert outcome.gates.passed_all is True
+
+    async def test_missing_information_topic_cubierto_es_major_no_hallucination(
+        self, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+    ):
+        # Caso real sonnet-5 (diagnóstico post-mortem 2026-08-12): si
+        # "exposición laboral" aparece en el propio `topic` (no solo en la
+        # pregunta), el modelo SÍ está proponiendo revisitar un tema que
+        # metadata declara ya suficientemente cubierto — pero no está
+        # afirmando ningún hecho clínico fabricado. Debe seguir
+        # detectándose (no se oculta), pero como
+        # `missing_topic_false_positives`/MAJOR, nunca como
+        # `hallucination`/CRITICAL ni bloqueando `hallucination_gate`.
+        case, repository = await _seed_and_load_case(
+            db_session, clinic_with_users.admin.id, "consulta_ficticia_01__missing_information"
+        )
+        assert case.metadata is not None
+
+        content = {
+            "items": [
+                {
+                    "topic": "Uso de protección auditiva y exposición laboral",
+                    "suggested_question": "¿Con qué frecuencia usaba protección auditiva?",
+                }
+            ]
+        }
+        client = _FakeLlmClient([_response(json.dumps(content))])
+        runner = GenerationBenchmarkRunner(
+            settings=_settings(),
+            prompt_template_repository=repository,
+            db_session=db_session,
+            llm_client=client,
+        )
+
+        outcome = await runner.run_one(case, model="test/model")
+
+        assert outcome.succeeded is True
+        assert outcome.metrics.hallucination is None
+        assert outcome.metrics.missing_topic_false_positives is not None
+        assert outcome.metrics.missing_topic_false_positives.forbidden_found >= 1
+        assert outcome.gates.hallucination_gate is None
+        assert outcome.gates.passed_all is True
+        assert any(
+            f.severity == "major" and f.category == "missing_topic_false_positive"
+            for f in outcome.findings
+        )
+        assert not any(f.severity == "critical" for f in outcome.findings)

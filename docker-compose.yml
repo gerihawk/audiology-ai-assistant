@@ -38,6 +38,9 @@ services:
       DEEPGRAM_BASE_URL: ${DEEPGRAM_BASE_URL:-https://api.eu.deepgram.com}
       DEEPGRAM_LANGUAGE_CODE: ${DEEPGRAM_LANGUAGE_CODE:-es}
       DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GENERATION_BENCHMARK_ENABLED: ${GENERATION_BENCHMARK_ENABLED:-false}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

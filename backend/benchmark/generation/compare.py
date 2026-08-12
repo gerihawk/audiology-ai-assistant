@@ -9,14 +9,28 @@ Uso (dentro del contenedor backend, working dir /app):
         consulta_ficticia_01__patient_summary
 
 Nunca ejecuta ninguna generación — solo agrega resultados ya escritos por
-`benchmark.generation.cli`. Selección de ganador jerárquica (encargo
-§21): solo entran en juego los modelos que superan los 4 gates clínicos;
-entre esos, gana quien tenga menos hallazgos MAJOR y, en empate, menor
-coste — nunca al revés. **No fuerza un ganador global** (encargo,
-precondición §13-14): con varios `case_id` (uno por `artifact_type`) solo
-se declara un ganador global si el MISMO modelo gana en todos; si no,
-`global_winner` queda `null` y `winners_by_artifact_type` muestra el
-desglose real."""
+`benchmark.generation.cli`. Selección de ganador jerárquica — criterio
+oficial único, fijado en el diagnóstico post-mortem de la ronda de
+benchmark del 2026-08-12 (antes había una discrepancia entre este código
+y el orden descrito en la documentación derivada — ya resuelta):
+
+    1. Gates obligatorios (condición de elegibilidad, no desempate).
+    2. Menor número de hallazgos CRITICAL.
+    3. Menor número de hallazgos MAJOR.
+    4. Menor número de hallazgos MINOR (terminología — determinista, no
+       es estilo humano subjetivo, así que sí participa en el ranking).
+
+Solo cuando la calidad clínica determinista es equivalente:
+
+    5. Menor número de `attempts` (retries).
+    6. Menor latencia.
+    7. Menor coste.
+
+Coste nunca desempata antes que fiabilidad/retries o latencia. **No
+fuerza un ganador global** (encargo, precondición §13-14): con varios
+`case_id` (uno por `artifact_type`) solo se declara un ganador global si
+el MISMO modelo gana en todos; si no, `global_winner` queda `null` y
+`winners_by_artifact_type` muestra el desglose real."""
 
 from __future__ import annotations
 
@@ -64,6 +78,7 @@ def build_comparison(case_id: str, results_by_profile: dict[str, dict[str, Any]]
                 "schema_gate": gates.get("schema_gate"),
                 "negation_laterality_gate": gates.get("negation_laterality_gate"),
                 "latency_ms": execution.get("latency_ms"),
+                "attempts": execution.get("attempts"),
                 "input_tokens": execution.get("input_tokens"),
                 "output_tokens": execution.get("output_tokens"),
                 "estimated_cost_usd": execution.get("estimated_cost_usd"),
@@ -77,16 +92,22 @@ def build_comparison(case_id: str, results_by_profile: dict[str, dict[str, Any]]
     eligible = [row for row in rows if row["passed_all_gates"]]
     winner = None
     if eligible:
+        # Orden oficial único (ver docstring del módulo): calidad clínica
+        # determinista (CRITICAL -> MAJOR -> MINOR) antes que fiabilidad/
+        # coste — nunca al revés.
         winner = min(
             eligible,
             key=lambda row: (
+                row["findings_critical"],
                 row["findings_major"],
+                row["findings_minor"],
+                row["attempts"] if row["attempts"] is not None else float("inf"),
+                row["latency_ms"] if row["latency_ms"] is not None else float("inf"),
                 (
                     float(row["estimated_cost_usd"])
                     if row["estimated_cost_usd"] is not None
                     else float("inf")
                 ),
-                row["latency_ms"] or 0,
             ),
         )["model_profile"]
 
@@ -124,7 +145,7 @@ def _print_table(comparison: dict[str, Any]) -> None:
 
     header = (
         f"{'modelo':<32} {'gates':<6} {'crit':<5} {'major':<6} {'minor':<6} "
-        f"{'ms':<8} {'coste':<12} fuente"
+        f"{'retries':<8} {'ms':<8} {'coste':<12} fuente"
     )
     print(header)
     print("-" * len(header))
@@ -133,8 +154,8 @@ def _print_table(comparison: dict[str, Any]) -> None:
         print(
             f"{row['model_profile']:<32} {'sí' if row['passed_all_gates'] else 'no':<6} "
             f"{row['findings_critical']:<5} {row['findings_major']:<6} {row['findings_minor']:<6} "
-            f"{_fmt(row['latency_ms']):<8} {_fmt(row['estimated_cost_usd']):<12} "
-            f"{_fmt(row['cost_source'])}{marker}"
+            f"{_fmt(row['attempts']):<8} {_fmt(row['latency_ms']):<8} "
+            f"{_fmt(row['estimated_cost_usd']):<12} {_fmt(row['cost_source'])}{marker}"
         )
 
 
