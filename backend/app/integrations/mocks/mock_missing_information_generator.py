@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagDraft
 from app.integrations.domain.language_model_provider import LanguageModelProvider, RenderedPrompt
-from app.integrations.domain.missing_information_generator import MissingInfoItem
+from app.integrations.domain.missing_information_generator import (
+    MissingInfoItem,
+    MissingInformationResult,
+)
 from app.integrations.domain.session_context import SessionContext
 from app.integrations.mocks.mock_language_model_provider import MockLanguageModelProvider
 
@@ -41,7 +44,7 @@ class MockMissingInformationGenerator:
         clinical_flags: list[ClinicalFlagDraft],
         *,
         context: SessionContext,
-    ) -> list[MissingInfoItem]:
+    ) -> MissingInformationResult:
         await self._llm.complete(
             RenderedPrompt(
                 system=_SYSTEM_PROMPT,
@@ -49,4 +52,4 @@ class MockMissingInformationGenerator:
             ),
             model="mock-v1",
         )
-        return list(_FIXTURE_ITEMS)
+        return MissingInformationResult(items=list(_FIXTURE_ITEMS))

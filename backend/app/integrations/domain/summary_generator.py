@@ -11,6 +11,10 @@ from app.integrations.domain.session_context import SessionContext
 @dataclass(slots=True, frozen=True)
 class SummaryDraft:
     text: str
+    #: Usage real del proveedor (Fase 6.3) — `None` en `MockSummaryGenerator`.
+    #: Ver docs/fase-6-rfc.md §6.3 y `steps/base.py::ProduceResult`.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class SummaryGenerator(Protocol):

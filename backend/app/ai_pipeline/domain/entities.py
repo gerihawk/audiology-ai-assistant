@@ -57,10 +57,15 @@ class AIPipelineRunStatus(StrEnum):
 
 #: Orden de ejecución de los pasos del pipeline en modo secuencial (una
 #: ordenación topológica válida del grafo de dependencias — ver
-#: docs/ai-pipeline-architecture.md §1.4).
+#: docs/ai-pipeline-architecture.md §1.4). `PATIENT_SUMMARY` (Fase 6.3,
+#: docs/fase-6-rfc.md §4.3) se inserta justo después de `SUMMARY`: su único
+#: `depends_on()` formal es `TRANSCRIPT`, pero debe ejecutarse después de
+#: `SUMMARY` para que `context.outputs` ya tenga su salida disponible como
+#: enriquecimiento opcional — ver `PatientSummaryStep`.
 PIPELINE_STEP_ORDER: tuple[AIArtifactType, ...] = (
     AIArtifactType.TRANSCRIPT,
     AIArtifactType.SUMMARY,
+    AIArtifactType.PATIENT_SUMMARY,
     AIArtifactType.CLINICAL_FLAGS,
     AIArtifactType.MISSING_INFORMATION,
     AIArtifactType.ANAMNESIS,

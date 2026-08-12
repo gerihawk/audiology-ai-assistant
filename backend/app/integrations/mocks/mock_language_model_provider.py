@@ -11,11 +11,19 @@ docs/ai-pipeline-architecture.md §7.2.
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.integrations.domain.language_model_provider import LanguageModelResponse, RenderedPrompt
 
 
 class MockLanguageModelProvider:
     async def complete(
-        self, prompt: RenderedPrompt, *, model: str | None = None
+        self,
+        prompt: RenderedPrompt,
+        *,
+        model: str | None = None,
+        response_json_schema: dict[str, Any] | None = None,
     ) -> LanguageModelResponse:
+        # `response_json_schema` (Fase 6.3.5) se ignora deliberadamente: el
+        # mock no interpreta ningún schema, solo devuelve texto fijo.
         return LanguageModelResponse(text=f"[mock:{model or 'mock-v1'}] {prompt.user}")

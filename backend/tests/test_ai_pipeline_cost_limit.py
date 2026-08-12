@@ -98,10 +98,11 @@ async def test_coste_acumulado_de_una_ejecucion_previa_bloquea_la_siguiente(
     monkeypatch,
 ):
     """El límite es por SESIÓN, no por ejecución — ver docs/fase-6-rfc.md
-    §6.3. Cinco steps a 15 USD cada uno (75 USD) caben en un límite de 100
-    en la primera ejecución; en la segunda, el coste ya acumulado deja
-    presupuesto solo para el primer step."""
-    _enforce_cost_limit(monkeypatch, limit_usd=Decimal("100"))
+    §6.3. Seis steps a 15 USD cada uno (90 USD, incluido `PATIENT_SUMMARY`
+    desde el hito 6.3.1) caben en un límite de 110 en la primera ejecución;
+    en la segunda, el coste ya acumulado deja presupuesto solo para el
+    primer step."""
+    _enforce_cost_limit(monkeypatch, limit_usd=Decimal("110"))
     headers = dev_headers(clinic_with_users.admin)
     session = await _create_session(
         api_client, headers, str(patient.id), str(clinic_with_users.audiologist.id)
@@ -123,10 +124,10 @@ async def test_coste_acumulado_de_una_ejecucion_previa_bloquea_la_siguiente(
     )
 
     transcript_outcome = _outcome_for(second_run.outcomes, AIArtifactType.TRANSCRIPT)
-    assert transcript_outcome.status == AIGenerationRunStatus.COMPLETED  # 75 + 15 = 90 <= 100
+    assert transcript_outcome.status == AIGenerationRunStatus.COMPLETED  # 90 + 15 = 105 <= 110
 
     summary_outcome = _outcome_for(second_run.outcomes, AIArtifactType.SUMMARY)
-    assert summary_outcome.status == AIGenerationRunStatus.FAILED  # 90 + 15 = 105 > 100
+    assert summary_outcome.status == AIGenerationRunStatus.FAILED  # 105 + 15 = 120 > 110
     assert summary_outcome.failure_reason == "cost_limit_exceeded"
 
 

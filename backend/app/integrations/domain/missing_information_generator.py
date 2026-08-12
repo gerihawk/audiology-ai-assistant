@@ -20,6 +20,19 @@ class MissingInfoItem:
     suggested_question: str
 
 
+@dataclass(slots=True, frozen=True)
+class MissingInformationResult:
+    """Envelope del resultado completo de una generación — a diferencia de
+    `SummaryDraft`/`AnamnesisDraft`, este generator no tenía un objeto
+    contenedor propio (devolvía `list[MissingInfoItem]` directamente); se
+    introduce aquí porque el usage real del proveedor (Fase 6.3) es un dato
+    de la llamada completa, no de cada item individual."""
+
+    items: list[MissingInfoItem]
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
 class MissingInformationGenerator(Protocol):
     async def generate(
         self,
@@ -27,4 +40,4 @@ class MissingInformationGenerator(Protocol):
         clinical_flags: list[ClinicalFlagDraft],
         *,
         context: SessionContext,
-    ) -> list[MissingInfoItem]: ...
+    ) -> MissingInformationResult: ...

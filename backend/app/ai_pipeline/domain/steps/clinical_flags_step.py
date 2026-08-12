@@ -7,11 +7,10 @@ docs/ai-pipeline-architecture.md §1.4.
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
 from app.ai_pipeline.domain.pipeline import PipelineExecutionContext, PipelineStepOutcome
-from app.ai_pipeline.domain.steps.base import run_provider_step
+from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagsGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.token_counter import TokenCounter
@@ -46,10 +45,11 @@ class ClinicalFlagsStep:
     async def run(self, context: PipelineExecutionContext) -> PipelineStepOutcome:
         transcript_text: str = context.outputs[AIArtifactType.TRANSCRIPT]["text"]
 
-        async def produce() -> tuple[dict[str, Any], int]:
+        async def produce() -> ProduceResult:
             flags = await self._generator.generate(transcript_text, context=context.session_context)
             content = {"flags": [asdict(flag) for flag in flags]}
-            return content, _CONFIDENCE
+            # Basado en reglas, sin LLM: nunca hay usage de tokens que reportar.
+            return content, _CONFIDENCE, None, None
 
         return await run_provider_step(
             artifact_type=self.artifact_type,

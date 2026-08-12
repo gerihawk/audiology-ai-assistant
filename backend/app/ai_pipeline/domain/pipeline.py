@@ -94,6 +94,14 @@ class PipelineStepOutcome:
     #: como autoridad (ver docs/fase-6-rfc.md §5.4). `None` si el
     #: artefacto no declara ningún campo con evidencia.
     source_map: dict[str, Any] | None = None
+    #: Plantilla realmente usada para renderizar el prompt (Fase 6.3.7) —
+    #: `None` en Mock (sin `PromptTemplate` de por medio) y en pasos sin
+    #: routing real. Conocido desde antes de invocar al proveedor (la
+    #: plantilla ya está resuelta), así que se informa tanto en éxito como
+    #: en fallo — a diferencia de `content`, que solo existe si el
+    #: proveedor respondió con éxito.
+    prompt_template_id: uuid.UUID | None = None
+    prompt_template_version: int | None = None
 
 
 @dataclass(slots=True)

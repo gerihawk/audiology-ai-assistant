@@ -16,7 +16,7 @@ from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
 from app.ai_pipeline.domain.pipeline import PipelineExecutionContext, PipelineStepOutcome
-from app.ai_pipeline.domain.steps.base import run_provider_step
+from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.missing_information_generator import MissingInfoItem
@@ -51,7 +51,7 @@ class AnamnesisStep:
         missing_info_content: dict[str, Any] = context.outputs[AIArtifactType.MISSING_INFORMATION]
         missing_information = [MissingInfoItem(**item) for item in missing_info_content["items"]]
 
-        async def produce() -> tuple[dict[str, Any], int]:
+        async def produce() -> ProduceResult:
             draft = await self._generator.generate(
                 transcript_text, missing_information, context=context.session_context
             )
@@ -59,7 +59,7 @@ class AnamnesisStep:
                 field_name: {"value": field_value.value, "status": field_value.status.value}
                 for field_name, field_value in draft.fields.items()
             }
-            return content, _CONFIDENCE
+            return content, _CONFIDENCE, None, None
 
         return await run_provider_step(
             artifact_type=self.artifact_type,

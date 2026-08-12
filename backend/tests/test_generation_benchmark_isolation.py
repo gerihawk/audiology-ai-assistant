@@ -1,7 +1,8 @@
 """Regresión: el benchmark de generación (Fase 6.2) nunca cambia el
 comportamiento de producción — encargo §24 ("producción sigue usando Mock
-providers") y precondición del hito ("PATIENT_SUMMARY sin PipelineStep
-hasta el hito 6.3")."""
+providers"). `PATIENT_SUMMARY` ya tiene `PipelineStep` registrado desde el
+hito 6.3.1 — las dos pruebas que antes exigían su ausencia se invierten
+aquí para exigir su presencia, sin perder cobertura de regresión."""
 
 from __future__ import annotations
 
@@ -14,15 +15,17 @@ from app.core.config import Settings
 from benchmark.generation.cli import _require_enabled
 
 
-def test_patient_summary_no_esta_en_el_orden_del_pipeline_productivo():
-    assert AIArtifactType.PATIENT_SUMMARY not in PIPELINE_STEP_ORDER
+def test_patient_summary_esta_en_el_orden_del_pipeline_productivo():
+    # Hito 6.3.1: activado en producción con Mock — ver
+    # docs/fase-6-rfc.md §10 hito 6.3.
+    assert AIArtifactType.PATIENT_SUMMARY in PIPELINE_STEP_ORDER
 
 
-def test_patient_summary_no_tiene_step_registrado_en_el_servicio():
+def test_patient_summary_tiene_step_registrado_en_el_servicio():
     import app.ai_pipeline.service as service_module
 
     source = inspect.getsource(service_module)
-    assert "AIArtifactType.PATIENT_SUMMARY:" not in source
+    assert "AIArtifactType.PATIENT_SUMMARY:" in source
 
 
 def test_app_arranca_sin_openrouter_api_key():

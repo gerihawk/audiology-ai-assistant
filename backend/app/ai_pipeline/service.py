@@ -29,6 +29,7 @@ from app.ai_pipeline.domain.entities import (
     AIGenerationRunStatus,
     AIPipelineRun,
     AIPipelineRunStatus,
+    PromptTemplate,
 )
 from app.ai_pipeline.domain.generation_run_repository import AIGenerationRunRepository
 from app.ai_pipeline.domain.pipeline import (
@@ -39,12 +40,17 @@ from app.ai_pipeline.domain.pipeline import (
     SequentialPipelineOrchestrator,
 )
 from app.ai_pipeline.domain.pipeline_run_repository import AIPipelineRunRepository
-from app.ai_pipeline.domain.prompt_template_repository import PromptTemplateRepository
+from app.ai_pipeline.domain.prompt_template_repository import (
+    PromptTemplateNotFoundError,
+    PromptTemplateRepository,
+    require_active_template,
+)
 from app.ai_pipeline.domain.retry_policy import RetryConfig
 from app.ai_pipeline.domain.schemas import validate_content_schema
 from app.ai_pipeline.domain.steps.anamnesis_step import AnamnesisStep
 from app.ai_pipeline.domain.steps.clinical_flags_step import ClinicalFlagsStep
 from app.ai_pipeline.domain.steps.missing_information_step import MissingInformationStep
+from app.ai_pipeline.domain.steps.patient_summary_step import PatientSummaryStep
 from app.ai_pipeline.domain.steps.summary_step import SummaryStep
 from app.ai_pipeline.domain.steps.transcription_step import TranscriptionStep
 from app.ai_pipeline.infrastructure.repository import (
@@ -73,7 +79,7 @@ from app.core.authorization import (
     authorize_ai_pipeline_action,
     authorize_audio_recording_action,
 )
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.current_user import CurrentUser
 from app.core.exceptions import ConflictError, NotFoundError, SchemaValidationError
 from app.core.processing_status import ProcessingStatus
@@ -81,6 +87,7 @@ from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagsGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.missing_information_generator import MissingInformationGenerator
+from app.integrations.domain.patient_summary_generator import PatientSummaryGenerator
 from app.integrations.domain.session_context import SessionContext
 from app.integrations.domain.summary_generator import SummaryGenerator
 from app.integrations.domain.token_counter import TokenCounter
@@ -88,15 +95,31 @@ from app.integrations.domain.transcription_provider import (
     AudioForTranscription,
     TranscriptionProvider,
 )
+from app.integrations.factory import build_language_model_provider
 from app.integrations.mocks.mock_anamnesis_generator import MockAnamnesisGenerator
 from app.integrations.mocks.mock_clinical_flags_generator import MockClinicalFlagsGenerator
 from app.integrations.mocks.mock_cost_estimator import MockCostEstimator
 from app.integrations.mocks.mock_missing_information_generator import (
     MockMissingInformationGenerator,
 )
+from app.integrations.mocks.mock_patient_summary_generator import MockPatientSummaryGenerator
 from app.integrations.mocks.mock_summary_generator import MockSummaryGenerator
 from app.integrations.mocks.mock_token_counter import MockTokenCounter
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
+from app.integrations.providers.pricing_table_cost_estimator import PricingTableCostEstimator
+from app.integrations.providers.real_missing_information_generator import (
+    RealMissingInformationGenerator,
+)
+from app.integrations.providers.real_patient_summary_generator import (
+    RealPatientSummaryGenerator,
+)
+from app.integrations.providers.real_summary_generator import RealSummaryGenerator
+
+#: Único idioma soportado en runtime — no existe todavía selector de
+#: idioma (ver docs/architecture.md §8, fuera de alcance de esta fase).
+#: Usado para resolver la `PromptTemplate` activa de cada artifact_type
+#: con routing real (Fase 6.3.7).
+_DEFAULT_LANGUAGE = "es"
 
 
 @dataclass(slots=True)
@@ -140,11 +163,13 @@ class AIPipelineService:
         orchestrator: PipelineOrchestrator | None = None,
         transcription_provider: TranscriptionProvider | None = None,
         summary_generator: SummaryGenerator | None = None,
+        patient_summary_generator: PatientSummaryGenerator | None = None,
         clinical_flags_generator: ClinicalFlagsGenerator | None = None,
         missing_information_generator: MissingInformationGenerator | None = None,
         anamnesis_generator: AnamnesisGenerator | None = None,
         token_counter: TokenCounter | None = None,
         cost_estimator: CostEstimator | None = None,
+        llm_cost_estimator: CostEstimator | None = None,
         audio_repository: AudioRecordingRepository | None = None,
         audio_storage: AudioStorage | None = None,
         configured_transcription_provider: TranscriptionProvider | None = None,
@@ -155,11 +180,10 @@ class AIPipelineService:
         self._artifacts = artifact_repository or SqlAlchemyAIArtifactRepository()
         self._generation_runs = generation_run_repository or SqlAlchemyAIGenerationRunRepository()
         self._pipeline_runs = pipeline_run_repository or SqlAlchemyAIPipelineRunRepository()
-        # Fase 6.1 (docs/fase-6-rfc.md §10): repositorio activado vía DI,
-        # listo para que un futuro step lo use — ningún generator lo
-        # consume todavía (los `Mock*Generator` siguen con su prompt
-        # hardcodeado hasta que el hito 6.3 conecte un proveedor real,
-        # momento en el que de todos modos hay que tocar cada generator).
+        # Activado vía DI desde el hito 6.1; usado desde el hito 6.3.3/6.3.7
+        # por `_require_prompt_template()`/`_build_*_step()` para resolver
+        # la plantilla activa de cada artifact_type con routing real — los
+        # `Mock*Generator` siguen con su prompt hardcodeado, nunca lo tocan.
         self._prompt_templates = prompt_template_repository or SqlAlchemyPromptTemplateRepository()
         self._clinical_sessions = (
             clinical_session_repository or SqlAlchemyClinicalSessionRepository()
@@ -176,6 +200,7 @@ class AIPipelineService:
         # cambios en la Fase 5) — nunca se resuelve por configuración.
         self._transcription_provider = transcription_provider or MockTranscriptionProvider()
         self._summary_generator = summary_generator or MockSummaryGenerator()
+        self._patient_summary_generator = patient_summary_generator or MockPatientSummaryGenerator()
         self._clinical_flags_generator = clinical_flags_generator or MockClinicalFlagsGenerator()
         self._missing_information_generator = (
             missing_information_generator or MockMissingInformationGenerator()
@@ -183,6 +208,15 @@ class AIPipelineService:
         self._anamnesis_generator = anamnesis_generator or MockAnamnesisGenerator()
         self._token_counter = token_counter or MockTokenCounter()
         self._cost_estimator = cost_estimator or MockCostEstimator()
+        # Fase 6.3.8: estimador de coste real, EXCLUSIVO de los steps con
+        # routing != "mock" (ver `_build_summary_step` y hermanos) — nunca
+        # se usa para los steps que siguen en Mock, cuyo `provider_name`/
+        # `model_name` ("mock"/"mock-v1") no tienen precio y no deberían
+        # tenerlo (`MockCostEstimator` sigue siendo su estimador, coste 0
+        # coherente con que todo es ficticio). Mismo patrón de separación
+        # ya usado entre `_transcription_provider` (Mock Pipeline) y
+        # `_configured_transcription_provider` (real, Fase 5).
+        self._llm_cost_estimator = llm_cost_estimator or PricingTableCostEstimator()
 
         # Fase 5 — solo usados por `transcribe_from_audio`.
         # `_configured_transcription_provider` es el que sí se resuelve por
@@ -239,7 +273,7 @@ class AIPipelineService:
                 retry_config=retry_config,
                 max_output_tokens_estimate=max_output_tokens_estimate,
             )
-            result = await self._orchestrator.run(context, self._build_steps())
+            result = await self._orchestrator.run(context, await self._build_steps())
 
             artifact_details: list[AIArtifactDetail] = []
             any_completed = False
@@ -264,8 +298,8 @@ class AIPipelineService:
                             status=outcome.status,
                             provider_name=outcome.provider_name or "mock",
                             model_name=outcome.model_name,
-                            prompt_template_id=None,
-                            prompt_template_version=None,
+                            prompt_template_id=outcome.prompt_template_id,
+                            prompt_template_version=outcome.prompt_template_version,
                             input_token_count=outcome.input_token_count,
                             output_token_count=outcome.output_token_count,
                             estimated_cost_usd=outcome.estimated_cost_usd,
@@ -378,8 +412,8 @@ class AIPipelineService:
             status=AIGenerationRunStatus.COMPLETED,
             provider_name=outcome.provider_name or "mock",
             model_name=outcome.model_name,
-            prompt_template_id=None,
-            prompt_template_version=None,
+            prompt_template_id=outcome.prompt_template_id,
+            prompt_template_version=outcome.prompt_template_version,
             input_token_count=outcome.input_token_count,
             output_token_count=outcome.output_token_count,
             estimated_cost_usd=outcome.estimated_cost_usd,
@@ -925,25 +959,122 @@ class AIPipelineService:
 
     # --- Helpers internos -----------------------------------------------------
 
-    def _build_steps(self) -> list[PipelineStep]:
+    async def _build_steps(self) -> list[PipelineStep]:
+        """Routing estático por `artifact_type` (Fase 6.3.7, RFC §6.1/§11.1
+        decisión 12): `Settings.llm_provider_summary`/
+        `llm_provider_patient_summary`/`llm_provider_missing_information`
+        deciden, cada uno de forma independiente, si ese artifact_type usa
+        su `Mock*Generator` inyectado (comportamiento histórico, "mock" es
+        el valor por defecto en todos los entornos) o un `Real*Generator`
+        con un `LanguageModelProvider` real detrás. Nunca un router
+        dinámico: la decisión es 100% determinista por configuración, sin
+        lectura de sesión/paciente/coste/latencia."""
+        settings = get_settings()
+        summary_step = await self._build_summary_step(settings)
+        patient_summary_step = await self._build_patient_summary_step(settings)
+        missing_information_step = await self._build_missing_information_step(settings)
+
         steps_by_type: dict[AIArtifactType, PipelineStep] = {
             AIArtifactType.TRANSCRIPT: TranscriptionStep(
                 self._transcription_provider, self._token_counter, self._cost_estimator
             ),
-            AIArtifactType.SUMMARY: SummaryStep(
-                self._summary_generator, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.SUMMARY: summary_step,
+            AIArtifactType.PATIENT_SUMMARY: patient_summary_step,
             AIArtifactType.CLINICAL_FLAGS: ClinicalFlagsStep(
                 self._clinical_flags_generator, self._token_counter, self._cost_estimator
             ),
-            AIArtifactType.MISSING_INFORMATION: MissingInformationStep(
-                self._missing_information_generator, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.MISSING_INFORMATION: missing_information_step,
             AIArtifactType.ANAMNESIS: AnamnesisStep(
                 self._anamnesis_generator, self._token_counter, self._cost_estimator
             ),
         }
         return [steps_by_type[artifact_type] for artifact_type in PIPELINE_STEP_ORDER]
+
+    async def _build_summary_step(self, settings: Settings) -> SummaryStep:
+        provider_name = settings.llm_provider_summary
+        if provider_name == "mock":
+            return SummaryStep(self._summary_generator, self._token_counter, self._cost_estimator)
+
+        model = self._require_llm_model(
+            settings.llm_model_summary, AIArtifactType.SUMMARY, provider_name
+        )
+        template = await self._require_prompt_template(AIArtifactType.SUMMARY, _DEFAULT_LANGUAGE)
+        llm_provider = build_language_model_provider(settings, provider_name)
+        generator = RealSummaryGenerator(llm_provider, template, model=model)
+        return SummaryStep(
+            generator,
+            self._token_counter,
+            self._llm_cost_estimator,
+            provider_name=provider_name,
+            model_name=model,
+            prompt_template_id=template.id,
+            prompt_template_version=template.version,
+        )
+
+    async def _build_patient_summary_step(self, settings: Settings) -> PatientSummaryStep:
+        provider_name = settings.llm_provider_patient_summary
+        if provider_name == "mock":
+            return PatientSummaryStep(
+                self._patient_summary_generator, self._token_counter, self._cost_estimator
+            )
+
+        model = self._require_llm_model(
+            settings.llm_model_patient_summary, AIArtifactType.PATIENT_SUMMARY, provider_name
+        )
+        template = await self._require_prompt_template(
+            AIArtifactType.PATIENT_SUMMARY, _DEFAULT_LANGUAGE
+        )
+        llm_provider = build_language_model_provider(settings, provider_name)
+        generator = RealPatientSummaryGenerator(llm_provider, template, model=model)
+        return PatientSummaryStep(
+            generator,
+            self._token_counter,
+            self._llm_cost_estimator,
+            provider_name=provider_name,
+            model_name=model,
+            prompt_template_id=template.id,
+            prompt_template_version=template.version,
+        )
+
+    async def _build_missing_information_step(self, settings: Settings) -> MissingInformationStep:
+        provider_name = settings.llm_provider_missing_information
+        if provider_name == "mock":
+            return MissingInformationStep(
+                self._missing_information_generator, self._token_counter, self._cost_estimator
+            )
+
+        model = self._require_llm_model(
+            settings.llm_model_missing_information,
+            AIArtifactType.MISSING_INFORMATION,
+            provider_name,
+        )
+        template = await self._require_prompt_template(
+            AIArtifactType.MISSING_INFORMATION, _DEFAULT_LANGUAGE
+        )
+        llm_provider = build_language_model_provider(settings, provider_name)
+        generator = RealMissingInformationGenerator(llm_provider, template, model=model)
+        return MissingInformationStep(
+            generator,
+            self._token_counter,
+            self._llm_cost_estimator,
+            provider_name=provider_name,
+            model_name=model,
+            prompt_template_id=template.id,
+            prompt_template_version=template.version,
+        )
+
+    def _require_llm_model(
+        self, model: str | None, artifact_type: AIArtifactType, provider_name: str
+    ) -> str:
+        """Fallo de configuración explícito, nunca un `AIGenerationFailureReason`
+        nuevo ni una llamada al proveedor sin modelo — mismo criterio que
+        `_require_prompt_template`."""
+        if not model:
+            raise ConflictError(
+                f"Falta configurar LLM_MODEL_{artifact_type.value.upper()} para el proveedor "
+                f"'{provider_name}' de '{artifact_type.value}'."
+            )
+        return model
 
     async def _to_detail(self, artifact: AIArtifact) -> AIArtifactDetail:
         version = (
@@ -1010,6 +1141,34 @@ class AIPipelineService:
             raise ConflictError(
                 "Falta consentimiento válido de procesamiento IA para este paciente."
             )
+
+    async def _require_prompt_template(
+        self, artifact_type: AIArtifactType, language: str
+    ) -> PromptTemplate:
+        """Resuelve la plantilla activa **antes** de construir/ejecutar
+        ningún step LLM real (Fase 6.3.3, RFC §7.4) — nunca se invoca al
+        proveedor si falta la plantilla. `PipelineStep`, el `Generator` y
+        `PromptRenderer` nunca reciben `self._session` ni
+        `self._prompt_templates`: reciben el `PromptTemplate` ya resuelto,
+        un dataclass en memoria sin conexión a BD (ver docs/fase-6-rfc.md
+        §10 hito 6.1, "PipelineStep nunca accede a la base de datos").
+
+        Un `PromptTemplateNotFoundError` es un fallo de *configuración de
+        despliegue* (falta sembrar `prompt_templates`), no un fallo del
+        proveedor — se traduce en `ConflictError` (mismo patrón que
+        `_ensure_ai_processing_consent`), nunca en un
+        `AIGenerationFailureReason` nuevo ni en un outcome `FAILED` que
+        fingiera un problema del proveedor."""
+        try:
+            return await require_active_template(
+                self._session, self._prompt_templates, artifact_type, language
+            )
+        except PromptTemplateNotFoundError as exc:
+            raise ConflictError(
+                "No hay una plantilla de prompt activa configurada para "
+                f"'{artifact_type.value}/{language}' — no se puede generar sin plantilla "
+                "(ejecuta el seed de prompts antes de activar este proveedor)."
+            ) from exc
 
     async def _write_audit(
         self,

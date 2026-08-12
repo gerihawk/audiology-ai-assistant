@@ -45,6 +45,15 @@ from app.integrations.domain.token_counter import TokenCounter
 logger = logging.getLogger("app.ai_pipeline")
 
 
+#: `produce()` devuelve `(content, confidence, input_tokens, output_tokens)`
+#: — los dos últimos son el usage REAL reportado por el proveedor (Fase
+#: 6.3, `LanguageModelResponse.input_tokens`/`output_tokens`), `None` si el
+#: proveedor no lo reporta (Mock hoy, cualquier proveedor sin usage
+#: mañana). Nunca se sustituye un usage real por la estimación heurística
+#: de `TokenCounter` — ver `_attempt()`.
+ProduceResult = tuple[dict[str, Any], int, int | None, int | None]
+
+
 async def run_provider_step(
     *,
     artifact_type: AIArtifactType,
@@ -53,7 +62,7 @@ async def run_provider_step(
     token_counter: TokenCounter,
     cost_estimator: CostEstimator,
     input_text: str,
-    produce: Callable[[], Awaitable[tuple[dict[str, Any], int]]],
+    produce: Callable[[], Awaitable[ProduceResult]],
     context: PipelineExecutionContext | None = None,
 ) -> PipelineStepOutcome:
     """`produce()` invoca al proveedor y devuelve `(content, confidence)`.
@@ -144,13 +153,13 @@ async def _attempt(
     cost_estimator: CostEstimator,
     input_text: str,
     input_tokens: int,
-    produce: Callable[[], Awaitable[tuple[dict[str, Any], int]]],
+    produce: Callable[[], Awaitable[ProduceResult]],
     cost_budget: Any,
     started_at: datetime,
     perf_start: float,
 ) -> PipelineStepOutcome:
     try:
-        content, confidence = await produce()
+        content, confidence, reported_input_tokens, reported_output_tokens = await produce()
     except TransientProviderError as exc:
         return _failed_outcome(
             artifact_type=artifact_type,
@@ -177,6 +186,14 @@ async def _attempt(
             failure_reason=AIGenerationFailureReason.UNEXPECTED_INTERNAL_ERROR,
         )
 
+    # Usage real reportado por el proveedor si existe, nunca sustituido por
+    # la estimación heurística de `TokenCounter` — ver docstring de
+    # `ProduceResult`. `input_tokens` (heurístico) ya se calculó antes de
+    # invocar `produce()`, para el presupuesto de coste previo a la llamada.
+    final_input_tokens = (
+        reported_input_tokens if reported_input_tokens is not None else input_tokens
+    )
+
     validation = validate_generated_content(artifact_type, content, input_text)
     if not validation.ok:
         assert validation.failure_reason is not None  # invariante: ok=False siempre trae motivo
@@ -192,19 +209,23 @@ async def _attempt(
             artifact_type=artifact_type,
             provider_name=provider_name,
             model_name=model_name,
-            input_tokens=input_tokens,
+            input_tokens=final_input_tokens,
             started_at=started_at,
             perf_start=perf_start,
             failure_reason=validation.failure_reason,
         )
 
     elapsed_ms = int((time.perf_counter() - perf_start) * 1000)
-    output_tokens = token_counter.count(_content_as_text(validation.content))
+    final_output_tokens = (
+        reported_output_tokens
+        if reported_output_tokens is not None
+        else token_counter.count(_content_as_text(validation.content))
+    )
     cost = cost_estimator.estimate(
         provider=provider_name,
         model=model_name,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        input_tokens=final_input_tokens,
+        output_tokens=final_output_tokens,
     )
     if cost_budget is not None:
         cost_budget.record(cost)
@@ -216,8 +237,8 @@ async def _attempt(
         confidence=confidence,
         provider_name=provider_name,
         model_name=model_name,
-        input_token_count=input_tokens,
-        output_token_count=output_tokens,
+        input_token_count=final_input_tokens,
+        output_token_count=final_output_tokens,
         estimated_cost_usd=cost,
         latency_ms=elapsed_ms,
         execution_time_ms=elapsed_ms,

@@ -7,7 +7,7 @@ from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType, AIGenerationRunStatus
 from app.ai_pipeline.domain.pipeline import PipelineExecutionContext, PipelineStepOutcome
-from app.ai_pipeline.domain.steps.base import run_provider_step
+from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.token_counter import TokenCounter
 from app.integrations.domain.transcription_provider import (
@@ -50,7 +50,7 @@ class TranscriptionStep:
         # solo si la llamada tuvo éxito.
         captured: dict[str, TranscriptionResult] = {}
 
-        async def produce() -> tuple[dict[str, Any], int]:
+        async def produce() -> ProduceResult:
             result = await self._provider.transcribe(
                 TranscriptionInput(
                     clinical_session_id=context.clinical_session_id, audio=context.audio_input
@@ -76,7 +76,8 @@ class TranscriptionStep:
                     for segment in result.segments
                 ]
             confidence = result.confidence if result.confidence is not None else _DEFAULT_CONFIDENCE
-            return content, confidence
+            # Sin concepto de usage de tokens LLM en este eje de proveedor.
+            return content, confidence, None, None
 
         outcome = await run_provider_step(
             artifact_type=self.artifact_type,

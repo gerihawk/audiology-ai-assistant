@@ -16,6 +16,10 @@ from app.ai_pipeline.domain.pipeline import PipelineExecutionContext
 from app.ai_pipeline.domain.retry_policy import RetryConfig
 from app.ai_pipeline.domain.steps.base import run_provider_step
 from app.integrations.domain.session_context import SessionContext
+from app.integrations.providers.pricing_table_cost_estimator import (
+    PricingTableCostEstimator,
+    UnknownModelPricingError,
+)
 
 _TRANSCRIPT = "El paciente refiere acúfenos en el oído izquierdo."
 
@@ -43,7 +47,7 @@ def _context(**overrides) -> PipelineExecutionContext:
 
 
 async def _produce_valid_summary():
-    return {"text": "Señal que requiere valoración profesional."}, 70
+    return {"text": "Señal que requiere valoración profesional."}, 70, None, None
 
 
 # --- persistence boundary: ningún fallo llega a COMPLETED -----------------
@@ -51,7 +55,7 @@ async def _produce_valid_summary():
 
 async def test_contenido_inseguro_nunca_se_marca_completado():
     async def produce():
-        return {"text": "El paciente tiene una posible pérdida auditiva."}, 70
+        return {"text": "El paciente tiene una posible pérdida auditiva."}, 70, None, None
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.SUMMARY,
@@ -70,7 +74,7 @@ async def test_contenido_inseguro_nunca_se_marca_completado():
 
 async def test_schema_invalido_nunca_se_marca_completado():
     async def produce():
-        return {}, 70  # falta "text" obligatorio de SUMMARY
+        return {}, 70, None, None  # falta "text" obligatorio de SUMMARY
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.SUMMARY,
@@ -88,16 +92,21 @@ async def test_schema_invalido_nunca_se_marca_completado():
 
 async def test_contenido_valido_se_marca_completado_con_source_map():
     async def produce():
-        return {
-            "flags": [
-                {
-                    "category": "tinnitus_unilateral",
-                    "description": "Posible motivo de derivación.",
-                    "source_excerpt": "acúfenos en el oído izquierdo",
-                    "ruleset_name": "demo_generic_v1",
-                }
-            ]
-        }, 65
+        return (
+            {
+                "flags": [
+                    {
+                        "category": "tinnitus_unilateral",
+                        "description": "Posible motivo de derivación.",
+                        "source_excerpt": "acúfenos en el oído izquierdo",
+                        "ruleset_name": "demo_generic_v1",
+                    }
+                ]
+            },
+            65,
+            None,
+            None,
+        )
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.CLINICAL_FLAGS,
@@ -234,7 +243,7 @@ async def test_fallo_de_seguridad_se_reintenta_como_mucho_una_vez():
     async def always_unsafe():
         nonlocal attempts
         attempts += 1
-        return {"text": "diagnóstico confirmado"}, 70
+        return {"text": "diagnóstico confirmado"}, 70, None, None
 
     context = _context(
         retry_config=RetryConfig(
@@ -303,6 +312,125 @@ async def test_error_inesperado_no_es_retryable():
     assert outcome.status == AIGenerationRunStatus.FAILED
     assert outcome.failure_reason == AIGenerationFailureReason.UNEXPECTED_INTERNAL_ERROR.value
     assert attempts == 1
+
+
+# --- usage real del proveedor (Fase 6.3.1): preferido sobre TokenCounter --
+
+
+async def test_usage_real_reportado_se_prefiere_sobre_la_heuristica():
+    async def produce():
+        return {"text": "Señal que requiere valoración profesional."}, 70, 111, 222
+
+    outcome = await run_provider_step(
+        artifact_type=AIArtifactType.SUMMARY,
+        provider_name="anthropic",
+        model_name="claude-test",
+        token_counter=_FixedTokenCounter(),
+        cost_estimator=_FixedCostEstimator(Decimal("0")),
+        input_text=_TRANSCRIPT,
+        produce=produce,
+        context=_context(),
+    )
+    assert outcome.status == AIGenerationRunStatus.COMPLETED
+    assert outcome.input_token_count == 111
+    assert outcome.output_token_count == 222
+
+
+async def test_sin_usage_reportado_cae_al_token_counter_heuristico():
+    outcome = await run_provider_step(
+        artifact_type=AIArtifactType.SUMMARY,
+        provider_name="mock",
+        model_name="mock-v1",
+        token_counter=_FixedTokenCounter(),
+        cost_estimator=_FixedCostEstimator(Decimal("0")),
+        input_text=_TRANSCRIPT,
+        produce=_produce_valid_summary,
+        context=_context(),
+    )
+    assert outcome.status == AIGenerationRunStatus.COMPLETED
+    assert outcome.input_token_count == len(_TRANSCRIPT.split())
+    assert outcome.output_token_count == len(
+        ["Señal", "que", "requiere", "valoración", "profesional."]
+    )
+
+
+async def test_usage_real_parcial_solo_input_cae_a_heuristica_solo_en_output():
+    async def produce():
+        return {"text": "Señal que requiere valoración profesional."}, 70, 999, None
+
+    outcome = await run_provider_step(
+        artifact_type=AIArtifactType.SUMMARY,
+        provider_name="anthropic",
+        model_name="claude-test",
+        token_counter=_FixedTokenCounter(),
+        cost_estimator=_FixedCostEstimator(Decimal("0")),
+        input_text=_TRANSCRIPT,
+        produce=produce,
+        context=_context(),
+    )
+    assert outcome.status == AIGenerationRunStatus.COMPLETED
+    assert outcome.input_token_count == 999
+    assert outcome.output_token_count == len(
+        ["Señal", "que", "requiere", "valoración", "profesional."]
+    )
+
+
+async def test_usage_real_se_conserva_incluso_si_falla_la_validacion_posterior():
+    # El usage ya se conoce en el momento en que `produce()` devuelve —
+    # aunque la validación posterior (safety) haga fallar el step, el
+    # `AIGenerationRun` conserva el input_tokens real, nunca la heurística.
+    async def produce():
+        return {"text": "el paciente tiene una posible pérdida auditiva"}, 70, 321, 654
+
+    outcome = await run_provider_step(
+        artifact_type=AIArtifactType.SUMMARY,
+        provider_name="anthropic",
+        model_name="claude-test",
+        token_counter=_FixedTokenCounter(),
+        cost_estimator=_FixedCostEstimator(Decimal("0")),
+        input_text=_TRANSCRIPT,
+        produce=produce,
+        context=_context(),
+    )
+    assert outcome.status == AIGenerationRunStatus.FAILED
+    assert outcome.failure_reason == AIGenerationFailureReason.SAFETY_POLICY_FAILED.value
+    assert outcome.input_token_count == 321
+    # output_token_count no se informa en fallo — mismo comportamiento previo.
+    assert outcome.output_token_count is None
+
+
+# --- CostEstimator real (Fase 6.3.8): modelo desconocido nunca cuesta 0 -
+
+
+async def test_pricing_table_cost_estimator_con_modelo_desconocido_bloquea_sin_invocar():
+    calls = 0
+
+    async def produce():
+        nonlocal calls
+        calls += 1
+        return await _produce_valid_summary()
+
+    budget = SessionCostBudget(limit_usd=Decimal("100"))
+    context = _context(cost_budget=budget)
+
+    try:
+        await run_provider_step(
+            artifact_type=AIArtifactType.SUMMARY,
+            provider_name="anthropic",
+            model_name="modelo-que-no-existe",
+            token_counter=_FixedTokenCounter(),
+            cost_estimator=PricingTableCostEstimator(),
+            input_text=_TRANSCRIPT,
+            produce=produce,
+            context=context,
+        )
+        raise AssertionError("Debía lanzar UnknownModelPricingError")
+    except UnknownModelPricingError:
+        pass
+    # Nunca se invoca al proveedor sin poder estimar su coste real — el
+    # presupuesto "peor caso" previo a la llamada es quien lanza.
+    assert calls == 0
+    assert budget.accumulated_usd == Decimal("0")
 
 
 async def test_sin_context_se_comporta_como_guardarrailes_desactivados():

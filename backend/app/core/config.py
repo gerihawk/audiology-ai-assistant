@@ -12,6 +12,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Contraseñas de ejemplo que nunca deben usarse fuera de desarrollo local.
 _INSECURE_DEFAULT_PASSWORDS = {"", "CHANGE_ME_LOCAL_ONLY", "postgres", "password"}
 
+#: Los tres campos de routing estático por artifact_type (Fase 6.3) — ver
+#: `_validate_production_safety`. Nombre de campo, no de vendor: cada uno
+#: se lee con `getattr` para saber si ese artifact_type usa un proveedor
+#: real (`!= "mock"`).
+_LLM_ROUTING_FIELDS = (
+    "llm_provider_summary",
+    "llm_provider_patient_summary",
+    "llm_provider_missing_information",
+)
+#: Vendor -> nombre del campo de `Settings` que guarda su API key — una
+#: sola key por vendor, nunca duplicada por artifact_type.
+_VENDOR_API_KEY_FIELDS = {
+    "anthropic": "anthropic_api_key",
+    "openai": "openai_api_key",
+    "google": "google_api_key",
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -129,6 +146,42 @@ class Settings(BaseSettings):
     ai_pipeline_max_regenerative_retries: int = 1
     ai_pipeline_retry_backoff_base_seconds: float = 0.0
 
+    # --- Proveedores LLM directos por artifact_type (Fase 6.3) ---
+    # Routing ESTÁTICO por artifact_type, resuelto por configuración — nunca
+    # una constante Python (docs/fase-6-rfc.md §6.1/§11.1 decisión 12: "no
+    # existe global_winner", cada artifact_type usa su proveedor ganador).
+    # Sin selección dinámica por sesión/paciente/coste/latencia, sin
+    # fallback automático entre proveedores, sin OpenRouter en producción
+    # (exclusivo de `benchmark/generation/`, ver más abajo). "mock" (valor
+    # por defecto en los tres) es la configuración segura de
+    # development/test — activar un proveedor real es una decisión
+    # explícita por entorno, nunca el comportamiento por defecto.
+    llm_provider_summary: Literal["mock", "anthropic", "openai", "google"] = "mock"
+    llm_model_summary: str | None = None
+    llm_provider_patient_summary: Literal["mock", "anthropic", "openai", "google"] = "mock"
+    llm_model_patient_summary: str | None = None
+    llm_provider_missing_information: Literal["mock", "anthropic", "openai", "google"] = "mock"
+    llm_model_missing_information: str | None = None
+
+    # Una API key por vendor, nunca duplicada por artifact_type — los tres
+    # routings de arriba pueden compartir el mismo vendor sin repetir
+    # credenciales. `base_url`/`timeout_seconds` con el mismo patrón que
+    # `assemblyai_*`/`deepgram_*` (Fase 5). IDs de modelo NUNCA se fijan
+    # aquí como default: se completan en el hito 6.3.5 tras verificar el
+    # identificador nativo exacto contra la documentación oficial vigente
+    # de cada proveedor — los IDs de la Fase 6.2 son de OpenRouter, no
+    # necesariamente válidos contra la API directa (ver docs/fase-6-rfc.md
+    # §11.2).
+    anthropic_api_key: str | None = None
+    anthropic_base_url: str = "https://api.anthropic.com"
+    anthropic_timeout_seconds: float = 120.0
+    openai_api_key: str | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_timeout_seconds: float = 120.0
+    google_api_key: str | None = None
+    google_base_url: str = "https://generativelanguage.googleapis.com"
+    google_timeout_seconds: float = 120.0
+
     # --- Benchmark de generación LLM (Fase 6.2) — ver docs/generation-benchmark.md ---
     # OpenRouter es EXCLUSIVO de `benchmark/generation/` (RFC v2 §6.1): la
     # app productiva arranca sin `OPENROUTER_API_KEY` configurada — solo
@@ -173,6 +226,39 @@ class Settings(BaseSettings):
             )
         if self.postgres_password in _INSECURE_DEFAULT_PASSWORDS:
             raise ValueError("POSTGRES_PASSWORD insegura para un entorno de production.")
+
+        active_vendors = {
+            getattr(self, field) for field in _LLM_ROUTING_FIELDS if getattr(self, field) != "mock"
+        }
+        if active_vendors:
+            # Fase 6.3, encargo §7: production con cualquier artifact_type
+            # en un proveedor real exige consentimiento y límite de coste
+            # ya activos — nunca tráfico de pago sin ambos guardarraíles.
+            if not self.ai_processing_consent_enforced:
+                raise ValueError(
+                    "AI_PROCESSING_CONSENT_ENFORCED debe ser true en production: hay al "
+                    "menos un artifact_type configurado con un proveedor LLM real."
+                )
+            if not self.llm_cost_limit_enforced:
+                raise ValueError(
+                    "LLM_COST_LIMIT_ENFORCED debe ser true en production: hay al menos un "
+                    "artifact_type configurado con un proveedor LLM real."
+                )
+            if self.max_llm_cost_per_session_usd is None or self.max_llm_cost_per_session_usd <= 0:
+                raise ValueError(
+                    "MAX_LLM_COST_PER_SESSION_USD debe tener un valor positivo en production: "
+                    "hay al menos un artifact_type configurado con un proveedor LLM real."
+                )
+            missing_key_vars = sorted(
+                _VENDOR_API_KEY_FIELDS[vendor].upper()
+                for vendor in active_vendors
+                if not getattr(self, _VENDOR_API_KEY_FIELDS[vendor])
+            )
+            if missing_key_vars:
+                raise ValueError(
+                    "Faltan claves de API para los proveedores LLM configurados en "
+                    f"production: {', '.join(missing_key_vars)}."
+                )
         return self
 
 

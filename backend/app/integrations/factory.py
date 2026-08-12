@@ -15,15 +15,26 @@ from collections.abc import Callable
 
 from app.core.config import Settings
 from app.integrations.domain.audio_cost_estimator import AudioCostEstimator
+from app.integrations.domain.language_model_provider import LanguageModelProvider
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.keyterms import AUDIOLOGY_KEYTERMS_ES, KEYTERM_SET_VERSION
 from app.integrations.mocks.mock_audio_cost_estimator import MockAudioCostEstimator
+from app.integrations.mocks.mock_language_model_provider import MockLanguageModelProvider
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
+from app.integrations.providers.anthropic_language_model_provider import (
+    AnthropicLanguageModelProvider,
+)
 from app.integrations.providers.assemblyai_transcription_provider import (
     AssemblyAITranscriptionProvider,
 )
 from app.integrations.providers.deepgram_transcription_provider import (
     DeepgramTranscriptionProvider,
+)
+from app.integrations.providers.google_language_model_provider import (
+    GoogleLanguageModelProvider,
+)
+from app.integrations.providers.openai_language_model_provider import (
+    OpenAILanguageModelProvider,
 )
 from app.integrations.providers.pricing_table_audio_cost_estimator import (
     PricingTableAudioCostEstimator,
@@ -161,4 +172,56 @@ def build_audio_cost_estimator(
     factory = AUDIO_COST_ESTIMATOR_FACTORIES.get(name)
     if factory is None:
         return MockAudioCostEstimator()
+    return factory(settings)
+
+
+#: Registro único de proveedores LLM directos (Fase 6.3) — infraestructura
+#: reutilizable, NO se construye una instancia nueva por ejecución del
+#: pipeline (ver docs/fase-6-rfc.md §10 hito 6.3, encargo Fase 6.3 punto
+#: 4). Los tres proveedores reales quedan registrados desde el hito 6.3.5
+#: — sus clases están verificadas contra documentación oficial (ver cada
+#: módulo de `providers/`), pero ninguna llamada real se ha hecho todavía
+#: (cero tráfico salvo autorización explícita posterior).
+#:
+#: Esta es la pieza de infraestructura de bajo nivel: qué SDK/vendor
+#: genera el texto. El routing "qué artifact_type usa qué proveedor" vive
+#: exclusivamente en `Settings.llm_provider_summary`/
+#: `llm_provider_patient_summary`/`llm_provider_missing_information`
+#: (routing estático, estos tres campos deciden qué entrada de este
+#: registro se resuelve para cada artifact_type — nunca una constante
+#: Python ni un router dinámico, ver docs/fase-6-rfc.md §6.1/§11.1
+#: decisión 12).
+LANGUAGE_MODEL_PROVIDER_FACTORIES: dict[str, Callable[[Settings], LanguageModelProvider]] = {
+    "mock": lambda settings: MockLanguageModelProvider(),
+    "anthropic": lambda settings: AnthropicLanguageModelProvider(
+        api_key=settings.anthropic_api_key,
+        base_url=settings.anthropic_base_url,
+        timeout_seconds=settings.anthropic_timeout_seconds,
+    ),
+    "openai": lambda settings: OpenAILanguageModelProvider(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        timeout_seconds=settings.openai_timeout_seconds,
+    ),
+    "google": lambda settings: GoogleLanguageModelProvider(
+        api_key=settings.google_api_key,
+        base_url=settings.google_base_url,
+        timeout_seconds=settings.google_timeout_seconds,
+    ),
+}
+
+
+def build_language_model_provider(settings: Settings, provider_name: str) -> LanguageModelProvider:
+    """`provider_name` se pasa siempre explícitamente (a diferencia de
+    `build_transcription_provider`): no existe un único
+    `Settings.language_model_provider` global — cada artifact_type resuelve
+    su propio `provider_name` desde su campo de routing correspondiente
+    antes de llamar aquí."""
+    try:
+        factory = LANGUAGE_MODEL_PROVIDER_FACTORIES[provider_name]
+    except KeyError as exc:
+        raise ValueError(
+            f"'{provider_name}' no es un proveedor de modelo de lenguaje reconocido. "
+            f"Valores válidos: {', '.join(sorted(LANGUAGE_MODEL_PROVIDER_FACTORIES))}."
+        ) from exc
     return factory(settings)

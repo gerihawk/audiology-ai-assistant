@@ -37,6 +37,7 @@ from tests.factories import ClinicWithUsers, create_clinic_with_users, create_pa
 _ALL_ARTIFACT_TYPES = {
     "transcript",
     "summary",
+    "patient_summary",
     "clinical_flags",
     "missing_information",
     "anamnesis",
@@ -96,7 +97,7 @@ async def test_run_pipeline_creates_all_five_artifacts(
     assert body["status"] == "completed"
     artifact_types = {a["artifact_type"] for a in body["artifacts"]}
     assert artifact_types == _ALL_ARTIFACT_TYPES
-    assert len(body["step_outcomes"]) == 5
+    assert len(body["step_outcomes"]) == 6
     assert all(o["status"] == "completed" for o in body["step_outcomes"])
 
 
@@ -166,7 +167,7 @@ async def test_run_pipeline_persists_generation_runs_with_audit_fields(
         )
     )
     runs = result.scalars().all()
-    assert len(runs) == 5
+    assert len(runs) == 6
     for run in runs:
         assert run.status == AIGenerationRunStatus.COMPLETED.value
         assert run.provider_name == "mock"
@@ -318,7 +319,7 @@ async def test_rerunning_pipeline_creates_new_versions_without_deleting_previous
             AIArtifactORM.clinical_session_id == uuid.UUID(clinical_session["id"])
         )
     )
-    assert len(artifacts_result.scalars().all()) == 5
+    assert len(artifacts_result.scalars().all()) == 6
 
     first_transcript_id = next(
         a["id"] for a in first["artifacts"] if a["artifact_type"] == "transcript"
@@ -475,7 +476,7 @@ async def test_viewer_can_read_artifacts(
         headers=dev_headers(clinic_with_users.viewer),
     )
     assert response.status_code == 200
-    assert len(response.json()["items"]) == 5
+    assert len(response.json()["items"]) == 6
 
 
 async def test_audiologist_can_trigger_pipeline_on_own_session(
