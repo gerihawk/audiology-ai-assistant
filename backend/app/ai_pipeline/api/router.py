@@ -6,7 +6,16 @@ docs/development-plan.md Fase 4.6. `POST .../transcribe` vive aquí y no en
 `audio/api/router.py` porque su responsabilidad es producir un
 `AIArtifact` (transcript) a partir de un audio ya subido, con el
 `TranscriptionProvider` resuelto por configuración — ver
-docs/transcription-benchmark.md."""
+docs/transcription-benchmark.md.
+
+**Dos entrypoints de disparo del pipeline** (corrección de frontera
+mock/real, Fase 6.3 — ver docs/fase-6-rfc.md): `run-mock-pipeline` es
+Mock, determinista y estructuralmente incapaz de gastar dinero o enviar
+datos a un tercero, pase lo que pase en `Settings`
+(`AIPipelineService.run_mock_pipeline`/`_build_mock_steps`, que nunca
+consulta el routing). `run-pipeline` respeta el routing real por
+artifact_type (`Settings.llm_provider_*`) y puede invocar
+Anthropic/OpenAI/Google si así está configurado."""
 
 from __future__ import annotations
 
@@ -21,7 +30,7 @@ from app.ai_pipeline.api.schemas import (
     AIArtifactVersionResponse,
     ArtifactEditRequest,
     ArtifactRejectRequest,
-    RunMockPipelineResponse,
+    RunPipelineResponse,
 )
 from app.ai_pipeline.service import AIPipelineService
 from app.core.context import get_request_id
@@ -33,7 +42,7 @@ router = APIRouter(tags=["ai-pipeline"])
 
 @router.post(
     "/clinical-sessions/{session_id}/run-mock-pipeline",
-    response_model=RunMockPipelineResponse,
+    response_model=RunPipelineResponse,
     status_code=201,
 )
 async def run_mock_pipeline(
@@ -41,9 +50,29 @@ async def run_mock_pipeline(
     current_user: CurrentUser = Depends(get_current_user),
     service: AIPipelineService = Depends(get_ai_pipeline_service),
     request_id: str = Depends(get_request_id),
-) -> RunMockPipelineResponse:
+) -> RunPipelineResponse:
+    """Mock — cero LLM externo, nunca gasta dinero, sin importar cómo esté
+    configurado `Settings` (ver `AIPipelineService.run_mock_pipeline`)."""
+    outcome = await service.run_mock_pipeline(current_user, session_id, request_id)
+    return RunPipelineResponse.from_outcome(outcome)
+
+
+@router.post(
+    "/clinical-sessions/{session_id}/run-pipeline",
+    response_model=RunPipelineResponse,
+    status_code=201,
+)
+async def run_pipeline(
+    session_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AIPipelineService = Depends(get_ai_pipeline_service),
+    request_id: str = Depends(get_request_id),
+) -> RunPipelineResponse:
+    """Configurado — respeta el routing real por artifact_type; puede
+    invocar Anthropic/OpenAI/Google y gastar dinero real si `Settings` lo
+    indica (ver `AIPipelineService.run_pipeline`)."""
     outcome = await service.run_pipeline(current_user, session_id, request_id)
-    return RunMockPipelineResponse.from_outcome(outcome)
+    return RunPipelineResponse.from_outcome(outcome)
 
 
 @router.post("/audio-recordings/{audio_recording_id}/transcribe", response_model=AIArtifactResponse)

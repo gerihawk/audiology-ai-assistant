@@ -94,7 +94,10 @@ class RealMissingInformationGenerator:
         content = parse_json_object(response.text)
         items = _parse_items(content.get("items"))
         return MissingInformationResult(
-            items=items, input_tokens=response.input_tokens, output_tokens=response.output_tokens
+            items=items,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            reasoning_tokens=response.reasoning_tokens,
         )
 
 

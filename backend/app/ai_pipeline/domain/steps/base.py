@@ -45,13 +45,19 @@ from app.integrations.domain.token_counter import TokenCounter
 logger = logging.getLogger("app.ai_pipeline")
 
 
-#: `produce()` devuelve `(content, confidence, input_tokens, output_tokens)`
-#: — los dos últimos son el usage REAL reportado por el proveedor (Fase
-#: 6.3, `LanguageModelResponse.input_tokens`/`output_tokens`), `None` si el
-#: proveedor no lo reporta (Mock hoy, cualquier proveedor sin usage
-#: mañana). Nunca se sustituye un usage real por la estimación heurística
-#: de `TokenCounter` — ver `_attempt()`.
-ProduceResult = tuple[dict[str, Any], int, int | None, int | None]
+#: `produce()` devuelve
+#: `(content, confidence, input_tokens, output_tokens, reasoning_tokens)`
+#: — los tres últimos son el usage REAL reportado por el proveedor (Fase
+#: 6.3, `LanguageModelResponse.input_tokens`/`output_tokens`/
+#: `reasoning_tokens`), `None` si el proveedor no lo reporta (Mock hoy,
+#: Anthropic/OpenAI hoy para `reasoning_tokens` — solo Google lo expone
+#: como contador aditivo separado, ver ese dataclass). Nunca se sustituye
+#: un usage real por la estimación heurística de `TokenCounter` — ver
+#: `_attempt()`. `reasoning_tokens`, cuando existe, se suma a
+#: `output_tokens` únicamente para estimar coste y para lo que se
+#: persiste como `output_token_count` — nunca redefine el significado de
+#: `output_tokens` en `LanguageModelResponse`/los `*Draft`.
+ProduceResult = tuple[dict[str, Any], int, int | None, int | None, int | None]
 
 
 async def run_provider_step(
@@ -159,7 +165,13 @@ async def _attempt(
     perf_start: float,
 ) -> PipelineStepOutcome:
     try:
-        content, confidence, reported_input_tokens, reported_output_tokens = await produce()
+        (
+            content,
+            confidence,
+            reported_input_tokens,
+            reported_output_tokens,
+            reported_reasoning_tokens,
+        ) = await produce()
     except TransientProviderError as exc:
         return _failed_outcome(
             artifact_type=artifact_type,
@@ -221,11 +233,21 @@ async def _attempt(
         if reported_output_tokens is not None
         else token_counter.count(_content_as_text(validation.content))
     )
+    # Tokens de razonamiento facturables (Google Gemini, ver docstring de
+    # `LanguageModelResponse.reasoning_tokens`) — se suman SOLO aquí, para
+    # coste y para lo que se persiste como `output_token_count`. Si no hay
+    # usage real reportado (`reported_output_tokens is None`, se cayó a la
+    # heurística), tampoco puede haber `reasoning_tokens` real que sumar —
+    # invariante que cada provider ya respeta al construir su
+    # `LanguageModelResponse`, reforzado aquí por si acaso.
+    billable_output_tokens = final_output_tokens + (
+        (reported_reasoning_tokens or 0) if reported_output_tokens is not None else 0
+    )
     cost = cost_estimator.estimate(
         provider=provider_name,
         model=model_name,
         input_tokens=final_input_tokens,
-        output_tokens=final_output_tokens,
+        output_tokens=billable_output_tokens,
     )
     if cost_budget is not None:
         cost_budget.record(cost)
@@ -238,7 +260,7 @@ async def _attempt(
         provider_name=provider_name,
         model_name=model_name,
         input_token_count=final_input_tokens,
-        output_token_count=final_output_tokens,
+        output_token_count=billable_output_tokens,
         estimated_cost_usd=cost,
         latency_ms=elapsed_ms,
         execution_time_ms=elapsed_ms,

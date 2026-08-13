@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 
 from app.core.config import Settings
@@ -148,3 +150,47 @@ def test_development_con_proveedor_real_configurado_nunca_bloquea() -> None:
     settings = Settings(environment="development", llm_provider_summary="openai", **_base_kwargs())
     assert settings.llm_provider_summary == "openai"
     assert settings.openai_api_key is None
+
+
+# --- env_ignore_empty (docker-compose.yml usa `${VAR:-}`) ----------------
+#
+# `docker-compose.yml` pasa variables opcionales no configuradas por el
+# usuario como cadena vacía (fallback `${VAR:-}`). Sin `env_ignore_empty`,
+# pydantic-settings trata esa cadena vacía como un valor explícito e
+# inválido para campos no-str (bool/Decimal/Literal), y `Settings()` lanza
+# `ValidationError` en lugar de aplicar el default de Python. Estos tests
+# construyen `Settings` leyendo variables de entorno reales (vía
+# monkeypatch), nunca pasándolas como kwarg, para probar el comportamiento
+# de carga desde entorno — no solo la validación de kwargs explícitos.
+
+
+def test_env_ignore_empty_variable_vacia_opcional_se_trata_como_no_definida(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_COST_LIMIT_ENFORCED", "")
+    monkeypatch.setenv("MAX_LLM_COST_PER_SESSION_USD", "")
+    monkeypatch.setenv("AI_PROCESSING_CONSENT_ENFORCED", "")
+    monkeypatch.setenv("LLM_PROVIDER_SUMMARY", "")
+    # No lanza ValidationError: la cadena vacía se ignora, no se valida
+    # como bool/Decimal/Literal inválido.
+    settings = Settings(**_base_kwargs())
+    # Test de "default aplicado correctamente": cae al default de Python
+    # de cada campo, exactamente igual que si la variable no existiera.
+    assert settings.llm_cost_limit_enforced is False
+    assert settings.max_llm_cost_per_session_usd is None
+    assert settings.ai_processing_consent_enforced is False
+    assert settings.llm_provider_summary == "mock"
+
+
+def test_env_ignore_empty_valor_real_presente_sigue_parseandose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_COST_LIMIT_ENFORCED", "true")
+    monkeypatch.setenv("MAX_LLM_COST_PER_SESSION_USD", "0.05")
+    monkeypatch.setenv("AI_PROCESSING_CONSENT_ENFORCED", "true")
+    monkeypatch.setenv("LLM_PROVIDER_SUMMARY", "google")
+    settings = Settings(**_base_kwargs())
+    assert settings.llm_cost_limit_enforced is True
+    assert settings.max_llm_cost_per_session_usd == Decimal("0.05")
+    assert settings.ai_processing_consent_enforced is True
+    assert settings.llm_provider_summary == "google"

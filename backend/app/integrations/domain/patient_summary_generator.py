@@ -22,6 +22,10 @@ class PatientSummaryDraft:
     #: `MockPatientSummaryGenerator`. Ver `steps/base.py::ProduceResult`.
     input_tokens: int | None = None
     output_tokens: int | None = None
+    #: Tokens de razonamiento facturables, separados de `output_tokens`
+    #: (Google Gemini únicamente hoy) — ver
+    #: `LanguageModelResponse.reasoning_tokens`.
+    reasoning_tokens: int | None = None
 
 
 class PatientSummaryGenerator(Protocol):

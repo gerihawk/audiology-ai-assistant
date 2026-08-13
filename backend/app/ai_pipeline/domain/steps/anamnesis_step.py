@@ -59,7 +59,7 @@ class AnamnesisStep:
                 field_name: {"value": field_value.value, "status": field_value.status.value}
                 for field_name, field_value in draft.fields.items()
             }
-            return content, _CONFIDENCE, None, None
+            return content, _CONFIDENCE, None, None, None
 
         return await run_provider_step(
             artifact_type=self.artifact_type,

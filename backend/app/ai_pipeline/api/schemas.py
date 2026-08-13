@@ -139,7 +139,13 @@ class PipelineStepOutcomeResponse(BaseModel):
     estimated_cost_usd: Decimal | None
 
 
-class RunMockPipelineResponse(BaseModel):
+class RunPipelineResponse(BaseModel):
+    """Forma de respuesta compartida por los dos entrypoints del pipeline
+    (`run-pipeline` configurado y `run-mock-pipeline` — ver
+    docs/fase-6-rfc.md, corrección de frontera mock/real): idéntica en
+    ambos casos, la diferencia está en qué `PipelineStep` se ejecutaron,
+    nunca en la forma de la respuesta."""
+
     pipeline_run_id: uuid.UUID
     status: AIPipelineRunStatus
     started_at: datetime
@@ -148,7 +154,7 @@ class RunMockPipelineResponse(BaseModel):
     step_outcomes: list[PipelineStepOutcomeResponse]
 
     @classmethod
-    def from_outcome(cls, outcome: PipelineRunOutcome) -> RunMockPipelineResponse:
+    def from_outcome(cls, outcome: PipelineRunOutcome) -> RunPipelineResponse:
         return cls(
             pipeline_run_id=outcome.pipeline_run.id,
             status=outcome.pipeline_run.status,

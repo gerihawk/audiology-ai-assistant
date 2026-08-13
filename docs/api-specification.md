@@ -284,7 +284,26 @@ con endpoint de descarga), documentado así desde la Fase 5 (ver
 | POST | `/clinical-sessions/{session_id}/audio-recordings` | admin/audiologist (propias sesiones) | Sube fichero de audio (multipart: campo `file` + `duration_seconds`); crea `audio_recordings` en `ready` o `failed` (validación síncrona de tamaño/duración/extensión/MIME; sin estado `validating` intermedio persistido en esta fase) |
 | GET | `/clinical-sessions/{session_id}/audio-recordings` | admin/audiologist/viewer | Lista las grabaciones de la sesión, más reciente primero |
 | DELETE | `/audio-recordings/{audio_recording_id}` | admin/audiologist (propias sesiones) | Borrado físico inmediato vía `AudioStorage.delete` (`status → deleted`, `storage_reference` invalidado); metadatos conservados; idempotente |
-| POST | `/audio-recordings/{audio_recording_id}/transcribe` | admin/audiologist (propias sesiones) | Transcribe el audio (debe estar `ready` o `transcribed`) con el `TranscriptionProvider` resuelto por `TRANSCRIPTION_PROVIDER`; crea o versiona el `AIArtifact` `transcript` — independiente del Mock Pipeline (`POST .../run-mock-pipeline`), que no cambia; `409` si el audio no está en un estado transcribible, si falla el proveedor, o si ya hay un `ai_pipeline_run` en curso para la sesión |
+| POST | `/audio-recordings/{audio_recording_id}/transcribe` | admin/audiologist (propias sesiones) | Transcribe el audio (debe estar `ready` o `transcribed`) con el `TranscriptionProvider` resuelto por `TRANSCRIPTION_PROVIDER`; crea o versiona el `AIArtifact` `transcript` — independiente de `run-mock-pipeline`/`run-pipeline` (ver más abajo), que no cambian; `409` si el audio no está en un estado transcribible, si falla el proveedor, o si ya hay un `ai_pipeline_run` en curso para la sesión |
+
+**Disparo del pipeline (implementado, fuera del diseño `/ai/...` de la
+sección "AI Pipeline" siguiente — nombres heredados de fases previas, no
+renombrados para no romper compatibilidad con el frontend existente, ver
+docs/fase-6-rfc.md).** Dos entrypoints deliberadamente distintos
+(corrección de frontera mock/real, Fase 6.3): `POST
+/clinical-sessions/{session_id}/run-mock-pipeline` es **Mock** —
+estructuralmente incapaz de invocar un proveedor LLM real o gastar
+dinero, sin importar cómo esté configurado `Settings.llm_provider_*`
+(`AIPipelineService.run_mock_pipeline`/`_build_mock_steps`, que nunca
+consulta el routing); único uso legítimo: development/tests/demo. `POST
+/clinical-sessions/{session_id}/run-pipeline` es el **pipeline
+configurado** — respeta el routing real por `artifact_type`
+(`Settings.llm_provider_summary`/`llm_provider_patient_summary`/
+`llm_provider_missing_information`) y puede invocar Anthropic/OpenAI/
+Google si así está configurado, pasando antes por consentimiento y
+límite de coste (`AIPipelineService.run_pipeline`). Ambos comparten la
+misma forma de respuesta (`RunPipelineResponse`) y el mismo modelo de
+permisos (`AIPipelineAction.TRIGGER`).
 
 **Deuda técnica explícita (Fase 5)**: sin
 `GET .../audio-recordings/{id}/download` (el diseño anterior lo incluía;

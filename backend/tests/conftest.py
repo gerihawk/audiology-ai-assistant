@@ -7,6 +7,33 @@ os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_HOST", "localhost")
 os.environ.setdefault("BACKEND_CORS_ORIGINS", "http://localhost:5173")
 
+# Aislamiento de la suite frente a variables de entorno "ambiente" del
+# contenedor (Fase 6.3, corrección del punto 11): `docker compose run`
+# hereda el mismo bloque `environment:` que `docker compose up`, así que
+# valores reales de `.env` del usuario (routing LLM, API keys, límites de
+# coste, para el experimento de llamada real autorizado) llegarían a
+# `Settings()` en cualquier test que no los pase explícitamente, haciendo
+# que ese test dependa silenciosamente de la máquina en la que se ejecuta.
+# Se limpian aquí, antes de cualquier import que pueda construir
+# `Settings()` (p. ej. `app.main`) — nunca se toca el fichero `.env` real
+# del usuario, solo el entorno del proceso de test.
+for _leaking_var in (
+    "GOOGLE_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "LLM_PROVIDER_SUMMARY",
+    "LLM_PROVIDER_PATIENT_SUMMARY",
+    "LLM_PROVIDER_MISSING_INFORMATION",
+    "LLM_MODEL_SUMMARY",
+    "LLM_MODEL_PATIENT_SUMMARY",
+    "LLM_MODEL_MISSING_INFORMATION",
+    "LLM_COST_LIMIT_ENFORCED",
+    "MAX_LLM_COST_PER_SESSION_USD",
+    "AI_PROCESSING_CONSENT_ENFORCED",
+):
+    os.environ.pop(_leaking_var, None)
+del _leaking_var
+
 from collections.abc import AsyncIterator  # noqa: E402
 
 import pytest  # noqa: E402

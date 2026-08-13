@@ -66,6 +66,7 @@ class PatientSummaryStep:
                 _CONFIDENCE,
                 draft.input_tokens,
                 draft.output_tokens,
+                draft.reasoning_tokens,
             )
 
         outcome = await run_provider_step(

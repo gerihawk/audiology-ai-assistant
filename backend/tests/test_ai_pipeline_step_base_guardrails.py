@@ -47,7 +47,7 @@ def _context(**overrides) -> PipelineExecutionContext:
 
 
 async def _produce_valid_summary():
-    return {"text": "Señal que requiere valoración profesional."}, 70, None, None
+    return {"text": "Señal que requiere valoración profesional."}, 70, None, None, None
 
 
 # --- persistence boundary: ningún fallo llega a COMPLETED -----------------
@@ -55,7 +55,7 @@ async def _produce_valid_summary():
 
 async def test_contenido_inseguro_nunca_se_marca_completado():
     async def produce():
-        return {"text": "El paciente tiene una posible pérdida auditiva."}, 70, None, None
+        return {"text": "El paciente tiene una posible pérdida auditiva."}, 70, None, None, None
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.SUMMARY,
@@ -74,7 +74,7 @@ async def test_contenido_inseguro_nunca_se_marca_completado():
 
 async def test_schema_invalido_nunca_se_marca_completado():
     async def produce():
-        return {}, 70, None, None  # falta "text" obligatorio de SUMMARY
+        return {}, 70, None, None, None  # falta "text" obligatorio de SUMMARY
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.SUMMARY,
@@ -104,6 +104,7 @@ async def test_contenido_valido_se_marca_completado_con_source_map():
                 ]
             },
             65,
+            None,
             None,
             None,
         )
@@ -243,7 +244,7 @@ async def test_fallo_de_seguridad_se_reintenta_como_mucho_una_vez():
     async def always_unsafe():
         nonlocal attempts
         attempts += 1
-        return {"text": "diagnóstico confirmado"}, 70, None, None
+        return {"text": "diagnóstico confirmado"}, 70, None, None, None
 
     context = _context(
         retry_config=RetryConfig(
@@ -319,7 +320,7 @@ async def test_error_inesperado_no_es_retryable():
 
 async def test_usage_real_reportado_se_prefiere_sobre_la_heuristica():
     async def produce():
-        return {"text": "Señal que requiere valoración profesional."}, 70, 111, 222
+        return {"text": "Señal que requiere valoración profesional."}, 70, 111, 222, None
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.SUMMARY,
@@ -356,7 +357,7 @@ async def test_sin_usage_reportado_cae_al_token_counter_heuristico():
 
 async def test_usage_real_parcial_solo_input_cae_a_heuristica_solo_en_output():
     async def produce():
-        return {"text": "Señal que requiere valoración profesional."}, 70, 999, None
+        return {"text": "Señal que requiere valoración profesional."}, 70, 999, None, None
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.SUMMARY,
@@ -380,7 +381,7 @@ async def test_usage_real_se_conserva_incluso_si_falla_la_validacion_posterior()
     # aunque la validación posterior (safety) haga fallar el step, el
     # `AIGenerationRun` conserva el input_tokens real, nunca la heurística.
     async def produce():
-        return {"text": "el paciente tiene una posible pérdida auditiva"}, 70, 321, 654
+        return {"text": "el paciente tiene una posible pérdida auditiva"}, 70, 321, 654, None
 
     outcome = await run_provider_step(
         artifact_type=AIArtifactType.SUMMARY,

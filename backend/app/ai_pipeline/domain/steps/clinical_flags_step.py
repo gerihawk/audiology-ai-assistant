@@ -49,7 +49,7 @@ class ClinicalFlagsStep:
             flags = await self._generator.generate(transcript_text, context=context.session_context)
             content = {"flags": [asdict(flag) for flag in flags]}
             # Basado en reglas, sin LLM: nunca hay usage de tokens que reportar.
-            return content, _CONFIDENCE, None, None
+            return content, _CONFIDENCE, None, None, None
 
         return await run_provider_step(
             artifact_type=self.artifact_type,

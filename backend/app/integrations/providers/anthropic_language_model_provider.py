@@ -37,8 +37,20 @@ _MESSAGES_PATH = "/v1/messages"
 #: modelo) — ver quickstart citado en el docstring del módulo.
 _ANTHROPIC_VERSION = "2023-06-01"
 #: `max_tokens` es obligatorio en el Messages API (a diferencia de
-#: OpenAI/Google) — techo defensivo si el llamador no fija uno explícito.
-_DEFAULT_MAX_TOKENS = 4096
+#: OpenAI/Google). Corrección Fase 6.3 (auditoría 2026-08-13, "peor caso
+#: del preflight vs techo real enviado al provider"): en producción,
+#: `factory.py::build_language_model_provider` SIEMPRE pasa
+#: `max_tokens=settings.llm_max_output_tokens_estimate` explícitamente —
+#: la MISMA fuente de verdad que usa `run_provider_step` para el preflight
+#: de coste (`context.max_output_tokens_estimate`, derivado del mismo
+#: campo de `Settings`). Este valor (2000) solo se usa como fallback
+#: cuando el provider se construye directamente sin pasar por la factory
+#: (scripts de diagnóstico, tests) — nunca diverge del preflight en el
+#: camino de producción real, a diferencia del `4096` independiente que
+#: tenía antes este módulo (bug de cost-safety: el preflight asumía un
+#: techo de 2000 mientras el provider podía pedir hasta 4096 tokens
+#: reales — más del doble de coste no cubierto por el guardarraíl).
+_DEFAULT_MAX_TOKENS = 2000
 
 
 class AnthropicResponseError(Exception):

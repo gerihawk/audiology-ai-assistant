@@ -64,5 +64,8 @@ class RealSummaryGenerator:
                 reason=AIGenerationFailureReason.INVALID_RESPONSE_FORMAT,
             )
         return SummaryDraft(
-            text=text, input_tokens=response.input_tokens, output_tokens=response.output_tokens
+            text=text,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            reasoning_tokens=response.reasoning_tokens,
         )

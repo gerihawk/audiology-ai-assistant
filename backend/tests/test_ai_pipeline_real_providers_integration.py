@@ -91,8 +91,11 @@ def _google_success(text: str, *, input_tokens=18, output_tokens=5):
         return httpx.Response(
             200,
             json={
-                "output_text": text,
-                "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+                "steps": [{"type": "model_output", "content": [{"type": "text", "text": text}]}],
+                "usage": {
+                    "total_input_tokens": input_tokens,
+                    "total_output_tokens": output_tokens,
+                },
             },
         )
 
@@ -357,7 +360,18 @@ async def test_json_malformado_en_missing_information_falla_invalid_response_for
     monkeypatch,
 ):
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"output_text": "esto no es JSON válido"})
+        return httpx.Response(
+            200,
+            json={
+                "steps": [
+                    {
+                        "type": "model_output",
+                        "content": [{"type": "text", "text": "esto no es JSON válido"}],
+                    }
+                ],
+                "usage": {"total_input_tokens": 10, "total_output_tokens": 5},
+            },
+        )
 
     headers = dev_headers(clinic_with_users.admin)
     session = await _create_session(

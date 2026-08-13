@@ -37,6 +37,17 @@ from app.ai_pipeline.domain.errors import AIGenerationFailureReason, TransientPr
 from app.integrations.domain.language_model_provider import LanguageModelResponse, RenderedPrompt
 
 _RESPONSES_PATH = "/responses"
+#: Corrección Fase 6.3 (auditoría 2026-08-13): antes de esta corrección,
+#: este adapter nunca enviaba ningún techo de tokens de salida a la
+#: Responses API (a diferencia de Anthropic, donde `max_tokens` es
+#: obligatorio) — el preflight de coste asumía un peor caso
+#: (`llm_max_output_tokens_estimate`) que el provider no estaba obligado a
+#: respetar en absoluto. `factory.py::build_language_model_provider`
+#: SIEMPRE pasa `max_output_tokens=settings.llm_max_output_tokens_estimate`
+#: — la misma fuente de verdad que usa `run_provider_step` para el
+#: preflight. Este valor (2000) es solo el fallback para construcción
+#: directa fuera de la factory (scripts/tests).
+_DEFAULT_MAX_OUTPUT_TOKENS = 2000
 
 
 class OpenAIResponseError(Exception):
@@ -51,6 +62,7 @@ class OpenAILanguageModelProvider:
         api_key: str | None,
         base_url: str = "https://api.openai.com/v1",
         timeout_seconds: float = 120.0,
+        max_output_tokens: int = _DEFAULT_MAX_OUTPUT_TOKENS,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         if not api_key:
@@ -58,6 +70,7 @@ class OpenAILanguageModelProvider:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._max_output_tokens = max_output_tokens
         self._injected_client = http_client
 
     def _headers(self) -> dict[str, str]:
@@ -73,7 +86,11 @@ class OpenAILanguageModelProvider:
             input_items.append({"type": "message", "role": "developer", "content": prompt.system})
         input_items.append({"type": "message", "role": "user", "content": prompt.user})
 
-        payload: dict[str, Any] = {"model": model, "input": input_items}
+        payload: dict[str, Any] = {
+            "model": model,
+            "input": input_items,
+            "max_output_tokens": self._max_output_tokens,
+        }
         if response_json_schema is not None:
             payload["text"] = {
                 "format": {

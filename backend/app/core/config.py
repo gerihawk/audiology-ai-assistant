@@ -31,7 +31,19 @@ _VENDOR_API_KEY_FIELDS = {
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        # Un fallback `${VAR:-}` vacío en docker-compose.yml (para campos
+        # opcionales sin valor natural en desarrollo, p. ej.
+        # MAX_LLM_COST_PER_SESSION_USD) pasa una cadena vacía al contenedor
+        # si el operador no la define en su .env — sin esto, pydantic
+        # intenta parsear "" como Decimal/bool/Literal y el arranque entero
+        # falla. Tratar "" como "no definida" dejar caer al default de
+        # Python es el comportamiento correcto, no un valor real.
+        env_ignore_empty=True,
+    )
 
     environment: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"

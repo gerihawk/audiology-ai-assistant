@@ -20,9 +20,9 @@ completo en [docs/product-requirements.md](docs/product-requirements.md) y
    recomendado automáticamente"). Usa siempre las expresiones definidas en
    [docs/clinical-safety.md](docs/clinical-safety.md) (p. ej. "señal que
    requiere valoración profesional").
-3. Toda salida de IA debe ir acompañada del aviso: *"Contenido generado
+3. Toda salida de IA debe ir acompañada del aviso: _"Contenido generado
    mediante IA. Debe ser revisado y aprobado por un profesional cualificado
-   antes de incorporarse al expediente."*
+   antes de incorporarse al expediente."_
 4. **Nunca** inventes valores de anamnesis que no estén en la transcripción.
    Si un campo no se mencionó, su estado es `no_preguntado` o
    `no_determinado`, nunca se rellena con una suposición.
@@ -69,3 +69,70 @@ circulares entre módulos (ver [docs/architecture.md](docs/architecture.md)).
 `ai_pipeline` sustituye a los antiguos `transcription`/`anamnesis`/
 `session_notes` (nunca implementados) — diseño cerrado en
 [docs/ai-pipeline-architecture.md](docs/ai-pipeline-architecture.md).
+
+## Secret handling (mandatory)
+
+Never print, display, or reveal the value of any secret.
+
+Secrets include, but are not limited to:
+
+- \*.env
+- \*\_API_KEY
+- \*\_TOKEN
+- \*\_SECRET
+- passwords
+- private keys
+- bearer tokens
+- connection strings
+
+When verifying configuration:
+
+- report only "configured" or "missing";
+- never print the value;
+- never use commands that can display secrets.
+
+Forbidden examples:
+
+- cat .env
+- less .env
+- sed -n ... .env
+- grep API_KEY .env
+- rg API_KEY .env
+
+Allowed examples:
+
+- check whether a variable exists;
+- report:
+  GOOGLE_API_KEY: configured
+  OPENAI_API_KEY: missing
+
+If a secret is accidentally exposed:
+
+- stop immediately;
+- inform the user;
+- do not repeat the secret;
+- recommend rotating the credential;
+- continue only after user confirmation.
+
+### .env policy
+
+The assistant must never inspect or print the contents of `.env`.
+
+If configuration must be verified, use methods that never expose values and only return:
+
+- configured
+- missing
+
+The assistant must never include secret values in tool output, logs, patches, commits or reports.
+
+### Logging policy
+
+Never log:
+
+- Authorization headers
+- API keys
+- Bearer tokens
+- Cookies
+- Session identifiers
+
+If debugging HTTP requests, redact all secrets before displaying any output.

@@ -82,6 +82,30 @@ async def test_structured_output_envia_output_config_format():
     assert body["output_config"]["format"]["schema"] == schema
 
 
+async def test_max_tokens_configurado_en_constructor_se_envia_en_el_payload():
+    # Fase 6.3, auditoría 2026-08-13: `max_tokens` debe ser exactamente el
+    # valor pasado al constructor (en producción, siempre
+    # `settings.llm_max_output_tokens_estimate` vía factory.py) — nunca un
+    # `4096` independiente hardcodeado, para que nunca pueda divergir del
+    # preflight de coste. Ver test_language_model_provider_factory.py para
+    # la prueba de que la factory efectivamente pasa ese valor.
+    seen: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = request.content
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "{}"}]})
+
+    provider = AnthropicLanguageModelProvider(
+        api_key="test-key", max_tokens=777, http_client=_client_with_handler(handler)
+    )
+    await provider.complete(_PROMPT, model="claude-opus-5")
+
+    import json
+
+    body = json.loads(seen["body"])
+    assert body["max_tokens"] == 777
+
+
 async def test_timeout_se_traduce_en_transient_provider_error():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.TimeoutException("tiempo agotado (fixture de test)")

@@ -53,7 +53,13 @@ class MissingInformationStep:
                 summary_text, clinical_flags, context=context.session_context
             )
             content = {"items": [asdict(item) for item in result.items]}
-            return content, _CONFIDENCE, result.input_tokens, result.output_tokens
+            return (
+                content,
+                _CONFIDENCE,
+                result.input_tokens,
+                result.output_tokens,
+                result.reasoning_tokens,
+            )
 
         outcome = await run_provider_step(
             artifact_type=self.artifact_type,

@@ -191,22 +191,35 @@ def build_audio_cost_estimator(
 #: registro se resuelve para cada artifact_type — nunca una constante
 #: Python ni un router dinámico, ver docs/fase-6-rfc.md §6.1/§11.1
 #: decisión 12).
+#: Corrección Fase 6.3 (auditoría 2026-08-13): los tres providers reciben
+#: aquí, explícitamente, `settings.llm_max_output_tokens_estimate` como su
+#: techo real de tokens de salida — la MISMA fuente de verdad que
+#: `run_provider_step` usa para el preflight de coste
+#: (`context.max_output_tokens_estimate`, derivado de ese mismo campo).
+#: Antes de esta corrección, cada provider tenía su propio techo
+#: independiente (`4096` fijo en Anthropic, ningún techo en absoluto en
+#: OpenAI/Google) que podía divergir del "peor caso" que el preflight
+#: asumía — bug de cost-safety real, no solo teórico. Nunca construyas un
+#: provider real fuera de esta factory sin pasar el mismo valor.
 LANGUAGE_MODEL_PROVIDER_FACTORIES: dict[str, Callable[[Settings], LanguageModelProvider]] = {
     "mock": lambda settings: MockLanguageModelProvider(),
     "anthropic": lambda settings: AnthropicLanguageModelProvider(
         api_key=settings.anthropic_api_key,
         base_url=settings.anthropic_base_url,
         timeout_seconds=settings.anthropic_timeout_seconds,
+        max_tokens=settings.llm_max_output_tokens_estimate,
     ),
     "openai": lambda settings: OpenAILanguageModelProvider(
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
         timeout_seconds=settings.openai_timeout_seconds,
+        max_output_tokens=settings.llm_max_output_tokens_estimate,
     ),
     "google": lambda settings: GoogleLanguageModelProvider(
         api_key=settings.google_api_key,
         base_url=settings.google_base_url,
         timeout_seconds=settings.google_timeout_seconds,
+        max_output_tokens=settings.llm_max_output_tokens_estimate,
     ),
 }
 

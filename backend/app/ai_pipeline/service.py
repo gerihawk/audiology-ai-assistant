@@ -231,10 +231,50 @@ class AIPipelineService:
         )
 
     # --- Disparo del pipeline --------------------------------------------
+    #
+    # Dos entrypoints deliberadamente distintos (corrección de frontera
+    # mock/real, ver docs/fase-6-rfc.md): `run_pipeline` respeta el
+    # routing real por artifact_type (`Settings.llm_provider_*`) y puede
+    # invocar Anthropic/OpenAI/Google si así está configurado —
+    # `POST .../run-pipeline`. `run_mock_pipeline` construye sus steps con
+    # `_build_mock_steps()`, que NUNCA lee `Settings.llm_provider_*` ni
+    # llama a `build_language_model_provider` — estructuralmente incapaz
+    # de alcanzar un proveedor real sin importar la configuración —
+    # `POST .../run-mock-pipeline`. Comparten toda la lógica de
+    # autorización/consentimiento/persistencia/auditoría vía
+    # `_authorize_trigger`/`_execute_pipeline_run`; la única diferencia
+    # entre ambos es qué lista de `PipelineStep` se ejecuta.
 
     async def run_pipeline(
         self, current_user: CurrentUser, clinical_session_id: uuid.UUID, request_id: str
     ) -> PipelineRunOutcome:
+        """Pipeline CONFIGURADO — respeta `Settings.llm_provider_summary`/
+        `llm_provider_patient_summary`/`llm_provider_missing_information`.
+        Puede gastar dinero real y enviar datos a un tercero si el routing
+        de producción está activo. Expuesto por `POST .../run-pipeline`."""
+        await self._authorize_trigger(current_user, clinical_session_id)
+        steps = await self._build_steps()
+        return await self._execute_pipeline_run(
+            current_user, clinical_session_id, request_id, steps
+        )
+
+    async def run_mock_pipeline(
+        self, current_user: CurrentUser, clinical_session_id: uuid.UUID, request_id: str
+    ) -> PipelineRunOutcome:
+        """Pipeline MOCK — cero LLM externo, determinista, nunca gasta
+        dinero, sin importar cómo esté configurado `Settings`
+        (`_build_mock_steps()` nunca consulta el routing). Único uso
+        legítimo: development/tests/demo. Expuesto por
+        `POST .../run-mock-pipeline`."""
+        await self._authorize_trigger(current_user, clinical_session_id)
+        steps = self._build_mock_steps()
+        return await self._execute_pipeline_run(
+            current_user, clinical_session_id, request_id, steps
+        )
+
+    async def _authorize_trigger(
+        self, current_user: CurrentUser, clinical_session_id: uuid.UUID
+    ) -> ClinicalSession:
         clinical_session = await self._get_clinical_session_or_404(
             current_user, clinical_session_id
         )
@@ -242,7 +282,15 @@ class AIPipelineService:
             current_user, AIPipelineAction.TRIGGER, professional_id=clinical_session.professional_id
         )
         await self._ensure_ai_processing_consent(current_user, clinical_session.patient_id)
+        return clinical_session
 
+    async def _execute_pipeline_run(
+        self,
+        current_user: CurrentUser,
+        clinical_session_id: uuid.UUID,
+        request_id: str,
+        steps: list[PipelineStep],
+    ) -> PipelineRunOutcome:
         existing_active = await self._pipeline_runs.get_active_for_session(
             self._session, current_user.clinic_id, clinical_session_id
         )
@@ -273,7 +321,7 @@ class AIPipelineService:
                 retry_config=retry_config,
                 max_output_tokens_estimate=max_output_tokens_estimate,
             )
-            result = await self._orchestrator.run(context, await self._build_steps())
+            result = await self._orchestrator.run(context, steps)
 
             artifact_details: list[AIArtifactDetail] = []
             any_completed = False
@@ -984,6 +1032,45 @@ class AIPipelineService:
                 self._clinical_flags_generator, self._token_counter, self._cost_estimator
             ),
             AIArtifactType.MISSING_INFORMATION: missing_information_step,
+            AIArtifactType.ANAMNESIS: AnamnesisStep(
+                self._anamnesis_generator, self._token_counter, self._cost_estimator
+            ),
+        }
+        return [steps_by_type[artifact_type] for artifact_type in PIPELINE_STEP_ORDER]
+
+    def _build_mock_steps(self) -> list[PipelineStep]:
+        """Construye los steps EXCLUSIVAMENTE con los generators inyectados
+        en el constructor (`Mock*Generator` por defecto en producción, ver
+        `core/deps.py::get_ai_pipeline_service` — nunca inyecta otra cosa)
+        — a diferencia de `_build_steps()`, esta función nunca lee
+        `Settings.llm_provider_*`, nunca llama a
+        `build_language_model_provider` y nunca resuelve una
+        `PromptTemplate`. Es deliberadamente síncrona (no `async`, sin
+        `await` alguno) como recordatorio de que no toca BD ni
+        configuración de routing — la propiedad de seguridad exigida por
+        `run_mock_pipeline` ("cero LLM externo pase lo que pase en
+        Settings") depende de que este método sea así de simple y
+        auditable. Si el propio llamador inyecta explícitamente un
+        generator real vía el constructor de `AIPipelineService`, esa es
+        una decisión de código explícita de ese llamador — no un
+        interruptor de configuración por variable de entorno, que es el
+        riesgo que esta función cierra."""
+        steps_by_type: dict[AIArtifactType, PipelineStep] = {
+            AIArtifactType.TRANSCRIPT: TranscriptionStep(
+                self._transcription_provider, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.SUMMARY: SummaryStep(
+                self._summary_generator, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.PATIENT_SUMMARY: PatientSummaryStep(
+                self._patient_summary_generator, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.CLINICAL_FLAGS: ClinicalFlagsStep(
+                self._clinical_flags_generator, self._token_counter, self._cost_estimator
+            ),
+            AIArtifactType.MISSING_INFORMATION: MissingInformationStep(
+                self._missing_information_generator, self._token_counter, self._cost_estimator
+            ),
             AIArtifactType.ANAMNESIS: AnamnesisStep(
                 self._anamnesis_generator, self._token_counter, self._cost_estimator
             ),

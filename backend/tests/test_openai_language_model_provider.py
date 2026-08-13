@@ -36,6 +36,39 @@ async def test_complete_exige_model():
         await provider.complete(_PROMPT)
 
 
+async def test_max_output_tokens_configurado_en_constructor_se_envia_en_el_payload():
+    # Fase 6.3, auditoría 2026-08-13: antes de esta corrección, este
+    # adapter nunca enviaba ningún techo de tokens de salida — el
+    # preflight de coste asumía un peor caso que el provider no estaba
+    # obligado a respetar. En producción siempre es
+    # `settings.llm_max_output_tokens_estimate` vía factory.py — ver
+    # test_language_model_provider_factory.py.
+    seen: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = request.content
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "{}"}],
+                    }
+                ]
+            },
+        )
+
+    provider = OpenAILanguageModelProvider(
+        api_key="test-key", max_output_tokens=777, http_client=_client_with_handler(handler)
+    )
+    await provider.complete(_PROMPT, model="gpt-5.2")
+
+    body = json.loads(seen["body"])
+    assert body["max_output_tokens"] == 777
+
+
 async def test_success_envia_headers_correctos_y_devuelve_texto_y_usage():
     seen: dict[str, httpx.Request] = {}
 

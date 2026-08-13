@@ -47,7 +47,13 @@ class SummaryStep:
 
         async def produce() -> ProduceResult:
             draft = await self._generator.generate(transcript_text, context=context.session_context)
-            return {"text": draft.text}, _CONFIDENCE, draft.input_tokens, draft.output_tokens
+            return (
+                {"text": draft.text},
+                _CONFIDENCE,
+                draft.input_tokens,
+                draft.output_tokens,
+                draft.reasoning_tokens,
+            )
 
         outcome = await run_provider_step(
             artifact_type=self.artifact_type,

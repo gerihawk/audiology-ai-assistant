@@ -77,7 +77,7 @@ class TranscriptionStep:
                 ]
             confidence = result.confidence if result.confidence is not None else _DEFAULT_CONFIDENCE
             # Sin concepto de usage de tokens LLM en este eje de proveedor.
-            return content, confidence, None, None
+            return content, confidence, None, None, None
 
         outcome = await run_provider_step(
             artifact_type=self.artifact_type,
