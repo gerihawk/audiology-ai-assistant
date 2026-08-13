@@ -13,13 +13,18 @@ Cubre únicamente los tipos ya implementados y con estructura cerrada hoy:
 más estructura. No implica que el artefacto se genere ya en producción —
 sigue sin `PipelineStep` ni entrada en `PIPELINE_STEP_ORDER` (hito 6.3).
 
-`ANAMNESIS` valida la estructura cerrada de HOY: 20 campos de
-`ANAMNESIS_FIELDS`, cada uno `{"value": str, "status": <enum>}`. El
-`source_excerpt` obligatorio para `informado`/`negado_explicitamente`
-(RFC §4.6) llega cuando `AnamnesisGenerator` lo produzca de verdad — hito
-6.4 ("ANAMNESIS con grounding real"), no antes: `GroundingValidator` no
-puede exigir un campo que la propia estructura cerrada de este hito no
-declara.
+`ANAMNESIS` valida la estructura cerrada de HOY (Fase 6.4.2): 20 campos de
+`ANAMNESIS_FIELDS`, cada uno `{"value": str, "status": <enum>,
+"source_excerpt": str | None}` — `source_excerpt` es una clave obligatoria
+presente y nullable (mismo patrón que `clinical_flags[].source_excerpt`),
+nunca opcional/ausente. Además de la validación estructural genérica
+(`_check_object`), `_check_anamnesis_evidence_consistency` aplica una
+segunda fase específica de ANAMNESIS (RFC técnico de 6.4, §6): `status`
+en `informado`/`negado_explicitamente` exige `source_excerpt` no vacío;
+`status` en `no_preguntado`/`no_determinado` exige `source_excerpt=None`
+— nunca una cita inventada. Esta regla vive fuera de `_check_object` a
+propósito: ese helper es y sigue siendo un validador estructural puro
+(claves/tipos), sin conocer semántica de negocio de ningún artefacto.
 
 Rechaza: campos obligatorios ausentes, tipos incorrectos, enums
 inválidos, estructura anidada inválida y campos desconocidos (contrato
@@ -37,6 +42,11 @@ from app.ai_pipeline.domain.entities import AIArtifactType
 from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS, AnamnesisFieldStatus
 
 _ANAMNESIS_STATUSES = frozenset(status.value for status in AnamnesisFieldStatus)
+
+#: Estados que exigen `source_excerpt` no vacío — RFC técnico de 6.4 §6.
+_STATUSES_REQUIRING_EVIDENCE = frozenset(
+    {AnamnesisFieldStatus.INFORMADO.value, AnamnesisFieldStatus.NEGADO_EXPLICITAMENTE.value}
+)
 
 
 class UnsupportedArtifactTypeError(Exception):
@@ -175,14 +185,46 @@ def _validate_anamnesis(content: Any) -> SchemaValidationResult:
 
     for field_name in expected_fields & set(content):
         field_value = content[field_name]
+        # Fase 1 — estructural pura, vía el helper genérico compartido.
         errors += _check_object(
-            field_value, f"content.{field_name}", required={"value": str, "status": str}
+            field_value,
+            f"content.{field_name}",
+            required={"value": str, "status": str, "source_excerpt": (str, type(None))},
         )
         status = field_value.get("status") if isinstance(field_value, dict) else None
         if isinstance(status, str) and status not in _ANAMNESIS_STATUSES:
             errors.append(f"content.{field_name}.status no es un estado de anamnesis válido.")
+        elif isinstance(status, str) and isinstance(field_value, dict):
+            # Fase 2 — cruzada status/source_excerpt, exclusiva de ANAMNESIS,
+            # solo si la fase 1 ya dejó `status` en un valor reconocido.
+            errors += _check_anamnesis_evidence_consistency(
+                f"content.{field_name}", field_value, status
+            )
 
     return _fail(errors) if errors else _ok()
+
+
+def _check_anamnesis_evidence_consistency(
+    path: str, field_value: dict[str, Any], status: str
+) -> list[str]:
+    """Segunda fase de validación, específica de ANAMNESIS (RFC técnico de
+    6.4, §6) — nunca toca `_check_object`, que sigue siendo un validador
+    estructural puro sin conocer esta regla de negocio.
+
+    `informado`/`negado_explicitamente` exigen `source_excerpt` no vacío;
+    `no_preguntado`/`no_determinado` exigen `source_excerpt=None` — nunca
+    una cita inventada para un campo sin evidencia."""
+    excerpt = field_value.get("source_excerpt")
+    if status in _STATUSES_REQUIRING_EVIDENCE:
+        if not isinstance(excerpt, str) or not excerpt.strip():
+            return [
+                f"{path}.source_excerpt es obligatorio y no puede estar vacío "
+                f"cuando status='{status}'."
+            ]
+        return []
+    if excerpt is not None:
+        return [f"{path}.source_excerpt debe ser null cuando status='{status}'."]
+    return []
 
 
 _VALIDATORS: dict[AIArtifactType, Callable[[Any], SchemaValidationResult]] = {

@@ -16,7 +16,10 @@ _TRANSCRIPT = "El paciente refiere acúfenos en el oído izquierdo. Niega vérti
 
 
 def _anamnesis_content(**overrides: dict) -> dict:
-    content = {name: {"value": "", "status": "no_preguntado"} for name in ANAMNESIS_FIELDS}
+    content = {
+        name: {"value": "", "status": "no_preguntado", "source_excerpt": None}
+        for name in ANAMNESIS_FIELDS
+    }
     content.update(overrides)
     return content
 
@@ -131,34 +134,96 @@ def test_transcript_vacio_rechaza_cualquier_excerpt_de_clinical_flags():
     assert outcome.failure_reason == AIGenerationFailureReason.GROUNDING_FAILED
 
 
-# --- anamnesis: hoy sin source_excerpt -> grounding es un no-op ------------
+# --- anamnesis: grounding real (Fase 6.4.2) ---------------------------------
 
 
-def test_anamnesis_informado_sin_source_excerpt_no_activa_grounding_en_6_1():
+def test_anamnesis_informado_con_excerpt_grounded_construye_source_map():
     content = _anamnesis_content(
-        **{ANAMNESIS_FIELDS[0]: {"value": "acúfenos", "status": "informado"}}
+        **{
+            ANAMNESIS_FIELDS[0]: {
+                "value": "acúfenos",
+                "status": "informado",
+                "source_excerpt": "acúfenos en el oído izquierdo",
+            }
+        }
+    )
+    outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
+    assert outcome.ok is True
+    assert outcome.source_map is not None
+    assert outcome.source_map[ANAMNESIS_FIELDS[0]]["excerpt"] == "acúfenos en el oído izquierdo"
+
+
+def test_anamnesis_informado_con_excerpt_falso_se_rechaza_por_grounding():
+    """El schema por sí solo no puede detectar una cita inventada — la
+    exige no vacía, pero es `GroundingValidator` quien verifica que
+    exista de verdad en el transcript actual."""
+    content = _anamnesis_content(
+        **{
+            ANAMNESIS_FIELDS[0]: {
+                "value": "acúfenos",
+                "status": "informado",
+                "source_excerpt": "esto no aparece en la transcripción",
+            }
+        }
+    )
+    outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
+    assert outcome.ok is False
+    assert outcome.failure_reason == AIGenerationFailureReason.GROUNDING_FAILED
+    assert outcome.content is None
+
+
+def test_anamnesis_negado_explicitamente_con_excerpt_grounded_es_valido():
+    content = _anamnesis_content(
+        **{
+            ANAMNESIS_FIELDS[0]: {
+                "value": "niega vértigo",
+                "status": "negado_explicitamente",
+                "source_excerpt": "Niega vértigo",
+            }
+        }
     )
     outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
     assert outcome.ok is True
 
 
-def test_anamnesis_negado_explicitamente_sin_source_excerpt_no_activa_grounding_en_6_1():
+def test_anamnesis_excerpt_presente_solo_fuera_del_transcript_actual_falla_grounding():
+    """Separación evidencia actual / contexto longitudinal (RFC técnico
+    §7): un `source_excerpt` que existe en OTRO texto (aquí, simplemente,
+    cualquier texto que no sea el transcript recibido como
+    `reference_text`) nunca puede satisfacer el grounding de la sesión
+    actual — sin importar de dónde provenga ese otro texto."""
+    longitudinal_context_only_text = "Antecedente de exposición a ruido laboral prolongada."
     content = _anamnesis_content(
-        **{ANAMNESIS_FIELDS[0]: {"value": "niega vértigo", "status": "negado_explicitamente"}}
+        **{
+            ANAMNESIS_FIELDS[0]: {
+                "value": "exposición a ruido",
+                "status": "informado",
+                "source_excerpt": longitudinal_context_only_text,
+            }
+        }
+    )
+    outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
+    assert outcome.ok is False
+    assert outcome.failure_reason == AIGenerationFailureReason.GROUNDING_FAILED
+
+
+def test_anamnesis_no_preguntado_con_source_excerpt_null_es_valido():
+    content = _anamnesis_content(
+        **{ANAMNESIS_FIELDS[0]: {"value": "", "status": "no_preguntado", "source_excerpt": None}}
     )
     outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
     assert outcome.ok is True
 
 
-def test_anamnesis_no_preguntado_es_valido():
-    content = _anamnesis_content(**{ANAMNESIS_FIELDS[0]: {"value": "", "status": "no_preguntado"}})
-    outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
-    assert outcome.ok is True
-
-
-def test_anamnesis_no_determinado_es_valido():
+def test_anamnesis_no_determinado_con_source_excerpt_null_es_valido():
     content = _anamnesis_content(
-        **{ANAMNESIS_FIELDS[0]: {"value": "mención ambigua", "status": "no_determinado"}}
+        **{
+            ANAMNESIS_FIELDS[0]: {
+                "value": "mención ambigua",
+                "status": "no_determinado",
+                "source_excerpt": None,
+            }
+        }
     )
     outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
     assert outcome.ok is True

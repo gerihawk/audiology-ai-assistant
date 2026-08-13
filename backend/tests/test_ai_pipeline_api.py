@@ -133,6 +133,46 @@ async def test_run_pipeline_anamnesis_never_marks_informado_without_evidence(
             assert field["value"], f"{field_name} marcado {field['status']} sin evidencia"
 
 
+async def test_run_pipeline_skips_anamnesis_when_patient_already_has_approved_anamnesis(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, patient: Patient
+):
+    """Integración de extremo a extremo de la Fase 6.4.2 (RFC técnico
+    §5/§9): una segunda sesión del MISMO paciente, tras aprobar la
+    ANAMNESIS de la primera, salta ANAMNESIS como NOT_APPLICABLE — sin
+    degradar el `AIPipelineRunStatus` a `partially_failed` (Decisión
+    final 2 de 6.4.1) y sin persistir un `AIArtifact` para el step
+    saltado."""
+    headers = dev_headers(clinic_with_users.admin)
+    first_session = await _create_session(
+        api_client, headers, str(patient.id), str(clinic_with_users.audiologist.id)
+    )
+    _, first_body = await _run_pipeline(api_client, headers, first_session["id"])
+    first_anamnesis = next(a for a in first_body["artifacts"] if a["artifact_type"] == "anamnesis")
+
+    approve_response = await api_client.post(
+        f"/api/v1/ai-artifacts/{first_anamnesis['id']}/approve", headers=headers
+    )
+    assert approve_response.status_code == 200, approve_response.text
+
+    second_session = await _create_session(
+        api_client, headers, str(patient.id), str(clinic_with_users.audiologist.id)
+    )
+    status_code, second_body = await _run_pipeline(api_client, headers, second_session["id"])
+
+    assert status_code == 201, second_body
+    assert second_body["status"] == "completed"
+
+    artifact_types = {a["artifact_type"] for a in second_body["artifacts"]}
+    assert "anamnesis" not in artifact_types
+
+    anamnesis_outcome = next(
+        o for o in second_body["step_outcomes"] if o["artifact_type"] == "anamnesis"
+    )
+    assert anamnesis_outcome["status"] == "skipped"
+    assert anamnesis_outcome["failure_reason"] is None
+    assert anamnesis_outcome["skipped_reason"] is not None
+
+
 async def test_run_pipeline_rejects_forbidden_and_diagnostic_language(
     api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
 ):

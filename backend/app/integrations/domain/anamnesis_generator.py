@@ -59,6 +59,14 @@ ANAMNESIS_FIELDS: tuple[str, ...] = (
 class AnamnesisFieldValue:
     value: str
     status: AnamnesisFieldStatus
+    #: Cita literal del transcript actual que respalda `informado`/
+    #: `negado_explicitamente` (Fase 6.4.2, RFC técnico §6) — `None` para
+    #: `no_preguntado`/`no_determinado`, nunca una cita inventada.
+    #: Verificado contra el transcript por `GroundingValidator` (única
+    #: fuente de evidencia válida — nunca el contexto longitudinal, ver
+    #: RFC técnico §7). Default `None` para no romper otros constructores
+    #: existentes.
+    source_excerpt: str | None = None
 
 
 @dataclass(slots=True, frozen=True)

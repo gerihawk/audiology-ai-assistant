@@ -19,7 +19,10 @@ from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS
 
 
 def _valid_anamnesis_content() -> dict:
-    return {name: {"value": "", "status": "no_preguntado"} for name in ANAMNESIS_FIELDS}
+    return {
+        name: {"value": "", "status": "no_preguntado", "source_excerpt": None}
+        for name in ANAMNESIS_FIELDS
+    }
 
 
 # --- transcript ---------------------------------------------------------
@@ -236,12 +239,116 @@ def test_anamnesis_estructura_anidada_invalida():
     assert any(ANAMNESIS_FIELDS[0] in e for e in result.errors)
 
 
-def test_anamnesis_no_exige_source_excerpt_todavia():
-    """Hito 6.1: la estructura cerrada de HOY no incluye `source_excerpt`
-    — eso llega con el grounding real de anamnesis en el hito 6.4."""
+def test_anamnesis_source_excerpt_es_obligatorio_como_clave():
+    """Fase 6.4.2: `source_excerpt` es obligatorio-presente-nullable
+    (mismo patrón que `clinical_flags[].source_excerpt`), nunca opcional
+    ni ausente — ni siquiera para `no_preguntado`."""
     content = _valid_anamnesis_content()
-    content[ANAMNESIS_FIELDS[0]] = {"value": "acúfenos", "status": "informado"}
+    del content[ANAMNESIS_FIELDS[0]]["source_excerpt"]
+    result = validate_content_schema(AIArtifactType.ANAMNESIS, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
+# --- las cuatro combinaciones status/source_excerpt (RFC técnico §6) -------
+
+
+def test_anamnesis_informado_con_source_excerpt_no_vacio_es_valido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "Acúfenos en oído izquierdo.",
+        "status": "informado",
+        "source_excerpt": "acúfenos en el oído izquierdo",
+    }
     assert validate_content_schema(AIArtifactType.ANAMNESIS, content).valid is True
+
+
+def test_anamnesis_informado_sin_source_excerpt_es_invalido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "Acúfenos.",
+        "status": "informado",
+        "source_excerpt": None,
+    }
+    result = validate_content_schema(AIArtifactType.ANAMNESIS, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
+def test_anamnesis_informado_con_source_excerpt_vacio_o_solo_espacios_es_invalido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "Acúfenos.",
+        "status": "informado",
+        "source_excerpt": "   ",
+    }
+    result = validate_content_schema(AIArtifactType.ANAMNESIS, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
+def test_anamnesis_negado_explicitamente_con_source_excerpt_no_vacio_es_valido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "El paciente niega vértigo.",
+        "status": "negado_explicitamente",
+        "source_excerpt": "niega vértigo",
+    }
+    assert validate_content_schema(AIArtifactType.ANAMNESIS, content).valid is True
+
+
+def test_anamnesis_negado_explicitamente_sin_source_excerpt_es_invalido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "El paciente niega vértigo.",
+        "status": "negado_explicitamente",
+        "source_excerpt": None,
+    }
+    result = validate_content_schema(AIArtifactType.ANAMNESIS, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
+def test_anamnesis_no_preguntado_con_source_excerpt_null_es_valido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {"value": "", "status": "no_preguntado", "source_excerpt": None}
+    assert validate_content_schema(AIArtifactType.ANAMNESIS, content).valid is True
+
+
+def test_anamnesis_no_preguntado_con_source_excerpt_inventado_es_invalido():
+    """Nunca una cita inventada para un campo sin evidencia real — RFC
+    técnico §6."""
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "",
+        "status": "no_preguntado",
+        "source_excerpt": "esto no debería estar aquí",
+    }
+    result = validate_content_schema(AIArtifactType.ANAMNESIS, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
+def test_anamnesis_no_determinado_con_source_excerpt_null_es_valido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "mención ambigua",
+        "status": "no_determinado",
+        "source_excerpt": None,
+    }
+    assert validate_content_schema(AIArtifactType.ANAMNESIS, content).valid is True
+
+
+def test_anamnesis_no_determinado_con_source_excerpt_inventado_es_invalido():
+    content = _valid_anamnesis_content()
+    content[ANAMNESIS_FIELDS[0]] = {
+        "value": "mención ambigua",
+        "status": "no_determinado",
+        "source_excerpt": "cita inventada",
+    }
+    result = validate_content_schema(AIArtifactType.ANAMNESIS, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
 
 
 # --- tipo no soportado ---------------------------------------------------
