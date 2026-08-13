@@ -39,6 +39,36 @@ class AIArtifactRepository(Protocol):
         """Excluye por defecto los artefactos con soft-delete."""
         ...
 
+    async def get_latest_approved(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        artifact_type: AIArtifactType,
+        *,
+        exclude_clinical_session_id: uuid.UUID,
+    ) -> AIArtifact | None:
+        """Última versión aprobada de `artifact_type` del paciente en
+        esta clínica, procedente de OTRA sesión clínica — consulta
+        longitudinal mínima de la Fase 6.4.1 (RFC técnico §1/Decisión
+        final 1), sin depender de `clinical_record` (Fase 6.7).
+
+        "Última" es la aprobación más reciente (`approved_at DESC`), no
+        la sesión más reciente — pueden divergir si se aprueba tarde una
+        sesión antigua. `exclude_clinical_session_id` excluye siempre la
+        sesión actual: una anamnesis que la propia sesión acaba de
+        aprobar nunca cuenta como "previa" de sí misma (evita que
+        reprocesar una sesión cambie su propia semántica clínica).
+
+        `status == APPROVED` ya implica "vigente": toda versión nueva
+        (generada por IA o editada por un humano) reabre
+        `REVIEW_PENDING` de inmediato — ver
+        `AIPipelineService._persist_completed_outcome`/`edit_content` —
+        así que nunca hay una versión `APPROVED` que no sea la
+        `current_version_id`. Excluye siempre soft-deleted. `None` si no
+        existe ninguna — nunca hace fallback a la sesión actual."""
+        ...
+
     async def list_by_session(
         self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_id: uuid.UUID
     ) -> list[AIArtifact]:

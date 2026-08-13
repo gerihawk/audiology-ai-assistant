@@ -8,6 +8,12 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clinical_sessions.domain.entities import (
+    ClinicalSession,
+    ClinicalSessionStatus,
+    SessionType,
+)
+from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSessionRepository
 from app.clinics.domain.entities import Clinic
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core.current_user import CurrentUser
@@ -105,6 +111,43 @@ async def create_patient(
     await SqlAlchemyPatientRepository().add(session, patient)
     await session.commit()
     return patient
+
+
+async def create_clinical_session(
+    session: AsyncSession,
+    clinic_id: uuid.UUID,
+    patient_id: uuid.UUID,
+    professional_id: uuid.UUID,
+    created_by: uuid.UUID,
+    *,
+    session_type: SessionType = SessionType.INITIAL_ASSESSMENT,
+    status: ClinicalSessionStatus = ClinicalSessionStatus.COMPLETED,
+) -> ClinicalSession:
+    clinical_session = ClinicalSession(
+        id=uuid.uuid4(),
+        clinic_id=clinic_id,
+        patient_id=patient_id,
+        professional_id=professional_id,
+        session_type=session_type,
+        status=status,
+        scheduled_at=None,
+        started_at=None,
+        ended_at=None,
+        title=None,
+        administrative_notes=None,
+        reviewed_by=None,
+        reviewed_at=None,
+        created_by=created_by,
+        updated_by=created_by,
+        created_at=_now(),
+        updated_at=_now(),
+        schema_version=1,
+        is_archived=False,
+        archived_at=None,
+    )
+    await SqlAlchemyClinicalSessionRepository().add(session, clinical_session)
+    await session.commit()
+    return clinical_session
 
 
 def dev_headers(user: User) -> dict[str, str]:

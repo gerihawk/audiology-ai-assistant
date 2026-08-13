@@ -7,25 +7,38 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from app.ai_pipeline.domain.entities import AIArtifactType, AIGenerationRunStatus
+from app.ai_pipeline.domain.patient_context import PatientContextRequirement
 from app.ai_pipeline.domain.pipeline import (
     PipelineExecutionContext,
     PipelineStepOutcome,
     SequentialPipelineOrchestrator,
+    SkipReasonCode,
 )
 from app.integrations.domain.session_context import SessionContext
 
 
 @dataclass(slots=True)
 class _FakeStep:
-    """Paso de prueba: siempre completa o siempre falla, según `should_fail`."""
+    """Paso de prueba: siempre completa o siempre falla, según
+    `should_fail`; `applies` controla `applies_to()` (Fase 6.4.1) — por
+    defecto `True`, mismo comportamiento que el default real del
+    `Protocol`, para no alterar los tests anteriores a 6.4.1."""
 
     artifact_type: AIArtifactType
     dependencies: frozenset[AIArtifactType]
     should_fail: bool = False
     calls: list[AIArtifactType] | None = None
+    applies: bool = True
+    requirements: frozenset[PatientContextRequirement] = frozenset()
 
     def depends_on(self) -> frozenset[AIArtifactType]:
         return self.dependencies
+
+    def patient_context_requirements(self) -> frozenset[PatientContextRequirement]:
+        return self.requirements
+
+    def applies_to(self, context: PipelineExecutionContext) -> bool:
+        return self.applies
 
     async def run(self, context: PipelineExecutionContext) -> PipelineStepOutcome:
         if self.calls is not None:
@@ -174,3 +187,82 @@ async def test_context_outputs_accumulate_only_completed_steps():
     assert AIArtifactType.TRANSCRIPT in context.outputs
     assert AIArtifactType.SUMMARY in context.outputs
     assert context.outputs[AIArtifactType.TRANSCRIPT] == {"text": "contenido de transcript"}
+
+
+# --- Fase 6.4.1: applies_to()/NOT_APPLICABLE ---------------------------------
+
+
+async def test_default_applies_to_is_true_for_step_without_override():
+    """Un step que no declara `applies` (default `True` de `_FakeStep`,
+    espejo del default real de `PipelineStep`) se comporta exactamente
+    como antes de 6.4.1: siempre se invoca."""
+    calls: list[AIArtifactType] = []
+    steps = [_FakeStep(AIArtifactType.TRANSCRIPT, frozenset(), calls=calls)]
+
+    result = await SequentialPipelineOrchestrator().run(_context(), steps)
+
+    assert calls == [AIArtifactType.TRANSCRIPT]
+    assert result.outcomes[0].status == AIGenerationRunStatus.COMPLETED
+
+
+async def test_applies_to_false_produces_skipped_not_applicable_without_invoking_run():
+    calls: list[AIArtifactType] = []
+    steps = [_FakeStep(AIArtifactType.ANAMNESIS, frozenset(), applies=False, calls=calls)]
+
+    result = await SequentialPipelineOrchestrator().run(_context(), steps)
+
+    assert calls == []  # run() nunca se invocó
+    outcome = result.outcomes[0]
+    assert outcome.status is None
+    assert outcome.skip_reason_code == SkipReasonCode.NOT_APPLICABLE
+    assert outcome.failure_reason is None  # NOT_APPLICABLE nunca es un fallo
+    assert outcome.skipped_reason is not None
+
+
+async def test_not_applicable_output_is_not_published_to_context_outputs():
+    steps = [_FakeStep(AIArtifactType.ANAMNESIS, frozenset(), applies=False)]
+    context = _context()
+
+    await SequentialPipelineOrchestrator().run(context, steps)
+
+    assert AIArtifactType.ANAMNESIS not in context.outputs
+
+
+async def test_not_applicable_step_blocks_downstream_hard_dependency():
+    """Un dependiente declarado en `depends_on()` de un step NOT_APPLICABLE
+    se salta con SKIPPED_DEPENDENCY — la ausencia de output bloquea igual
+    que un FAILED, aunque no sea un fallo (RFC técnico §10)."""
+    calls: list[AIArtifactType] = []
+    steps = [
+        _FakeStep(AIArtifactType.ANAMNESIS, frozenset(), applies=False, calls=calls),
+        _FakeStep(
+            AIArtifactType.SUMMARY, frozenset({AIArtifactType.ANAMNESIS}), calls=calls
+        ),  # dependencia artificial solo para probar la propagación
+    ]
+
+    result = await SequentialPipelineOrchestrator().run(_context(), steps)
+
+    assert calls == []  # ni el NOT_APPLICABLE ni su dependiente invocan run()
+    outcomes_by_type = {o.artifact_type: o for o in result.outcomes}
+    assert outcomes_by_type[AIArtifactType.ANAMNESIS].skip_reason_code == (
+        SkipReasonCode.NOT_APPLICABLE
+    )
+    downstream = outcomes_by_type[AIArtifactType.SUMMARY]
+    assert downstream.status is None
+    assert downstream.skip_reason_code == SkipReasonCode.DEPENDENCY_FAILED_OR_SKIPPED
+
+
+async def test_dependency_cascade_skip_still_reports_dependency_skip_reason_code():
+    """Regresión explícita: la cascada de fallo existente sigue marcando
+    `DEPENDENCY_FAILED_OR_SKIPPED`, nunca `NOT_APPLICABLE`."""
+    steps = [
+        _FakeStep(AIArtifactType.TRANSCRIPT, frozenset(), should_fail=True),
+        _FakeStep(AIArtifactType.SUMMARY, frozenset({AIArtifactType.TRANSCRIPT})),
+    ]
+
+    result = await SequentialPipelineOrchestrator().run(_context(), steps)
+
+    outcomes_by_type = {o.artifact_type: o for o in result.outcomes}
+    assert outcomes_by_type[AIArtifactType.SUMMARY].skip_reason_code == (
+        SkipReasonCode.DEPENDENCY_FAILED_OR_SKIPPED
+    )

@@ -6,7 +6,11 @@ import dataclasses
 import uuid
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.ai_pipeline.domain.pipeline import PipelineExecutionContext, PipelineStepOutcome
+from app.ai_pipeline.domain.pipeline import (
+    PipelineExecutionContext,
+    PipelineStep,
+    PipelineStepOutcome,
+)
 from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.summary_generator import SummaryGenerator
@@ -15,7 +19,7 @@ from app.integrations.domain.token_counter import TokenCounter
 _CONFIDENCE = 75
 
 
-class SummaryStep:
+class SummaryStep(PipelineStep):
     artifact_type = AIArtifactType.SUMMARY
 
     def __init__(

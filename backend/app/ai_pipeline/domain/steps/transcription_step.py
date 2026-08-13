@@ -6,7 +6,11 @@ import dataclasses
 from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType, AIGenerationRunStatus
-from app.ai_pipeline.domain.pipeline import PipelineExecutionContext, PipelineStepOutcome
+from app.ai_pipeline.domain.pipeline import (
+    PipelineExecutionContext,
+    PipelineStep,
+    PipelineStepOutcome,
+)
 from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.token_counter import TokenCounter
@@ -19,7 +23,7 @@ from app.integrations.domain.transcription_provider import (
 _DEFAULT_CONFIDENCE = 70
 
 
-class TranscriptionStep:
+class TranscriptionStep(PipelineStep):
     artifact_type = AIArtifactType.TRANSCRIPT
 
     def __init__(
