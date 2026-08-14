@@ -28,7 +28,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.ai_pipeline.domain.patient_context import PatientContextRequirement, PreviousAnamnesisRef
+from app.ai_pipeline.domain.patient_context import (
+    PatientContextRequirement,
+    PreviousAnamnesisRef,
+    resolve_missing_information_target,
+)
 from app.ai_pipeline.domain.pipeline import (
     PipelineExecutionContext,
     PipelineStep,
@@ -36,6 +40,7 @@ from app.ai_pipeline.domain.pipeline import (
 )
 from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.cost_estimator import CostEstimator
+from app.integrations.domain.missing_information_generator import MissingInformationTarget
 from app.integrations.domain.session_notes_generator import SessionNotesGenerator
 from app.integrations.domain.token_counter import TokenCounter
 
@@ -86,9 +91,13 @@ class SessionNotesStep(PipelineStep):
         return frozenset({PatientContextRequirement.PREVIOUS_APPROVED_ANAMNESIS})
 
     def applies_to(self, context: PipelineExecutionContext) -> bool:
-        if context.patient_context is None:
-            return False
-        return context.patient_context.previous_approved_anamnesis is not None
+        """Espejo exacto e inverso de `AnamnesisStep.applies_to()`, ambos
+        delegados en `resolve_missing_information_target` (Fase 6.4.4) —
+        misma fuente de verdad, nunca reglas duplicadas. `target is None`
+        (contexto nunca cargado) nunca aplica aquí: default seguro
+        simétrico e inverso al de `AnamnesisStep`."""
+        target = resolve_missing_information_target(context.patient_context)
+        return target == MissingInformationTarget.SESSION_NOTES_BLOCKS
 
     async def run(self, context: PipelineExecutionContext) -> PipelineStepOutcome:
         transcript_text: str = context.outputs[AIArtifactType.TRANSCRIPT]["text"]

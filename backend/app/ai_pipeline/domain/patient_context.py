@@ -18,6 +18,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from app.integrations.domain.missing_information_generator import MissingInformationTarget
+
 
 class PatientContextRequirement(StrEnum):
     """Requisitos declarativos de contexto longitudinal que un
@@ -58,3 +60,26 @@ class LoadedPatientContext:
 
     session_type: str | None
     previous_approved_anamnesis: PreviousAnamnesisRef | None
+
+
+def resolve_missing_information_target(
+    patient_context: LoadedPatientContext | None,
+) -> MissingInformationTarget | None:
+    """Única fuente de verdad de la decisión binaria "anamnesis previa
+    aprobada, sí o no" — Fase 6.4.4, RFC técnico de 6.4 §3/§10. Pura, sin
+    I/O: reutilizada por `AnamnesisStep.applies_to()`,
+    `SessionNotesStep.applies_to()` y `MissingInformationStep`, para que
+    los tres deriven siempre del mismo `LoadedPatientContext` sin
+    reglas duplicadas que puedan divergir.
+
+    `None` únicamente cuando `patient_context` nunca se cargó — caso
+    defensivo, hoy inalcanzable en producción una vez que los tres steps
+    declaran `PREVIOUS_APPROVED_ANAMNESIS` en
+    `patient_context_requirements()`. Nunca se inventa un target por
+    defecto: cada llamador decide qué hacer con `None` (ver
+    `MissingInformationStep.applies_to()`)."""
+    if patient_context is None:
+        return None
+    if patient_context.previous_approved_anamnesis is None:
+        return MissingInformationTarget.ANAMNESIS_FIELDS
+    return MissingInformationTarget.SESSION_NOTES_BLOCKS

@@ -159,14 +159,18 @@ def _outcome(body: dict, artifact_type: str) -> dict:
 async def test_run_pipeline_anamnesis_and_session_notes_are_mutually_exclusive_across_sessions(
     api_client: AsyncClient, clinic_with_users: ClinicWithUsers, patient: Patient
 ):
-    """Integración de extremo a extremo de las Fases 6.4.2/6.4.3 (RFC
-    técnico §5/§9): en la PRIMERA sesión de un paciente (sin anamnesis
-    previa), ANAMNESIS aplica y SESSION_NOTES se salta como
-    NOT_APPLICABLE. Tras aprobar esa ANAMNESIS, una SEGUNDA sesión del
-    MISMO paciente invierte el resultado: ANAMNESIS se salta,
-    SESSION_NOTES aplica y completa — sin degradar `AIPipelineRunStatus`
-    a `partially_failed` en ningún caso (Decisión final 2 de 6.4.1) y sin
-    persistir un `AIArtifact` para el step que en cada momento se salta."""
+    """Integración de extremo a extremo de las Fases 6.4.2/6.4.3/6.4.4 (RFC
+    técnico §5/§9/§10): en la PRIMERA sesión de un paciente (sin anamnesis
+    previa), ANAMNESIS aplica, SESSION_NOTES se salta como NOT_APPLICABLE
+    y MISSING_INFORMATION produce sugerencias orientadas a
+    `ANAMNESIS_FIELDS` (Mock determinista, ver
+    `mock_missing_information_generator.py`). Tras aprobar esa ANAMNESIS,
+    una SEGUNDA sesión del MISMO paciente invierte el resultado: ANAMNESIS
+    se salta, SESSION_NOTES aplica y completa, y MISSING_INFORMATION pasa
+    a producir sugerencias orientadas a `SESSION_NOTES_BLOCKS` — sin
+    degradar `AIPipelineRunStatus` a `partially_failed` en ningún caso
+    (Decisión final 2 de 6.4.1) y sin persistir un `AIArtifact` para el
+    step que en cada momento se salta."""
     headers = dev_headers(clinic_with_users.admin)
     first_session = await _create_session(
         api_client, headers, str(patient.id), str(clinic_with_users.audiologist.id)
@@ -183,6 +187,12 @@ async def test_run_pipeline_anamnesis_and_session_notes_are_mutually_exclusive_a
     assert first_session_notes_outcome["status"] == "skipped"
     assert first_session_notes_outcome["failure_reason"] is None
     assert first_session_notes_outcome["skipped_reason"] is not None
+
+    first_missing_information = next(
+        a for a in first_body["artifacts"] if a["artifact_type"] == "missing_information"
+    )
+    first_missing_topics = {item["topic"] for item in first_missing_information["content"]["items"]}
+    assert first_missing_topics == {"antecedentes_familiares", "exposicion_ruido"}
 
     first_anamnesis = next(a for a in first_body["artifacts"] if a["artifact_type"] == "anamnesis")
     approve_response = await api_client.post(
@@ -209,6 +219,15 @@ async def test_run_pipeline_anamnesis_and_session_notes_are_mutually_exclusive_a
 
     second_session_notes_outcome = _outcome(second_body, "session_notes")
     assert second_session_notes_outcome["status"] == "completed"
+
+    second_missing_information = next(
+        a for a in second_body["artifacts"] if a["artifact_type"] == "missing_information"
+    )
+    second_missing_topics = {
+        item["topic"] for item in second_missing_information["content"]["items"]
+    }
+    assert second_missing_topics == {"device_adjustments", "next_steps"}
+    assert second_missing_topics.isdisjoint(first_missing_topics)
 
 
 async def test_run_pipeline_rejects_forbidden_and_diagnostic_language(

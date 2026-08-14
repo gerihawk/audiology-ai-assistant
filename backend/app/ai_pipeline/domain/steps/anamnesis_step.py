@@ -24,7 +24,10 @@ from __future__ import annotations
 from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.ai_pipeline.domain.patient_context import PatientContextRequirement
+from app.ai_pipeline.domain.patient_context import (
+    PatientContextRequirement,
+    resolve_missing_information_target,
+)
 from app.ai_pipeline.domain.pipeline import (
     PipelineExecutionContext,
     PipelineStep,
@@ -33,7 +36,10 @@ from app.ai_pipeline.domain.pipeline import (
 from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
-from app.integrations.domain.missing_information_generator import MissingInfoItem
+from app.integrations.domain.missing_information_generator import (
+    MissingInfoItem,
+    MissingInformationTarget,
+)
 from app.integrations.domain.token_counter import TokenCounter
 
 _CONFIDENCE = 55
@@ -69,15 +75,15 @@ class AnamnesisStep(PipelineStep):
         `context.patient_context`, ya resuelto por `AIPipelineService`
         antes de invocar al orquestador — nunca consulta un repositorio.
 
-        `context.patient_context is None` (contexto nunca cargado, p. ej.
-        un `PipelineExecutionContext` construido a mano en un test sin
-        pasar por el servicio) se trata como "sin anamnesis previa
-        conocida" y por tanto aplica — mismo comportamiento por defecto
-        que tenía este step antes de 6.4.2, nunca se salta por una
-        ausencia de dato que no es responsabilidad suya resolver."""
-        if context.patient_context is None:
-            return True
-        return context.patient_context.previous_approved_anamnesis is None
+        Delegado en `resolve_missing_information_target` (Fase 6.4.4):
+        misma fuente de verdad binaria que `SessionNotesStep.applies_to()`
+        y `MissingInformationStep`, sin reglas duplicadas. `target is
+        None` (contexto nunca cargado, p. ej. un `PipelineExecutionContext`
+        construido a mano en un test sin pasar por el servicio) se trata
+        como "sin anamnesis previa conocida" y por tanto aplica — mismo
+        comportamiento por defecto que tenía este step antes de 6.4.2."""
+        target = resolve_missing_information_target(context.patient_context)
+        return target != MissingInformationTarget.SESSION_NOTES_BLOCKS
 
     async def run(self, context: PipelineExecutionContext) -> PipelineStepOutcome:
         transcript_text: str = context.outputs[AIArtifactType.TRANSCRIPT]["text"]

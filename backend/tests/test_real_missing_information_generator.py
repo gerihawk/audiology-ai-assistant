@@ -12,12 +12,18 @@ from app.ai_pipeline.domain.entities import AIArtifactType, PromptTemplate
 from app.ai_pipeline.domain.errors import AIGenerationFailureReason, TransientProviderError
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagDraft
 from app.integrations.domain.language_model_provider import LanguageModelResponse
+from app.integrations.domain.missing_information_generator import MissingInformationTarget
 from app.integrations.domain.session_context import SessionContext
 from app.integrations.providers.real_missing_information_generator import (
     RealMissingInformationGenerator,
 )
 
 _CONTEXT = SessionContext(clinical_session_id=uuid.uuid4())
+#: Target arbitrario para los tests que no ejercitan target-awareness en
+#: sí — Fase 6.4.4: el real generator todavía no lo usa (ver
+#: `test_target_no_altera_el_prompt_renderizado_en_6_4_4`), así que
+#: cualquier valor válido es equivalente aquí.
+_TARGET = MissingInformationTarget.ANAMNESIS_FIELDS
 
 
 class _FakeLanguageModelProvider:
@@ -60,7 +66,7 @@ async def test_json_valido_produce_items_con_usage():
     )
     generator = RealMissingInformationGenerator(provider, _template(), model="claude-opus-5")
 
-    result = await generator.generate("resumen", [], context=_CONTEXT)
+    result = await generator.generate("resumen", [], target=_TARGET, context=_CONTEXT)
 
     assert len(result.items) == 1
     assert result.items[0].topic == "antecedentes_familiares"
@@ -72,7 +78,7 @@ async def test_sin_flags_usa_texto_explicito_de_ausencia():
     provider = _FakeLanguageModelProvider(LanguageModelResponse(text=_VALID_RESPONSE))
     generator = RealMissingInformationGenerator(provider, _template(), model="m")
 
-    await generator.generate("resumen", [], context=_CONTEXT)
+    await generator.generate("resumen", [], target=_TARGET, context=_CONTEXT)
 
     assert "Sin señales de alerta detectadas." in provider.received_prompt.user
 
@@ -89,7 +95,7 @@ async def test_con_flags_los_incluye_como_texto_legible():
         )
     ]
 
-    await generator.generate("resumen", flags, context=_CONTEXT)
+    await generator.generate("resumen", flags, target=_TARGET, context=_CONTEXT)
 
     assert "tinnitus_unilateral: Posible motivo de derivación." in provider.received_prompt.user
     # El source_excerpt nunca se filtra al prompt de este step (ver docstring).
@@ -100,7 +106,7 @@ async def test_items_vacio_es_valido():
     provider = _FakeLanguageModelProvider(LanguageModelResponse(text='{"items": []}'))
     generator = RealMissingInformationGenerator(provider, _template(), model="m")
 
-    result = await generator.generate("resumen", [], context=_CONTEXT)
+    result = await generator.generate("resumen", [], target=_TARGET, context=_CONTEXT)
 
     assert result.items == []
 
@@ -110,7 +116,7 @@ async def test_json_invalido_lanza_transient_provider_error():
     generator = RealMissingInformationGenerator(provider, _template(), model="m")
 
     with pytest.raises(TransientProviderError) as exc_info:
-        await generator.generate("resumen", [], context=_CONTEXT)
+        await generator.generate("resumen", [], target=_TARGET, context=_CONTEXT)
     assert exc_info.value.reason == AIGenerationFailureReason.INVALID_RESPONSE_FORMAT
 
 
@@ -119,7 +125,7 @@ async def test_items_no_es_lista_lanza_transient_provider_error():
     generator = RealMissingInformationGenerator(provider, _template(), model="m")
 
     with pytest.raises(TransientProviderError) as exc_info:
-        await generator.generate("resumen", [], context=_CONTEXT)
+        await generator.generate("resumen", [], target=_TARGET, context=_CONTEXT)
     assert exc_info.value.reason == AIGenerationFailureReason.INVALID_RESPONSE_FORMAT
 
 
@@ -128,5 +134,26 @@ async def test_item_con_forma_incorrecta_lanza_transient_provider_error():
     generator = RealMissingInformationGenerator(provider, _template(), model="m")
 
     with pytest.raises(TransientProviderError) as exc_info:
-        await generator.generate("resumen", [], context=_CONTEXT)
+        await generator.generate("resumen", [], target=_TARGET, context=_CONTEXT)
     assert exc_info.value.reason == AIGenerationFailureReason.INVALID_RESPONSE_FORMAT
+
+
+async def test_target_no_altera_el_prompt_renderizado_en_6_4_4():
+    """Fase 6.4.4, Opción B (RFC técnico §7): el `target` se acepta por
+    conformidad de protocolo, pero `missing_information_es_v1` no declara
+    ninguna variable de esquema/target — el prompt renderizado debe ser
+    IDÉNTICO sin importar qué target se pase, hasta que exista una
+    plantilla v2 que lo exprese explícitamente."""
+    provider_a = _FakeLanguageModelProvider(LanguageModelResponse(text=_VALID_RESPONSE))
+    provider_b = _FakeLanguageModelProvider(LanguageModelResponse(text=_VALID_RESPONSE))
+    template = _template()
+
+    await RealMissingInformationGenerator(provider_a, template, model="m").generate(
+        "resumen", [], target=MissingInformationTarget.ANAMNESIS_FIELDS, context=_CONTEXT
+    )
+    await RealMissingInformationGenerator(provider_b, template, model="m").generate(
+        "resumen", [], target=MissingInformationTarget.SESSION_NOTES_BLOCKS, context=_CONTEXT
+    )
+
+    assert provider_a.received_prompt.system == provider_b.received_prompt.system
+    assert provider_a.received_prompt.user == provider_b.received_prompt.user
