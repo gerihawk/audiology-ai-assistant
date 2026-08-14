@@ -27,6 +27,10 @@ class AIArtifactType(StrEnum):
     #: `PIPELINE_STEP_ORDER`: sin `PipelineStep`, sin entrada en el catálogo
     #: de `service.py`, nunca se genera en producción hasta el hito 6.3.
     PATIENT_SUMMARY = "patient_summary"
+    #: Contrato cerrado por docs/fase-6-rfc.md §4.7 (hito 6.4.3, RFC
+    #: técnico de 6.4 §8). Mutuamente excluyente con `ANAMNESIS` en la
+    #: misma sesión — ver `applies_to()` de ambos steps.
+    SESSION_NOTES = "session_notes"
 
 
 class AIArtifactStatus(StrEnum):
@@ -61,7 +65,11 @@ class AIPipelineRunStatus(StrEnum):
 #: docs/fase-6-rfc.md §4.3) se inserta justo después de `SUMMARY`: su único
 #: `depends_on()` formal es `TRANSCRIPT`, pero debe ejecutarse después de
 #: `SUMMARY` para que `context.outputs` ya tenga su salida disponible como
-#: enriquecimiento opcional — ver `PatientSummaryStep`.
+#: enriquecimiento opcional — ver `PatientSummaryStep`. `SESSION_NOTES`
+#: (Fase 6.4.3) se inserta justo después de `ANAMNESIS`: ambos son
+#: mutuamente excluyentes vía `applies_to()` y ninguno depende del otro
+#: formalmente — la posición solo refleja que son "la alternativa" uno
+#: del otro, no un requisito de `depends_on()`.
 PIPELINE_STEP_ORDER: tuple[AIArtifactType, ...] = (
     AIArtifactType.TRANSCRIPT,
     AIArtifactType.SUMMARY,
@@ -69,6 +77,7 @@ PIPELINE_STEP_ORDER: tuple[AIArtifactType, ...] = (
     AIArtifactType.CLINICAL_FLAGS,
     AIArtifactType.MISSING_INFORMATION,
     AIArtifactType.ANAMNESIS,
+    AIArtifactType.SESSION_NOTES,
 )
 
 

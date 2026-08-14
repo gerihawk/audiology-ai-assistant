@@ -16,6 +16,11 @@ import pytest
 from app.ai_pipeline.domain.entities import AIArtifactType
 from app.ai_pipeline.domain.schemas import UnsupportedArtifactTypeError, validate_content_schema
 from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS
+from app.integrations.domain.session_notes_generator import SESSION_NOTES_BLOCKS
+
+
+def _valid_session_notes_content() -> dict:
+    return {name: {"text": "", "source_excerpt": None} for name in SESSION_NOTES_BLOCKS}
 
 
 def _valid_anamnesis_content() -> dict:
@@ -351,9 +356,87 @@ def test_anamnesis_no_determinado_con_source_excerpt_inventado_es_invalido():
     assert any("source_excerpt" in e for e in result.errors)
 
 
+# --- session_notes -----------------------------------------------------------
+
+
+def test_session_notes_valido_con_los_4_bloques():
+    result = validate_content_schema(AIArtifactType.SESSION_NOTES, _valid_session_notes_content())
+    assert result.valid is True
+
+
+def test_session_notes_bloque_vacio_es_valido():
+    """RFC §4.7: `text=""`/`source_excerpt=None` es la única
+    representación válida de "bloque no explorado"."""
+    content = _valid_session_notes_content()
+    content[SESSION_NOTES_BLOCKS[0]] = {"text": "", "source_excerpt": None}
+    assert validate_content_schema(AIArtifactType.SESSION_NOTES, content).valid is True
+
+
+def test_session_notes_texto_no_vacio_sin_excerpt_es_invalido():
+    content = _valid_session_notes_content()
+    content[SESSION_NOTES_BLOCKS[0]] = {
+        "text": "Ajuste de volumen realizado.",
+        "source_excerpt": None,
+    }
+    result = validate_content_schema(AIArtifactType.SESSION_NOTES, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
+def test_session_notes_excerpt_sin_texto_es_invalido():
+    """Nunca una cita para un bloque que declara no tener contenido."""
+    content = _valid_session_notes_content()
+    content[SESSION_NOTES_BLOCKS[0]] = {"text": "", "source_excerpt": "cita inventada"}
+    result = validate_content_schema(AIArtifactType.SESSION_NOTES, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
+def test_session_notes_texto_con_excerpt_no_vacio_es_valido():
+    content = _valid_session_notes_content()
+    content[SESSION_NOTES_BLOCKS[0]] = {
+        "text": "Ajuste de volumen realizado.",
+        "source_excerpt": "ajustamos el volumen",
+    }
+    assert validate_content_schema(AIArtifactType.SESSION_NOTES, content).valid is True
+
+
+def test_session_notes_falta_bloque_obligatorio():
+    content = _valid_session_notes_content()
+    del content[SESSION_NOTES_BLOCKS[0]]
+    result = validate_content_schema(AIArtifactType.SESSION_NOTES, content)
+    assert result.valid is False
+    assert any(SESSION_NOTES_BLOCKS[0] in e for e in result.errors)
+
+
+def test_session_notes_bloque_desconocido():
+    content = _valid_session_notes_content()
+    content["bloque_inventado"] = {"text": "", "source_excerpt": None}
+    assert validate_content_schema(AIArtifactType.SESSION_NOTES, content).valid is False
+
+
+def test_session_notes_estructura_anidada_invalida():
+    content = _valid_session_notes_content()
+    content[SESSION_NOTES_BLOCKS[0]] = "no-es-un-objeto"
+    result = validate_content_schema(AIArtifactType.SESSION_NOTES, content)
+    assert result.valid is False
+    assert any(SESSION_NOTES_BLOCKS[0] in e for e in result.errors)
+
+
+def test_session_notes_source_excerpt_es_obligatorio_como_clave():
+    content = _valid_session_notes_content()
+    del content[SESSION_NOTES_BLOCKS[0]]["source_excerpt"]
+    result = validate_content_schema(AIArtifactType.SESSION_NOTES, content)
+    assert result.valid is False
+    assert any("source_excerpt" in e for e in result.errors)
+
+
 # --- tipo no soportado ---------------------------------------------------
 
 
 def test_tipo_no_registrado_lanza_error_tipado():
+    # "session_notes" fue el ejemplo histórico de tipo no registrado hasta
+    # la Fase 6.4.3 — ahora sí tiene esquema, así que ya no sirve como
+    # caso de "no soportado" (ver test_session_notes_valido_con_los_4_bloques).
     with pytest.raises(UnsupportedArtifactTypeError):
-        validate_content_schema("session_notes", {})
+        validate_content_schema("clinical_record", {})

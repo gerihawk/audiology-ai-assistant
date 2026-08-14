@@ -101,7 +101,10 @@ async def test_coste_acumulado_de_una_ejecucion_previa_bloquea_la_siguiente(
     §6.3. Seis steps a 15 USD cada uno (90 USD, incluido `PATIENT_SUMMARY`
     desde el hito 6.3.1) caben en un límite de 110 en la primera ejecución;
     en la segunda, el coste ya acumulado deja presupuesto solo para el
-    primer step."""
+    primer step. `SESSION_NOTES` (Fase 6.4.3) es un 7º step, pero esta
+    sesión no tiene anamnesis previa aprobada: se salta como
+    NOT_APPLICABLE, nunca invoca al proveedor y por tanto nunca cuesta
+    nada — la cuenta de "seis steps a 15 USD" no cambia."""
     _enforce_cost_limit(monkeypatch, limit_usd=Decimal("110"))
     headers = dev_headers(clinic_with_users.admin)
     session = await _create_session(
@@ -115,9 +118,14 @@ async def test_coste_acumulado_de_una_ejecucion_previa_bloquea_la_siguiente(
     first_run = await AIPipelineService(db_session, cost_estimator=cost_estimator).run_pipeline(
         current_user, session_id, "req-cost-a"
     )
+    billable_outcomes = [
+        o for o in first_run.outcomes if o.artifact_type != AIArtifactType.SESSION_NOTES
+    ]
     assert all(
-        o.status == AIGenerationRunStatus.COMPLETED for o in first_run.outcomes
+        o.status == AIGenerationRunStatus.COMPLETED for o in billable_outcomes
     ), first_run.outcomes
+    session_notes_outcome = _outcome_for(first_run.outcomes, AIArtifactType.SESSION_NOTES)
+    assert session_notes_outcome.status is None
 
     second_run = await AIPipelineService(db_session, cost_estimator=cost_estimator).run_pipeline(
         current_user, session_id, "req-cost-b"

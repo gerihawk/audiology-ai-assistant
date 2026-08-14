@@ -11,6 +11,7 @@ from app.ai_pipeline.domain.entities import AIArtifactType
 from app.ai_pipeline.domain.errors import AIGenerationFailureReason
 from app.ai_pipeline.domain.validation_pipeline import validate_generated_content
 from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS
+from app.integrations.domain.session_notes_generator import SESSION_NOTES_BLOCKS
 
 _TRANSCRIPT = "El paciente refiere acúfenos en el oído izquierdo. Niega vértigo."
 
@@ -20,6 +21,12 @@ def _anamnesis_content(**overrides: dict) -> dict:
         name: {"value": "", "status": "no_preguntado", "source_excerpt": None}
         for name in ANAMNESIS_FIELDS
     }
+    content.update(overrides)
+    return content
+
+
+def _session_notes_content(**overrides: dict) -> dict:
+    content = {name: {"text": "", "source_excerpt": None} for name in SESSION_NOTES_BLOCKS}
     content.update(overrides)
     return content
 
@@ -226,6 +233,66 @@ def test_anamnesis_no_determinado_con_source_excerpt_null_es_valido():
         }
     )
     outcome = validate_generated_content(AIArtifactType.ANAMNESIS, content, _TRANSCRIPT)
+    assert outcome.ok is True
+
+
+# --- session_notes: grounding real (Fase 6.4.3) -----------------------------
+
+
+def test_session_notes_con_excerpt_grounded_construye_source_map():
+    content = _session_notes_content(
+        **{
+            SESSION_NOTES_BLOCKS[0]: {
+                "text": "Mejoría referida por el paciente.",
+                "source_excerpt": "acúfenos en el oído izquierdo",
+            }
+        }
+    )
+    outcome = validate_generated_content(AIArtifactType.SESSION_NOTES, content, _TRANSCRIPT)
+    assert outcome.ok is True
+    assert outcome.source_map is not None
+    assert outcome.source_map[SESSION_NOTES_BLOCKS[0]]["excerpt"] == "acúfenos en el oído izquierdo"
+
+
+def test_session_notes_con_excerpt_falso_se_rechaza_por_grounding():
+    content = _session_notes_content(
+        **{
+            SESSION_NOTES_BLOCKS[0]: {
+                "text": "Mejoría referida.",
+                "source_excerpt": "esto no aparece en la transcripción",
+            }
+        }
+    )
+    outcome = validate_generated_content(AIArtifactType.SESSION_NOTES, content, _TRANSCRIPT)
+    assert outcome.ok is False
+    assert outcome.failure_reason == AIGenerationFailureReason.GROUNDING_FAILED
+    assert outcome.content is None
+
+
+def test_session_notes_excerpt_presente_solo_en_contexto_longitudinal_falla_grounding():
+    """Separación evidencia actual / contexto longitudinal (RFC técnico
+    §7, Fase 6.4.3): un `source_excerpt` que solo existe en un texto
+    DISTINTO del transcript actual recibido como `reference_text` (aquí,
+    un texto que representa lo que sería contexto de anamnesis previa)
+    nunca satisface el grounding de la sesión actual, sin importar de
+    dónde provenga ese otro texto."""
+    longitudinal_context_only_text = "Antecedente de exposición a ruido laboral prolongada."
+    content = _session_notes_content(
+        **{
+            SESSION_NOTES_BLOCKS[0]: {
+                "text": "Exposición a ruido comentada de nuevo.",
+                "source_excerpt": longitudinal_context_only_text,
+            }
+        }
+    )
+    outcome = validate_generated_content(AIArtifactType.SESSION_NOTES, content, _TRANSCRIPT)
+    assert outcome.ok is False
+    assert outcome.failure_reason == AIGenerationFailureReason.GROUNDING_FAILED
+
+
+def test_session_notes_todos_los_bloques_vacios_es_valido():
+    content = _session_notes_content()
+    outcome = validate_generated_content(AIArtifactType.SESSION_NOTES, content, _TRANSCRIPT)
     assert outcome.ok is True
 
 

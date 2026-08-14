@@ -57,6 +57,7 @@ from app.ai_pipeline.domain.steps.anamnesis_step import AnamnesisStep
 from app.ai_pipeline.domain.steps.clinical_flags_step import ClinicalFlagsStep
 from app.ai_pipeline.domain.steps.missing_information_step import MissingInformationStep
 from app.ai_pipeline.domain.steps.patient_summary_step import PatientSummaryStep
+from app.ai_pipeline.domain.steps.session_notes_step import SessionNotesStep
 from app.ai_pipeline.domain.steps.summary_step import SummaryStep
 from app.ai_pipeline.domain.steps.transcription_step import TranscriptionStep
 from app.ai_pipeline.infrastructure.repository import (
@@ -95,6 +96,7 @@ from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.missing_information_generator import MissingInformationGenerator
 from app.integrations.domain.patient_summary_generator import PatientSummaryGenerator
 from app.integrations.domain.session_context import SessionContext
+from app.integrations.domain.session_notes_generator import SessionNotesGenerator
 from app.integrations.domain.summary_generator import SummaryGenerator
 from app.integrations.domain.token_counter import TokenCounter
 from app.integrations.domain.transcription_provider import (
@@ -109,6 +111,7 @@ from app.integrations.mocks.mock_missing_information_generator import (
     MockMissingInformationGenerator,
 )
 from app.integrations.mocks.mock_patient_summary_generator import MockPatientSummaryGenerator
+from app.integrations.mocks.mock_session_notes_generator import MockSessionNotesGenerator
 from app.integrations.mocks.mock_summary_generator import MockSummaryGenerator
 from app.integrations.mocks.mock_token_counter import MockTokenCounter
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
@@ -173,6 +176,7 @@ class AIPipelineService:
         clinical_flags_generator: ClinicalFlagsGenerator | None = None,
         missing_information_generator: MissingInformationGenerator | None = None,
         anamnesis_generator: AnamnesisGenerator | None = None,
+        session_notes_generator: SessionNotesGenerator | None = None,
         token_counter: TokenCounter | None = None,
         cost_estimator: CostEstimator | None = None,
         llm_cost_estimator: CostEstimator | None = None,
@@ -212,6 +216,7 @@ class AIPipelineService:
             missing_information_generator or MockMissingInformationGenerator()
         )
         self._anamnesis_generator = anamnesis_generator or MockAnamnesisGenerator()
+        self._session_notes_generator = session_notes_generator or MockSessionNotesGenerator()
         self._token_counter = token_counter or MockTokenCounter()
         self._cost_estimator = cost_estimator or MockCostEstimator()
         # Fase 6.3.8: estimador de coste real, EXCLUSIVO de los steps con
@@ -1043,6 +1048,7 @@ class AIPipelineService:
             AIArtifactType.CLINICAL_FLAGS: self._mock_clinical_flags_step(),
             AIArtifactType.MISSING_INFORMATION: missing_information_step,
             AIArtifactType.ANAMNESIS: self._mock_anamnesis_step(),
+            AIArtifactType.SESSION_NOTES: self._mock_session_notes_step(),
         }
         return [steps_by_type[artifact_type] for artifact_type in PIPELINE_STEP_ORDER]
 
@@ -1076,6 +1082,7 @@ class AIPipelineService:
                 self._missing_information_generator, self._token_counter, self._cost_estimator
             ),
             AIArtifactType.ANAMNESIS: self._mock_anamnesis_step(),
+            AIArtifactType.SESSION_NOTES: self._mock_session_notes_step(),
         }
         return [steps_by_type[artifact_type] for artifact_type in PIPELINE_STEP_ORDER]
 
@@ -1101,6 +1108,15 @@ class AIPipelineService:
         routing real en 6.4.1 (RFC técnico §11 — pendiente de benchmark
         propio antes de activar un proveedor real, hito 6.4.2+)."""
         return AnamnesisStep(self._anamnesis_generator, self._token_counter, self._cost_estimator)
+
+    def _mock_session_notes_step(self) -> SessionNotesStep:
+        """Igual que `_mock_transcription_step`: `SESSION_NOTES` sigue sin
+        routing real en 6.4.3 (RFC técnico §11 — misma razón que
+        `ANAMNESIS`: pendiente de benchmark propio antes de activar un
+        proveedor real)."""
+        return SessionNotesStep(
+            self._session_notes_generator, self._token_counter, self._cost_estimator
+        )
 
     async def _build_summary_step(self, settings: Settings) -> SummaryStep:
         provider_name = settings.llm_provider_summary

@@ -42,6 +42,13 @@ _ALL_ARTIFACT_TYPES = {
     "missing_information",
     "anamnesis",
 }
+#: `_ALL_ARTIFACT_TYPES` + `session_notes` (Fase 6.4.3) — usado donde se
+#: verifica el conjunto completo de STEPS del pipeline (p. ej. metadata de
+#: auditoría, que registra todo `step_outcome` incluidos los saltados),
+#: nunca donde se verifican artefactos efectivamente PERSISTIDOS: en una
+#: primera sesión sin anamnesis previa, `session_notes` se salta como
+#: NOT_APPLICABLE y nunca llega a `body["artifacts"]`.
+_ALL_PIPELINE_STEP_TYPES = _ALL_ARTIFACT_TYPES | {"session_notes"}
 
 
 async def _create_session(
@@ -97,8 +104,20 @@ async def test_run_pipeline_creates_all_five_artifacts(
     assert body["status"] == "completed"
     artifact_types = {a["artifact_type"] for a in body["artifacts"]}
     assert artifact_types == _ALL_ARTIFACT_TYPES
-    assert len(body["step_outcomes"]) == 6
-    assert all(o["status"] == "completed" for o in body["step_outcomes"])
+
+    # SESSION_NOTES (Fase 6.4.3) es el 7º step del pipeline, pero esta es
+    # la primera sesión del paciente — sin anamnesis previa aprobada, se
+    # salta como NOT_APPLICABLE (RFC técnico de 6.4 §5) y nunca persiste
+    # un AIArtifact: no degrada `status` a "completed" en `artifacts", ni
+    # el AIPipelineRunStatus a "partially_failed" (Decisión final 2 de
+    # 6.4.1) — pero sí aparece en `step_outcomes`.
+    assert len(body["step_outcomes"]) == 7
+    completed_outcomes = [o for o in body["step_outcomes"] if o["artifact_type"] != "session_notes"]
+    assert all(o["status"] == "completed" for o in completed_outcomes)
+    session_notes_outcome = next(
+        o for o in body["step_outcomes"] if o["artifact_type"] == "session_notes"
+    )
+    assert session_notes_outcome["status"] == "skipped"
 
 
 async def test_run_pipeline_artifacts_are_review_pending_with_confidence_and_provider(
@@ -133,22 +152,39 @@ async def test_run_pipeline_anamnesis_never_marks_informado_without_evidence(
             assert field["value"], f"{field_name} marcado {field['status']} sin evidencia"
 
 
-async def test_run_pipeline_skips_anamnesis_when_patient_already_has_approved_anamnesis(
+def _outcome(body: dict, artifact_type: str) -> dict:
+    return next(o for o in body["step_outcomes"] if o["artifact_type"] == artifact_type)
+
+
+async def test_run_pipeline_anamnesis_and_session_notes_are_mutually_exclusive_across_sessions(
     api_client: AsyncClient, clinic_with_users: ClinicWithUsers, patient: Patient
 ):
-    """Integración de extremo a extremo de la Fase 6.4.2 (RFC técnico
-    §5/§9): una segunda sesión del MISMO paciente, tras aprobar la
-    ANAMNESIS de la primera, salta ANAMNESIS como NOT_APPLICABLE — sin
-    degradar el `AIPipelineRunStatus` a `partially_failed` (Decisión
-    final 2 de 6.4.1) y sin persistir un `AIArtifact` para el step
-    saltado."""
+    """Integración de extremo a extremo de las Fases 6.4.2/6.4.3 (RFC
+    técnico §5/§9): en la PRIMERA sesión de un paciente (sin anamnesis
+    previa), ANAMNESIS aplica y SESSION_NOTES se salta como
+    NOT_APPLICABLE. Tras aprobar esa ANAMNESIS, una SEGUNDA sesión del
+    MISMO paciente invierte el resultado: ANAMNESIS se salta,
+    SESSION_NOTES aplica y completa — sin degradar `AIPipelineRunStatus`
+    a `partially_failed` en ningún caso (Decisión final 2 de 6.4.1) y sin
+    persistir un `AIArtifact` para el step que en cada momento se salta."""
     headers = dev_headers(clinic_with_users.admin)
     first_session = await _create_session(
         api_client, headers, str(patient.id), str(clinic_with_users.audiologist.id)
     )
-    _, first_body = await _run_pipeline(api_client, headers, first_session["id"])
-    first_anamnesis = next(a for a in first_body["artifacts"] if a["artifact_type"] == "anamnesis")
+    status_code, first_body = await _run_pipeline(api_client, headers, first_session["id"])
 
+    assert status_code == 201, first_body
+    assert first_body["status"] == "completed"
+    first_artifact_types = {a["artifact_type"] for a in first_body["artifacts"]}
+    assert "anamnesis" in first_artifact_types
+    assert "session_notes" not in first_artifact_types
+
+    first_session_notes_outcome = _outcome(first_body, "session_notes")
+    assert first_session_notes_outcome["status"] == "skipped"
+    assert first_session_notes_outcome["failure_reason"] is None
+    assert first_session_notes_outcome["skipped_reason"] is not None
+
+    first_anamnesis = next(a for a in first_body["artifacts"] if a["artifact_type"] == "anamnesis")
     approve_response = await api_client.post(
         f"/api/v1/ai-artifacts/{first_anamnesis['id']}/approve", headers=headers
     )
@@ -162,15 +198,17 @@ async def test_run_pipeline_skips_anamnesis_when_patient_already_has_approved_an
     assert status_code == 201, second_body
     assert second_body["status"] == "completed"
 
-    artifact_types = {a["artifact_type"] for a in second_body["artifacts"]}
-    assert "anamnesis" not in artifact_types
+    second_artifact_types = {a["artifact_type"] for a in second_body["artifacts"]}
+    assert "anamnesis" not in second_artifact_types
+    assert "session_notes" in second_artifact_types
 
-    anamnesis_outcome = next(
-        o for o in second_body["step_outcomes"] if o["artifact_type"] == "anamnesis"
-    )
-    assert anamnesis_outcome["status"] == "skipped"
-    assert anamnesis_outcome["failure_reason"] is None
-    assert anamnesis_outcome["skipped_reason"] is not None
+    second_anamnesis_outcome = _outcome(second_body, "anamnesis")
+    assert second_anamnesis_outcome["status"] == "skipped"
+    assert second_anamnesis_outcome["failure_reason"] is None
+    assert second_anamnesis_outcome["skipped_reason"] is not None
+
+    second_session_notes_outcome = _outcome(second_body, "session_notes")
+    assert second_session_notes_outcome["status"] == "completed"
 
 
 async def test_run_pipeline_rejects_forbidden_and_diagnostic_language(
@@ -246,8 +284,9 @@ async def test_run_pipeline_writes_audit_log_entry(
     # Nunca contenido clínico, solo nombres de tipo y estado (ver
     # docs/ai-pipeline-architecture.md §8).
     outcomes_metadata = entries[0].audit_metadata["outcomes"]
-    assert set(outcomes_metadata.keys()) == _ALL_ARTIFACT_TYPES
-    assert all(v == "completed" for v in outcomes_metadata.values())
+    assert set(outcomes_metadata.keys()) == _ALL_PIPELINE_STEP_TYPES
+    assert all(v == "completed" for k, v in outcomes_metadata.items() if k != "session_notes")
+    assert outcomes_metadata["session_notes"] == "skipped"
 
 
 async def test_pipeline_run_persisted_with_completed_status(

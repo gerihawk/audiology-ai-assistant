@@ -19,10 +19,10 @@ módulo):
 4. `validate_safety` sobre todos los textos terminales (paso 7).
 
 Un artefacto con campos que requieren evidencia y carecen de mapa válido
-no puede persistirse como generación exitosa (§5.4): hoy solo
-`CLINICAL_FLAGS` declara `source_excerpt`, así que es el único tipo donde
-este paso puede fallar — para el resto (`ANAMNESIS` incluida, hasta que el
-hito 6.4 le añada `source_excerpt` real) es un no-op determinista.
+no puede persistirse como generación exitosa (§5.4): `CLINICAL_FLAGS`,
+`ANAMNESIS` (Fase 6.4.2) y `SESSION_NOTES` (Fase 6.4.3) declaran
+`source_excerpt` en su estructura cerrada — para el resto sigue siendo un
+no-op determinista.
 """
 
 from __future__ import annotations
