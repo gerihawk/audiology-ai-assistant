@@ -39,8 +39,21 @@ class PreviousAnamnesisRef:
     final 1 del RFC técnico de 6.4.1). `content` es el mismo `dict`
     persistido en `AIArtifactVersion.content` (sin retipar aquí): una
     representación más estricta solo tiene sentido cuando algo la
-    consuma de verdad (hito 6.4.2+), no antes."""
+    consuma de verdad (hito 6.4.2+), no antes.
 
+    `artifact_id`/`version_id` (Hito 6.5.1, RFC técnico de 6.5 §16): la
+    identidad exacta del `AIArtifact`/`AIArtifactVersion` que sirvió de
+    baseline — necesaria para que una futura propuesta de actualización
+    (`AnamnesisUpdateStep`, 6.5.2+) pueda registrar contra qué versión
+    exacta se generó (`baseline_artifact_id`/`baseline_version_id`) y
+    detectar en el momento de aprobar si ese baseline sigue vigente
+    (optimistic concurrency, obligatoria en 6.5 — ver auditoría de 6.5,
+    Decisión 2). Sin esta identidad, dos propuestas generadas sobre el
+    mismo baseline serían indistinguibles de dos propuestas generadas
+    sobre baselines distintos."""
+
+    artifact_id: uuid.UUID
+    version_id: uuid.UUID
     clinical_session_id: uuid.UUID
     approved_at: datetime
     content: dict[str, Any]

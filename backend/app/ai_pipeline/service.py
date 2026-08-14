@@ -1283,6 +1283,8 @@ class AIPipelineService:
                 if version is not None:
                     assert previous_artifact.approved_at is not None  # invariante: status=APPROVED
                     previous_anamnesis = PreviousAnamnesisRef(
+                        artifact_id=previous_artifact.id,
+                        version_id=previous_artifact.current_version_id,
                         clinical_session_id=previous_artifact.clinical_session_id,
                         approved_at=previous_artifact.approved_at,
                         content=version.content,

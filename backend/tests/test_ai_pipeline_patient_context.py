@@ -47,6 +47,8 @@ class TestLoadedPatientContextShape:
 
     def test_constructs_with_previous_anamnesis_ref(self):
         ref = PreviousAnamnesisRef(
+            artifact_id=uuid.uuid4(),
+            version_id=uuid.uuid4(),
             clinical_session_id=uuid.uuid4(),
             approved_at=datetime.now(UTC),
             content={"tinnitus": {"value": "...", "status": "informado"}},
@@ -65,16 +67,42 @@ class TestLoadedPatientContextShape:
 
 
 class TestPreviousAnamnesisRefShape:
+    def test_transports_baseline_artifact_and_version_identity(self):
+        """Hito 6.5.1: identidad exacta del baseline, necesaria para
+        optimistic concurrency en la aprobación de una propuesta de
+        actualización — ver auditoría de 6.5, Decisión 2."""
+        artifact_id = uuid.uuid4()
+        version_id = uuid.uuid4()
+        ref = PreviousAnamnesisRef(
+            artifact_id=artifact_id,
+            version_id=version_id,
+            clinical_session_id=uuid.uuid4(),
+            approved_at=datetime.now(UTC),
+            content={},
+        )
+        assert ref.artifact_id == artifact_id
+        assert ref.version_id == version_id
+
     def test_is_frozen(self):
         ref = PreviousAnamnesisRef(
-            clinical_session_id=uuid.uuid4(), approved_at=datetime.now(UTC), content={}
+            artifact_id=uuid.uuid4(),
+            version_id=uuid.uuid4(),
+            clinical_session_id=uuid.uuid4(),
+            approved_at=datetime.now(UTC),
+            content={},
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             ref.content = {"x": "y"}  # type: ignore[misc]
 
     def test_exposes_only_minimal_fields(self):
         field_names = {f.name for f in dataclasses.fields(PreviousAnamnesisRef)}
-        assert field_names == {"clinical_session_id", "approved_at", "content"}
+        assert field_names == {
+            "artifact_id",
+            "version_id",
+            "clinical_session_id",
+            "approved_at",
+            "content",
+        }
 
     def test_field_types_are_plain_values_never_session_or_repository(self):
         for f in dataclasses.fields(PreviousAnamnesisRef):

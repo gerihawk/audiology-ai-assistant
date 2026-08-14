@@ -106,7 +106,11 @@ from tests.factories import (
 
 def _previous_anamnesis_ref(content: dict | None = None) -> PreviousAnamnesisRef:
     return PreviousAnamnesisRef(
-        clinical_session_id=uuid.uuid4(), approved_at=datetime.now(UTC), content=content or {}
+        artifact_id=uuid.uuid4(),
+        version_id=uuid.uuid4(),
+        clinical_session_id=uuid.uuid4(),
+        approved_at=datetime.now(UTC),
+        content=content or {},
     )
 
 

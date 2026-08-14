@@ -36,7 +36,11 @@ def _context(patient_context: LoadedPatientContext | None) -> PipelineExecutionC
 
 def _previous_anamnesis_ref() -> PreviousAnamnesisRef:
     return PreviousAnamnesisRef(
-        clinical_session_id=uuid.uuid4(), approved_at=datetime.now(UTC), content={}
+        artifact_id=uuid.uuid4(),
+        version_id=uuid.uuid4(),
+        clinical_session_id=uuid.uuid4(),
+        approved_at=datetime.now(UTC),
+        content={},
     )
 
 
