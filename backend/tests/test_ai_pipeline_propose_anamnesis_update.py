@@ -20,11 +20,13 @@ from __future__ import annotations
 import uuid
 
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_pipeline.domain.entities import AIArtifactStatus, AIArtifactType
 from app.ai_pipeline.infrastructure.repository import SqlAlchemyAIArtifactRepository
 from app.ai_pipeline.service import AIPipelineService
+from app.audit_log.infrastructure.orm import AuditLogORM
 from app.clinical_sessions.domain.entities import ClinicalSession, SessionType
 from app.core.exceptions import ConflictError
 from app.integrations.domain.anamnesis_generator import AnamnesisFieldStatus
@@ -139,13 +141,18 @@ async def test_p1_generate_b_persists_review_pending_with_baseline_identity(
     assert b_artifact.baseline_artifact_id == baseline_detail.artifact.id
     assert b_artifact.baseline_version_id == baseline_detail.artifact.current_version_id
 
-    # A intacta.
+    # A intacta — incluida su versión, byte/estructuralmente (encargo §5, Q).
     reloaded_a = await _REPO.get_by_id(
         db_session, clinic_with_users.clinic.id, baseline_detail.artifact.id
     )
     assert reloaded_a is not None
     assert reloaded_a.status == AIArtifactStatus.APPROVED
     assert reloaded_a.current_version_id == baseline_detail.artifact.current_version_id
+    reloaded_a_version = await _REPO.get_version_by_id(
+        db_session, baseline_detail.artifact.current_version_id
+    )
+    assert reloaded_a_version is not None
+    assert reloaded_a_version.content == baseline_detail.current_version.content
 
     still_a = await _REPO.get_latest_approved(
         db_session,
@@ -349,6 +356,7 @@ async def test_p6_human_edit_of_b_preserves_baseline_identity(
     )
 
     assert edited.current_version.version_number == 2
+    assert edited.artifact.status == AIArtifactStatus.REVIEW_PENDING
     assert edited.artifact.baseline_artifact_id == baseline_detail.artifact.id
     assert edited.artifact.baseline_version_id == baseline_detail.artifact.current_version_id
 
@@ -506,15 +514,38 @@ async def test_a_no_baseline_raises_conflict(
     db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
 ):
     current_user = _admin_user(clinic_with_users)
+    # Sin baseline en ningún sitio: `run_mock_pipeline` ya genera su propia
+    # ANAMNESIS inicial REGULAR aquí (6.4, applies_to()=True porque no hay
+    # anamnesis previa aprobada) — `baseline_artifact_id=None`, un artefacto
+    # distinto de cualquier propuesta que `propose_anamnesis_update` pudiera
+    # crear. La aserción de "cero efecto" compara su estado antes/después.
     session, service = await _session_with_transcript(
         db_session, clinic_with_users, patient.id, current_user, FIRST_VISIT_TRANSCRIPT
     )
+    initial_anamnesis = await _REPO.get_by_session_and_type(
+        db_session, clinic_with_users.clinic.id, session.id, AIArtifactType.ANAMNESIS
+    )
+    assert initial_anamnesis is not None
+    assert initial_anamnesis.baseline_artifact_id is None
 
     try:
         await service.propose_anamnesis_update(current_user, session.id, f"req-{uuid.uuid4()}")
         raise AssertionError("se esperaba ConflictError: sin anamnesis previa aprobada")
     except ConflictError:
         pass
+
+    # Cero generación/persistencia (encargo §3.A): la ANAMNESIS inicial
+    # regular sigue exactamente igual — ninguna versión nueva, sin
+    # baseline_* — `propose_anamnesis_update` no la tocó en absoluto.
+    unchanged = await _REPO.get_by_session_and_type(
+        db_session, clinic_with_users.clinic.id, session.id, AIArtifactType.ANAMNESIS
+    )
+    assert unchanged is not None
+    assert unchanged.id == initial_anamnesis.id
+    assert unchanged.current_version_id == initial_anamnesis.current_version_id
+    assert unchanged.baseline_artifact_id is None
+    versions = await _REPO.list_versions(db_session, initial_anamnesis.id)
+    assert len(versions) == 1
 
 
 async def test_b_fills_gap_proposal_is_persisted(
@@ -854,3 +885,165 @@ async def test_edit_content_on_proposal_never_touches_baseline_fields(
 
     assert edited.artifact.baseline_artifact_id == original_baseline_artifact_id
     assert edited.artifact.baseline_version_id == original_baseline_version_id
+
+
+# ============================================================
+# Grupo 4: cierre 6.5.5 — huecos identificados por la matriz A-AO que
+# NINGÚN test existente (6.5.1-6.5.3) demuestra todavía.
+# ============================================================
+
+
+async def test_e_negado_baseline_explicit_correction_persisted_with_audit_metadata(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
+):
+    """Caso E de la matriz (baseline `negado_explicitamente` + corrección
+    explícita -> `explicit_correction`) de extremo a extremo, incluida la
+    persistencia — 6.5.2 ya prueba esta combinación a nivel de generador
+    (`test_negado_explicitamente_with_explicit_marker_yields_explicit_correction`),
+    pero ningún test de 6.5.3 la ejercita persistida. Se aprovecha para
+    cubrir también AK (metadata de auditoría) — ningún test previo
+    inspecciona el evento `ai_artifact.update_proposed`."""
+    current_user = _admin_user(clinic_with_users)
+    _, baseline_detail = await _approve_baseline_anamnesis(
+        db_session, clinic_with_users, patient.id, current_user
+    )
+    vertigo_baseline = baseline_detail.current_version.content["vertigo_o_inestabilidad"]
+    assert vertigo_baseline["status"] == "negado_explicitamente"  # precondición del caso E
+
+    # Update sintético (no depende del reconocimiento de keywords del
+    # Mock): cita literalmente la frase de negación del transcript de
+    # baseline como evidencia de la sesión ACTUAL — mecánicamente válida
+    # para el grounding acotado, aunque narrativamente sea una corrección.
+    correction = AnamnesisFieldUpdate(
+        field_name="vertigo_o_inestabilidad",
+        previous_value=vertigo_baseline["value"],
+        previous_status=AnamnesisFieldStatus.NEGADO_EXPLICITAMENTE,
+        proposed_value="Corrección: el paciente confirma episodios de vértigo.",
+        proposed_status=AnamnesisFieldStatus.INFORMADO,
+        source_excerpt="Niega vértigo o sensación de inestabilidad",
+        reason=AnamnesisUpdateReason.EXPLICIT_CORRECTION,
+    )
+    session = await _new_session(
+        db_session, clinic_with_users, patient.id, session_type=SessionType.FOLLOW_UP
+    )
+    service = AIPipelineService(
+        db_session,
+        transcription_provider=FixedTranscriptionProvider(FIRST_VISIT_TRANSCRIPT),
+        anamnesis_update_generator=ScriptedAnamnesisUpdateGenerator([correction]),
+    )
+    await service.run_mock_pipeline(current_user, session.id, f"req-{uuid.uuid4()}")
+
+    outcome = await service.propose_anamnesis_update(
+        current_user, session.id, f"req-{uuid.uuid4()}"
+    )
+
+    assert outcome.detail is not None
+    assert outcome.changed_fields == ["vertigo_o_inestabilidad"]
+    assert outcome.detail.current_version.content["vertigo_o_inestabilidad"]["status"] == (
+        "informado"
+    )
+
+    # AK: evento de auditoría con la metadata exacta exigida — nunca
+    # transcript, excerpts ni valores clínicos.
+    result = await db_session.execute(
+        select(AuditLogORM).where(
+            AuditLogORM.action == "ai_artifact.update_proposed",
+            AuditLogORM.entity_id == outcome.detail.artifact.id,
+        )
+    )
+    entries = result.scalars().all()
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.actor_user_id == current_user.id
+    metadata = entry.audit_metadata
+    assert metadata["proposing_clinical_session_id"] == str(session.id)
+    assert metadata["baseline_artifact_id"] == str(baseline_detail.artifact.id)
+    assert metadata["baseline_version_id"] == str(baseline_detail.artifact.current_version_id)
+    assert metadata["changed_fields"] == ["vertigo_o_inestabilidad"]
+    assert metadata["reasons"] == {"vertigo_o_inestabilidad": "explicit_correction"}
+
+    # Nunca contenido clínico, excerpts ni transcript en la metadata.
+    serialized_metadata = str(metadata)
+    assert "Niega vértigo" not in serialized_metadata
+    assert FIRST_VISIT_TRANSCRIPT not in serialized_metadata
+    assert correction.proposed_value not in serialized_metadata
+    assert correction.previous_value not in serialized_metadata
+
+
+async def test_al_no_changes_proposed_writes_no_audit_event(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
+):
+    """AL: `updates=[]` no debe generar auditoría de mutación — no hay
+    ninguna mutación real que trazar (RFC técnico de 6.5 §10 del encargo
+    de 6.5.3, "no inventes un evento si no aporta trazabilidad real")."""
+    current_user = _admin_user(clinic_with_users)
+    await _approve_baseline_anamnesis(db_session, clinic_with_users, patient.id, current_user)
+    session, service = await _session_with_transcript(
+        db_session,
+        clinic_with_users,
+        patient.id,
+        current_user,
+        FIRST_VISIT_TRANSCRIPT,
+        session_type=SessionType.FOLLOW_UP,
+    )
+
+    outcome = await service.propose_anamnesis_update(
+        current_user, session.id, f"req-{uuid.uuid4()}"
+    )
+    assert outcome.detail is None
+
+    result = await db_session.execute(
+        select(AuditLogORM).where(AuditLogORM.action == "ai_artifact.update_proposed")
+    )
+    assert result.scalars().all() == []
+
+
+async def test_pending_proposal_never_alters_6_4_decision_for_a_third_session(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
+):
+    """Invariante crítico del encargo §18: una propuesta B `review_pending`
+    NO debe alterar las decisiones de aplicabilidad de 6.4
+    (`AnamnesisStep`/`SessionNotesStep`/`MissingInformationTarget`) para
+    una TERCERA sesión, hasta que B se apruebe. Ejercita el pipeline
+    AUTOMÁTICO completo (no solo `get_latest_approved` en aislado, ya
+    cubierto por P1) con una propuesta pendiente realmente en la base de
+    datos."""
+    current_user = _admin_user(clinic_with_users)
+    await _approve_baseline_anamnesis(db_session, clinic_with_users, patient.id, current_user)
+
+    pending_session, pending_service = await _session_with_transcript(
+        db_session,
+        clinic_with_users,
+        patient.id,
+        current_user,
+        CORRECTED_VALUE_TRANSCRIPT,
+        session_type=SessionType.FOLLOW_UP,
+    )
+    proposal = await pending_service.propose_anamnesis_update(
+        current_user, pending_session.id, f"req-{uuid.uuid4()}"
+    )
+    assert proposal.detail is not None
+    assert proposal.detail.artifact.status == AIArtifactStatus.REVIEW_PENDING
+
+    third_session = await _new_session(
+        db_session, clinic_with_users, patient.id, session_type=SessionType.FOLLOW_UP
+    )
+    third_service = AIPipelineService(
+        db_session, transcription_provider=FixedTranscriptionProvider(FIRST_VISIT_TRANSCRIPT)
+    )
+
+    outcome = await third_service.run_mock_pipeline(
+        current_user, third_session.id, f"req-{uuid.uuid4()}"
+    )
+
+    # Exactamente el mismo comportamiento que si B no existiera: ANAMNESIS
+    # sigue NOT_APPLICABLE (hay baseline aprobada -> A, nunca B) y
+    # SESSION_NOTES sigue aplicando — decisión de 6.4 intacta.
+    anamnesis_outcome = next(
+        o for o in outcome.outcomes if o.artifact_type == AIArtifactType.ANAMNESIS
+    )
+    assert anamnesis_outcome.status is None
+    assert anamnesis_outcome.skip_reason_code is not None
+    assert anamnesis_outcome.skip_reason_code.value == "not_applicable"
+    artifact_types = {a.artifact.artifact_type for a in outcome.artifacts}
+    assert AIArtifactType.SESSION_NOTES in artifact_types

@@ -210,6 +210,9 @@ backend/app/
         clinical_flags_step.py
         missing_information_step.py
         anamnesis_step.py
+        anamnesis_update_step.py       # Fase 6.5.3 — acción EXPLÍCITA,
+                                        # deliberadamente ausente de
+                                        # PIPELINE_STEP_ORDER (§1.4)
     infrastructure/
       orm.py
       repository.py
@@ -363,6 +366,12 @@ class AIArtifact:
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    baseline_artifact_id: uuid.UUID | None  # Fase 6.5.3: identidad del
+    baseline_version_id: uuid.UUID | None   # baseline exacto de una
+    # propuesta de AnamnesisUpdateStep — NULL para cualquier otro
+    # artefacto, incluida la anamnesis inicial. Nunca cambian tras la
+    # creación; usados para optimistic concurrency al aprobar (ver
+    # fase-6-rfc.md §4.8 y el RFC técnico de 6.5, decisión 2).
 
 
 @dataclass(slots=True)
