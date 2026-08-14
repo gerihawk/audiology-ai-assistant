@@ -85,6 +85,40 @@ EXPLICIT_CORRECTION_TRANSCRIPT = (
 )
 EXPLICIT_CORRECTION_EXCERPT = "sí noto un pitido leve en el oído derecho desde hace una semana"
 
+#: Corrección explícita que cambia el VALOR de un campo ya `informado`
+#: (no su estado) — a diferencia de `EXPLICIT_CORRECTION_TRANSCRIPT`
+#: (`negado_explicitamente` → `informado`), este fixture ejercita
+#: `informado` → `informado` con texto distinto (hito 6.5.2, RFC técnico
+#: de 6.5 §5-§6). Reconocido por `MockAnamnesisUpdateGenerator` vía la
+#: keyword "más intenso" (campo `otalgia`).
+CORRECTED_VALUE_TRANSCRIPT = (
+    "AUDIOPROTESISTA: ¿Sigue con dolor de oído?\n"
+    "PACIENTE: Antes dije que era el oído izquierdo, pero en realidad es "
+    "el oído derecho y más intenso de lo que dije.\n"
+    "AUDIOPROTESISTA: Corregido, gracias por avisar."
+)
+
+#: Misma frase que dispararía tinnitus `informado` en
+#: `EXPLICIT_CORRECTION_TRANSCRIPT`, pero SIN marcador de corrección
+#: explícita — usado para demostrar que, sin marcador, un campo ya
+#: `informado`/`negado_explicitamente` nunca cambia, sea o no compatible
+#: la frase nueva con el valor previo (hito 6.5.2, caso E).
+UNMARKED_CONTRADICTION_TRANSCRIPT = (
+    "AUDIOPROTESISTA: ¿Nota pitidos en los oídos?\n"
+    "PACIENTE: Sí, un pitido leve en el oído derecho desde hace unos días.\n"
+    "AUDIOPROTESISTA: Entendido, lo anoto."
+)
+
+#: Mención POSITIVA de vértigo (a diferencia de "niega vértigo") sin
+#: marcador de corrección explícita — usado para demostrar que un campo
+#: `negado_explicitamente` tampoco cambia sin marcador, aunque la frase
+#: nueva contradiga directamente el valor previo (hito 6.5.2, caso F).
+UNMARKED_POSITIVE_VERTIGO_TRANSCRIPT = (
+    "AUDIOPROTESISTA: ¿Alguna novedad desde la última visita?\n"
+    "PACIENTE: Últimamente noto algo de vértigo al levantarme.\n"
+    "AUDIOPROTESISTA: Lo dejo anotado."
+)
+
 #: Frase evasiva determinista (ver `app/ai_pipeline/domain/evasive.py`) —
 #: usada para forzar un fallo real de MISSING_INFORMATION en los
 #: escenarios de estado agregado del pipeline (§8), sin tocar schema ni

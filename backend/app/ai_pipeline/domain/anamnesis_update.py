@@ -26,6 +26,15 @@ El `source_map` resultante de una propuesta de actualización representa
 ÚNICAMENTE la evidencia nueva verificada en este update — nunca los 20
 campos del documento, nunca proveniencia reconstruida de sesiones
 pasadas (RFC técnico de 6.5, Decisión 1).
+
+`AnamnesisUpdateReason`/`AnamnesisFieldUpdate` (Hito 6.5.2): reubicados a
+`app.integrations.domain.anamnesis_update_generator` — son vocabulario de
+"lo que produce un generator" (mismo criterio que
+`AnamnesisFieldValue`/`MissingInfoItem`), no de este módulo de validación
+pura; `integrations/domain/` nunca puede importar de `ai_pipeline/`, y el
+nuevo `AnamnesisUpdateGenerator` (Protocol) vive en `integrations/domain/`
+y necesita este DTO. Reexportados aquí sin cambios de forma ni de
+comportamiento para que ningún call site de 6.5.1 se rompa.
 """
 
 from __future__ import annotations
@@ -33,7 +42,6 @@ from __future__ import annotations
 import copy
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
@@ -41,12 +49,20 @@ from app.ai_pipeline.domain.errors import AIGenerationFailureReason
 from app.ai_pipeline.domain.grounding import verify_excerpt
 from app.ai_pipeline.domain.schemas import validate_content_schema
 from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS, AnamnesisFieldStatus
+from app.integrations.domain.anamnesis_update_generator import (
+    AnamnesisFieldUpdate,
+    AnamnesisUpdateReason,
+)
 
-
-class AnamnesisUpdateReason(StrEnum):
-    FILLS_GAP = "fills_gap"
-    EXPLICIT_CORRECTION = "explicit_correction"
-
+__all__ = [
+    "AnamnesisFieldUpdate",
+    "AnamnesisUpdateReason",
+    "InvalidAnamnesisUpdateError",
+    "AnamnesisUpdateGroundingResult",
+    "validate_update_batch",
+    "verify_update_grounding",
+    "materialize_anamnesis",
+]
 
 #: Único origen de verdad de qué `reason` puede originar un cambio real
 #: sobre un campo, según su `previous_status` — RFC técnico de 6.5, §5 del
@@ -67,21 +83,6 @@ _ALLOWED_REASONS_BY_PREVIOUS_STATUS: dict[
 #: Un update nunca puede proponer un estado de laguna: eso no representa
 #: información nueva (RFC técnico de 6.5, §6 del encargo de 6.5.1).
 _GAP_STATUSES = frozenset({AnamnesisFieldStatus.NO_PREGUNTADO, AnamnesisFieldStatus.NO_DETERMINADO})
-
-
-@dataclass(slots=True, frozen=True)
-class AnamnesisFieldUpdate:
-    """Un cambio propuesto sobre un único campo de ANAMNESIS — estructura
-    interna de dominio para representar el diff, nunca persistida tal
-    cual (RFC técnico de 6.5, §4 del encargo de 6.5.1)."""
-
-    field_name: str
-    previous_value: str
-    previous_status: AnamnesisFieldStatus
-    proposed_value: str
-    proposed_status: AnamnesisFieldStatus
-    source_excerpt: str
-    reason: AnamnesisUpdateReason
 
 
 class InvalidAnamnesisUpdateError(Exception):
