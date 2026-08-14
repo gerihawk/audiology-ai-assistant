@@ -99,6 +99,16 @@ class AIArtifact:
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    #: Identidad del baseline exacto (Hito 6.5.3, RFC técnico de 6.5 §11)
+    #: sobre el que se generó este artefacto, SOLO cuando es una propuesta
+    #: de `AnamnesisUpdateStep` — `None` para cualquier otro artefacto
+    #: (anamnesis inicial incluida) y para el resto de `artifact_type`.
+    #: Nunca cambian tras la creación: ni `edit_content`, ni una nueva
+    #: versión generada, ni `approve`/`reject` los tocan — son la
+    #: identidad del baseline ORIGINAL de la propuesta, usada para
+    #: optimistic concurrency al aprobar (ver `AIPipelineService._set_disposition`).
+    baseline_artifact_id: uuid.UUID | None = None
+    baseline_version_id: uuid.UUID | None = None
 
 
 @dataclass(slots=True)

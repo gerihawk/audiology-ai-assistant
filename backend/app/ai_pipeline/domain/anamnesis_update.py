@@ -62,6 +62,8 @@ __all__ = [
     "validate_update_batch",
     "verify_update_grounding",
     "materialize_anamnesis",
+    "changed_field_names",
+    "reason_for_previous_status",
 ]
 
 #: Único origen de verdad de qué `reason` puede originar un cambio real
@@ -264,3 +266,30 @@ def materialize_anamnesis(
             errors=list(schema_result.errors),
         )
     return materialized
+
+
+def changed_field_names(
+    baseline_content: dict[str, Any], materialized_content: dict[str, Any]
+) -> list[str]:
+    """Diferencia estructural entre un baseline y un documento ANAMNESIS
+    materializado (Hito 6.5.3) — usada por el servicio para construir la
+    respuesta de la API y la metadata de auditoría sin necesitar acceso a
+    la lista original de `AnamnesisFieldUpdate` (que `PipelineStepOutcome`
+    no transporta). Comparación por igualdad estructural completa de cada
+    campo (`value`/`status`/`source_excerpt`), no solo por nombre —
+    reutilizable independientemente de qué produjo `materialized_content`."""
+    return [
+        name
+        for name in ANAMNESIS_FIELDS
+        if materialized_content.get(name) != baseline_content.get(name)
+    ]
+
+
+def reason_for_previous_status(previous_status: AnamnesisFieldStatus) -> AnamnesisUpdateReason:
+    """Reconstruye el `reason` de un campo cambiado a partir de su
+    `previous_status` real en el baseline — única fuente de verdad
+    (`_ALLOWED_REASONS_BY_PREVIOUS_STATUS`), determinista porque cada
+    `previous_status` admite exactamente un `reason` (§5 del encargo de
+    6.5.1). Usada por el servicio para la metadata de auditoría (§10 del
+    encargo de 6.5.3) sin duplicar esta regla."""
+    return next(iter(_ALLOWED_REASONS_BY_PREVIOUS_STATUS[previous_status]))

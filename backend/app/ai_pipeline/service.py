@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_pipeline.domain.anamnesis_update import changed_field_names, reason_for_previous_status
 from app.ai_pipeline.domain.artifact_repository import AIArtifactRepository
 from app.ai_pipeline.domain.cost_budget import SessionCostBudget
 from app.ai_pipeline.domain.entities import (
@@ -54,6 +55,7 @@ from app.ai_pipeline.domain.prompt_template_repository import (
 from app.ai_pipeline.domain.retry_policy import RetryConfig
 from app.ai_pipeline.domain.schemas import validate_content_schema
 from app.ai_pipeline.domain.steps.anamnesis_step import AnamnesisStep
+from app.ai_pipeline.domain.steps.anamnesis_update_step import AnamnesisUpdateStep
 from app.ai_pipeline.domain.steps.clinical_flags_step import ClinicalFlagsStep
 from app.ai_pipeline.domain.steps.missing_information_step import MissingInformationStep
 from app.ai_pipeline.domain.steps.patient_summary_step import PatientSummaryStep
@@ -90,7 +92,8 @@ from app.core.config import Settings, get_settings
 from app.core.current_user import CurrentUser
 from app.core.exceptions import ConflictError, NotFoundError, SchemaValidationError
 from app.core.processing_status import ProcessingStatus
-from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
+from app.integrations.domain.anamnesis_generator import AnamnesisFieldStatus, AnamnesisGenerator
+from app.integrations.domain.anamnesis_update_generator import AnamnesisUpdateGenerator
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagsGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.missing_information_generator import MissingInformationGenerator
@@ -105,6 +108,7 @@ from app.integrations.domain.transcription_provider import (
 )
 from app.integrations.factory import build_language_model_provider
 from app.integrations.mocks.mock_anamnesis_generator import MockAnamnesisGenerator
+from app.integrations.mocks.mock_anamnesis_update_generator import MockAnamnesisUpdateGenerator
 from app.integrations.mocks.mock_clinical_flags_generator import MockClinicalFlagsGenerator
 from app.integrations.mocks.mock_cost_estimator import MockCostEstimator
 from app.integrations.mocks.mock_missing_information_generator import (
@@ -150,6 +154,19 @@ class PipelineRunOutcome:
 
 
 @dataclass(slots=True)
+class AnamnesisUpdateProposalOutcome:
+    """Resultado de `propose_anamnesis_update` (Hito 6.5.3). `detail` es
+    `None` exactamente cuando `changed_fields` está vacío — el generador no
+    propuso ningún cambio real, así que no se persistió ningún
+    `AIArtifact`/`AIArtifactVersion` (RFC técnico de 6.5 §9 del encargo de
+    6.5.3: "no changes proposed" es un resultado válido, nunca un fallo ni
+    una versión artificial)."""
+
+    detail: AIArtifactDetail | None
+    changed_fields: list[str]
+
+
+@dataclass(slots=True)
 class AIArtifactVersionDetail:
     """Una fila del historial — combina la versión con su ejecución (si la
     generó IA) y si es la vigente del artefacto."""
@@ -176,6 +193,7 @@ class AIPipelineService:
         clinical_flags_generator: ClinicalFlagsGenerator | None = None,
         missing_information_generator: MissingInformationGenerator | None = None,
         anamnesis_generator: AnamnesisGenerator | None = None,
+        anamnesis_update_generator: AnamnesisUpdateGenerator | None = None,
         session_notes_generator: SessionNotesGenerator | None = None,
         token_counter: TokenCounter | None = None,
         cost_estimator: CostEstimator | None = None,
@@ -216,6 +234,15 @@ class AIPipelineService:
             missing_information_generator or MockMissingInformationGenerator()
         )
         self._anamnesis_generator = anamnesis_generator or MockAnamnesisGenerator()
+        # Fase 6.5.3: sin routing real todavía (RFC técnico de 6.5 §16 —
+        # pendiente de benchmark propio antes de activar un proveedor real,
+        # mismo criterio que ANAMNESIS/SESSION_NOTES). Nunca se construye en
+        # `_build_steps()`/`_build_mock_steps()`: `AnamnesisUpdateStep` es
+        # una operación explícita, deliberadamente ausente de
+        # `PIPELINE_STEP_ORDER` — solo `propose_anamnesis_update()` la usa.
+        self._anamnesis_update_generator = (
+            anamnesis_update_generator or MockAnamnesisUpdateGenerator()
+        )
         self._session_notes_generator = session_notes_generator or MockSessionNotesGenerator()
         self._token_counter = token_counter or MockTokenCounter()
         self._cost_estimator = cost_estimator or MockCostEstimator()
@@ -425,7 +452,18 @@ class AIPipelineService:
         clinical_session_id: uuid.UUID,
         outcome: PipelineStepOutcome,
         request_id: str,
+        *,
+        baseline_artifact_id: uuid.UUID | None = None,
+        baseline_version_id: uuid.UUID | None = None,
     ) -> AIArtifactDetail:
+        """`baseline_artifact_id`/`baseline_version_id` (Hito 6.5.3): solo
+        los usa `propose_anamnesis_update()` — `None` para el resto de
+        llamadores (comportamiento histórico sin cambios). Se fijan
+        ÚNICAMENTE al crear el `AIArtifact` la primera vez
+        (`existing_artifact is None`): un rerun sobre un artefacto ya
+        existente nunca los toca — son identidad del baseline original de
+        la propuesta, no del intento de contenido más reciente (auditoría
+        de 6.5, §2 del encargo de 6.5.3)."""
         existing_artifact = await self._artifacts.get_by_session_and_type(
             self._session, current_user.clinic_id, clinical_session_id, outcome.artifact_type
         )
@@ -458,6 +496,8 @@ class AIPipelineService:
                     deleted_at=None,
                     created_at=now,
                     updated_at=now,
+                    baseline_artifact_id=baseline_artifact_id,
+                    baseline_version_id=baseline_version_id,
                 ),
             )
         else:
@@ -535,6 +575,169 @@ class AIPipelineService:
             current_version=persisted_version,
             generation_run=persisted_generation_run,
         )
+
+    # --- Actualización explícita de anamnesis (Fase 6.5.3) -----------------
+
+    async def propose_anamnesis_update(
+        self, current_user: CurrentUser, clinical_session_id: uuid.UUID, request_id: str
+    ) -> AnamnesisUpdateProposalOutcome:
+        """Acción EXPLÍCITA disparada desde una sesión concreta — nunca
+        parte de `run_pipeline`/`run_mock_pipeline` (RFC técnico de 6.5
+        §0/§3 del encargo de 6.5.3). Reutiliza `get_latest_approved`
+        (misma consulta longitudinal que `_resolve_patient_context`) y el
+        `AIArtifact(TRANSCRIPT)` ya existente de esta sesión — nunca invoca
+        un `TranscriptionProvider`."""
+        clinical_session = await self._get_clinical_session_or_404(
+            current_user, clinical_session_id
+        )
+        authorize_ai_artifact_action(
+            current_user,
+            AIArtifactAction.EDIT,
+            professional_id=clinical_session.professional_id,
+        )
+
+        previous_artifact = await self._artifacts.get_latest_approved(
+            self._session,
+            current_user.clinic_id,
+            clinical_session.patient_id,
+            AIArtifactType.ANAMNESIS,
+            exclude_clinical_session_id=clinical_session_id,
+        )
+        if previous_artifact is None or previous_artifact.current_version_id is None:
+            raise ConflictError(
+                "No existe una anamnesis aprobada previa del paciente en otra sesión; "
+                "no se puede proponer una actualización."
+            )
+        baseline_version = await self._artifacts.get_version_by_id(
+            self._session, previous_artifact.current_version_id
+        )
+        assert baseline_version is not None  # invariante: current_version_id ya resuelto
+        assert previous_artifact.approved_at is not None  # invariante: status=APPROVED
+        previous_ref = PreviousAnamnesisRef(
+            artifact_id=previous_artifact.id,
+            version_id=previous_artifact.current_version_id,
+            clinical_session_id=previous_artifact.clinical_session_id,
+            approved_at=previous_artifact.approved_at,
+            content=baseline_version.content,
+        )
+
+        transcript_artifact = await self._artifacts.get_by_session_and_type(
+            self._session, current_user.clinic_id, clinical_session_id, AIArtifactType.TRANSCRIPT
+        )
+        if transcript_artifact is None or transcript_artifact.current_version_id is None:
+            raise ConflictError(
+                "No existe una transcripción disponible para esta sesión; no se puede "
+                "proponer una actualización de anamnesis sin un transcript."
+            )
+        transcript_version = await self._artifacts.get_version_by_id(
+            self._session, transcript_artifact.current_version_id
+        )
+        assert transcript_version is not None  # invariante: current_version_id ya resuelto
+
+        # Rerun sobre la misma sesión (RFC técnico de 6.5 §14 del encargo
+        # de 6.5.3): si ya existe una propuesta B para esta sesión, su
+        # baseline debe coincidir EXACTAMENTE con el baseline recién
+        # resuelto — nunca rebase silencioso ni sobrescritura de
+        # `baseline_*`. Si no coincide, hay que resolver B primero
+        # (aprobarla/rechazarla/eliminarla) antes de regenerar.
+        existing_proposal = await self._artifacts.get_by_session_and_type(
+            self._session, current_user.clinic_id, clinical_session_id, AIArtifactType.ANAMNESIS
+        )
+        if existing_proposal is not None and (
+            existing_proposal.baseline_artifact_id != previous_ref.artifact_id
+            or existing_proposal.baseline_version_id != previous_ref.version_id
+        ):
+            raise ConflictError(
+                "Ya existe una propuesta de actualización para esta sesión generada contra "
+                "un baseline distinto del vigente. Resuelve la propuesta existente (apruébala, "
+                "recházala o elimínala) antes de generar una nueva."
+            )
+
+        context = PipelineExecutionContext(
+            clinical_session_id=clinical_session_id,
+            session_context=SessionContext(
+                clinical_session_id=clinical_session_id,
+                session_type=clinical_session.session_type.value,
+            ),
+            outputs={AIArtifactType.TRANSCRIPT: transcript_version.content},
+            patient_context=LoadedPatientContext(
+                session_type=clinical_session.session_type.value,
+                previous_approved_anamnesis=previous_ref,
+            ),
+        )
+        step = AnamnesisUpdateStep(self._anamnesis_update_generator)
+        if not step.applies_to(context):
+            raise ConflictError(
+                "No existe una anamnesis aprobada previa del paciente en otra sesión; "
+                "no se puede proponer una actualización."
+            )
+        outcome = await step.run(context)
+
+        if outcome.status == AIGenerationRunStatus.FAILED:
+            raise ConflictError(
+                "No se pudo generar la propuesta de actualización de anamnesis: "
+                f"{outcome.failure_reason or 'error desconocido.'}"
+            )
+
+        assert outcome.content is not None  # invariante: COMPLETED siempre trae content
+        changed_fields = changed_field_names(previous_ref.content, outcome.content)
+        if not changed_fields:
+            # RFC técnico de 6.5 §9 del encargo de 6.5.3: sin cambios reales
+            # propuestos, la operación es válida pero no persiste nada — ni
+            # AIArtifact, ni AIArtifactVersion, ni AIGenerationRun/AIPipelineRun.
+            return AnamnesisUpdateProposalOutcome(detail=None, changed_fields=[])
+
+        now = datetime.now(UTC)
+        pipeline_run = AIPipelineRun(
+            id=uuid.uuid4(),
+            clinical_session_id=clinical_session_id,
+            triggered_by=current_user.id,
+            status=AIPipelineRunStatus.PROCESSING,
+            started_at=now,
+            completed_at=None,
+            request_id=request_id,
+        )
+        try:
+            persisted_run = await self._pipeline_runs.add(self._session, pipeline_run)
+            detail = await self._persist_completed_outcome(
+                current_user,
+                persisted_run.id,
+                clinical_session_id,
+                outcome,
+                request_id,
+                baseline_artifact_id=previous_ref.artifact_id,
+                baseline_version_id=previous_ref.version_id,
+            )
+            await self._pipeline_runs.update_fields(
+                self._session,
+                persisted_run.id,
+                {"status": AIPipelineRunStatus.COMPLETED.value, "completed_at": datetime.now(UTC)},
+            )
+            await self._write_audit(
+                current_user,
+                request_id,
+                action="ai_artifact.update_proposed",
+                entity_type="ai_artifact",
+                entity_id=detail.artifact.id,
+                metadata={
+                    "proposing_clinical_session_id": str(clinical_session_id),
+                    "baseline_artifact_id": str(previous_ref.artifact_id),
+                    "baseline_version_id": str(previous_ref.version_id),
+                    "changed_fields": changed_fields,
+                    "reasons": {
+                        field_name: reason_for_previous_status(
+                            AnamnesisFieldStatus(previous_ref.content[field_name]["status"])
+                        ).value
+                        for field_name in changed_fields
+                    },
+                },
+            )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        return AnamnesisUpdateProposalOutcome(detail=detail, changed_fields=changed_fields)
 
     # --- Transcripción desde audio real (Fase 5) --------------------------
 
@@ -842,6 +1045,32 @@ class AIPipelineService:
                 f"'{existing.status.value}'. Debe volver a 'review_pending' "
                 "(editando o regenerando) antes de cambiar su disposición."
             )
+
+        # Optimistic concurrency (Hito 6.5.3, RFC técnico de 6.5 §11):
+        # solo aplica a propuestas de AnamnesisUpdateStep
+        # (`baseline_artifact_id is not None`) y solo al aprobar — nunca al
+        # rechazar (rechazar una propuesta pendiente siempre debe poder
+        # hacerse, aunque el baseline haya cambiado entre tanto). Para
+        # cualquier otro artefacto (`baseline_artifact_id is None`) este
+        # bloque nunca se ejecuta: comportamiento idéntico al existente.
+        if action == AIArtifactAction.APPROVE and existing.baseline_artifact_id is not None:
+            current_baseline = await self._artifacts.get_latest_approved(
+                self._session,
+                current_user.clinic_id,
+                clinical_session.patient_id,
+                AIArtifactType.ANAMNESIS,
+                exclude_clinical_session_id=existing.clinical_session_id,
+            )
+            if (
+                current_baseline is None
+                or current_baseline.id != existing.baseline_artifact_id
+                or current_baseline.current_version_id != existing.baseline_version_id
+            ):
+                raise ConflictError(
+                    "El baseline sobre el que se generó esta propuesta de actualización ya "
+                    "no es el vigente. Regenera la propuesta contra el baseline actual antes "
+                    "de aprobarla."
+                )
 
         now = datetime.now(UTC)
         values: dict[str, object] = {"status": target_status.value, "updated_at": now}

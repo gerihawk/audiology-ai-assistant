@@ -21,7 +21,12 @@ from app.ai_pipeline.domain.entities import (
     AIArtifactVersionSource,
     AIPipelineRunStatus,
 )
-from app.ai_pipeline.service import AIArtifactDetail, AIArtifactVersionDetail, PipelineRunOutcome
+from app.ai_pipeline.service import (
+    AIArtifactDetail,
+    AIArtifactVersionDetail,
+    AnamnesisUpdateProposalOutcome,
+    PipelineRunOutcome,
+)
 from app.core.messages.es import AI_DISCLAIMER
 
 _REJECTION_REASON_MAX_LENGTH = 500
@@ -137,6 +142,50 @@ class PipelineStepOutcomeResponse(BaseModel):
     input_token_count: int | None
     output_token_count: int | None
     estimated_cost_usd: Decimal | None
+
+
+class AnamnesisUpdateProposalResponse(BaseModel):
+    """Respuesta de `POST .../propose-anamnesis-update` (Hito 6.5.3).
+
+    Distingue explícitamente dos resultados válidos (RFC técnico de 6.5
+    §15 del encargo de 6.5.3): `created=True` (propuesta persistida,
+    `artifact_id`/`version_number`/`status` presentes) y `created=False`
+    ("no changes proposed" — el generador no encontró nada que
+    actualizar, sin `artifact_id` porque no se persistió nada). Nunca
+    devuelve `content` clínico completo — solo qué campos cambiaron, no
+    los valores (esos se consultan vía `GET /ai-artifacts/{id}` una vez
+    creada la propuesta)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    created: bool
+    artifact_id: uuid.UUID | None
+    version_number: int | None
+    status: AIArtifactStatus | None
+    changed_fields: list[str]
+    ai_disclaimer: str = AI_DISCLAIMER
+
+    @classmethod
+    def from_outcome(
+        cls, outcome: AnamnesisUpdateProposalOutcome
+    ) -> AnamnesisUpdateProposalResponse:
+        if outcome.detail is None:
+            return cls(
+                created=False,
+                artifact_id=None,
+                version_number=None,
+                status=None,
+                changed_fields=[],
+            )
+        artifact = outcome.detail.artifact
+        version = outcome.detail.current_version
+        return cls(
+            created=True,
+            artifact_id=artifact.id,
+            version_number=version.version_number if version else None,
+            status=artifact.status,
+            changed_fields=outcome.changed_fields,
+        )
 
 
 class RunPipelineResponse(BaseModel):

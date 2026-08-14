@@ -48,6 +48,8 @@ def _artifact_to_domain(row: AIArtifactORM) -> AIArtifact:
         deleted_at=row.deleted_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        baseline_artifact_id=row.baseline_artifact_id,
+        baseline_version_id=row.baseline_version_id,
     )
 
 
@@ -232,6 +234,8 @@ class SqlAlchemyAIArtifactRepository:
             current_version_id=None,
             confidence=None,
             schema_version=artifact.schema_version,
+            baseline_artifact_id=artifact.baseline_artifact_id,
+            baseline_version_id=artifact.baseline_version_id,
         )
         session.add(row)
         await session.flush()

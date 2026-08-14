@@ -19,6 +19,10 @@ from app.integrations.domain.anamnesis_generator import (
     AnamnesisFieldStatus,
     AnamnesisFieldValue,
 )
+from app.integrations.domain.anamnesis_update_generator import (
+    AnamnesisFieldUpdate,
+    AnamnesisUpdateResult,
+)
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagDraft
 from app.integrations.domain.missing_information_generator import (
     MissingInfoItem,
@@ -183,6 +187,19 @@ class ScriptedAnamnesisGenerator:
 
     async def generate(self, transcript, missing_information, *, context: SessionContext):
         return AnamnesisDraft(fields=dict(self.fields))
+
+
+@dataclass(slots=True)
+class ScriptedAnamnesisUpdateGenerator:
+    """Devuelve siempre la misma lista de `AnamnesisFieldUpdate` — Hito
+    6.5.3, para ejercitar combinaciones concretas de grounding/validación
+    sin depender del reconocimiento de keywords de
+    `MockAnamnesisUpdateGenerator`."""
+
+    updates: list[AnamnesisFieldUpdate]
+
+    async def generate(self, transcript, previous_anamnesis, *, context: SessionContext):
+        return AnamnesisUpdateResult(updates=list(self.updates))
 
 
 @dataclass(slots=True)
