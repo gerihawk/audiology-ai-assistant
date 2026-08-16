@@ -11,6 +11,13 @@ El orden de las secciones de `ANAMNESIS`/`SESSION_NOTES` nunca depende de
 `dict.items()` — itera siempre sobre las constantes de dominio ya
 ordenadas `ANAMNESIS_FIELDS`/`SESSION_NOTES_BLOCKS`, para que el mismo
 `content` produzca siempre el mismo texto byte a byte.
+
+Constantes, humanización de nombres de campo y cabecera de metadata viven
+en `export/infrastructure/shared.py` — reutilizadas también por
+`PdfDocumentExporter` (hito 6.6.3) para que ambos exportadores nunca
+diverjan en qué campos muestran, en qué orden, ni en su resolución de
+"vacío"/"sin especificar" (RFC §7.1, requisito 6.6.3 punto 9). El layout
+del cuerpo (líneas de texto plano) sigue siendo exclusivo de este módulo.
 """
 
 from __future__ import annotations
@@ -20,22 +27,16 @@ from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
 from app.export.domain.entities import ExportableDocument
+from app.export.infrastructure.shared import (
+    EMPTY_VALUE_PLACEHOLDER,
+    UNEXPLORED_BLOCK_PLACEHOLDER,
+    header_fields,
+    humanize_field_name,
+)
 from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS
 from app.integrations.domain.session_notes_generator import SESSION_NOTES_BLOCKS
 
 __all__ = ["TextDocumentExporter"]
-
-_UNSPECIFIED_SESSION_TYPE_LABEL = "Sin especificar"
-_EMPTY_VALUE_PLACEHOLDER = "(sin información)"
-_UNEXPLORED_BLOCK_PLACEHOLDER = "(no explorado)"
-
-
-def _humanize(field_name: str) -> str:
-    """Transformación genérica, no un diccionario de etiquetas clínicas
-    por campo (fuera de alcance de este hito): `"motivo_consulta"` ->
-    `"Motivo consulta"`. Suficiente para que el texto no sea JSON crudo
-    sin inventar redacción clínica."""
-    return field_name.replace("_", " ").capitalize()
 
 
 def _render_prose(content: dict[str, Any]) -> list[str]:
@@ -67,7 +68,7 @@ def _render_transcript(content: dict[str, Any]) -> list[str]:
 def _render_clinical_flags(content: dict[str, Any]) -> list[str]:
     flags = content.get("flags") or []
     if not flags:
-        return [_EMPTY_VALUE_PLACEHOLDER]
+        return [EMPTY_VALUE_PLACEHOLDER]
     lines: list[str] = []
     for flag in flags:
         lines.append(f"- [{flag['category']}] {flag['description']} ({flag['ruleset_name']})")
@@ -77,7 +78,7 @@ def _render_clinical_flags(content: dict[str, Any]) -> list[str]:
 def _render_missing_information(content: dict[str, Any]) -> list[str]:
     items = content.get("items") or []
     if not items:
-        return [_EMPTY_VALUE_PLACEHOLDER]
+        return [EMPTY_VALUE_PLACEHOLDER]
     lines: list[str] = []
     for item in items:
         lines.append(f"- Tema: {item['topic']}")
@@ -91,8 +92,8 @@ def _render_anamnesis(content: dict[str, Any]) -> list[str]:
         field = content.get(field_name)
         if field is None:
             continue
-        value = field.get("value") or _EMPTY_VALUE_PLACEHOLDER
-        lines.append(f"{_humanize(field_name)} [{field['status']}]:")
+        value = field.get("value") or EMPTY_VALUE_PLACEHOLDER
+        lines.append(f"{humanize_field_name(field_name)} [{field['status']}]:")
         lines.append(value)
         lines.append("")
     if lines and lines[-1] == "":
@@ -106,8 +107,8 @@ def _render_session_notes(content: dict[str, Any]) -> list[str]:
         block = content.get(block_name)
         if block is None:
             continue
-        text = block.get("text") or _UNEXPLORED_BLOCK_PLACEHOLDER
-        lines.append(f"{_humanize(block_name)}:")
+        text = block.get("text") or UNEXPLORED_BLOCK_PLACEHOLDER
+        lines.append(f"{humanize_field_name(block_name)}:")
         lines.append(text)
         lines.append("")
     if lines and lines[-1] == "":
@@ -126,30 +127,6 @@ _BODY_RENDERERS: dict[AIArtifactType, Callable[[dict[str, Any]], list[str]]] = {
 }
 
 
-def _render_header(document: ExportableDocument) -> list[str]:
-    """RFC §7.4: clínica, paciente mínimo necesario, sesión, `session_type`
-    (o "Sin especificar"), artefacto, versión, aprobación humana, fecha y
-    hash de contenido — nunca provider/model/generation_run/coste
-    (`ExportableDocument` no los transporta, ver hito 6.6.1)."""
-    patient = document.patient_internal_code
-    if document.patient_display_name:
-        patient = f"{patient} ({document.patient_display_name})"
-    session_type = document.session_type or _UNSPECIFIED_SESSION_TYPE_LABEL
-
-    return [
-        "=== DOCUMENTO CLÍNICO EXPORTADO ===",
-        f"Clínica: {document.clinic_name}",
-        f"Paciente: {patient}",
-        f"Sesión: {document.clinical_session_id}",
-        f"Tipo de sesión: {session_type}",
-        f"Tipo de documento: {document.artifact_type.value}",
-        f"Versión: {document.version_number}",
-        f"Aprobado por: {document.approved_by} — {document.approved_at.isoformat()}",
-        f"Generado: {document.generated_at.isoformat()}",
-        f"Hash de contenido (SHA-256): {document.content_hash}",
-    ]
-
-
 class TextDocumentExporter:
     """Implementación en texto plano de `DocumentExporter` (hito 6.6.1).
     Renderizado puro en memoria — sin E/S, sin async (ver el docstring de
@@ -162,8 +139,12 @@ class TextDocumentExporter:
                 f"TextDocumentExporter no sabe renderizar artifact_type="
                 f"{document.artifact_type!r}."
             )
+        header_lines = [
+            "=== DOCUMENTO CLÍNICO EXPORTADO ===",
+            *(f"{label}: {value}" for label, value in header_fields(document)),
+        ]
         lines = [
-            *_render_header(document),
+            *header_lines,
             "",
             "--- CONTENIDO ---",
             "",
