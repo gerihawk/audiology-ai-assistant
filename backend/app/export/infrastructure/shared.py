@@ -15,12 +15,14 @@ vive aquí, una sola vez."""
 
 from __future__ import annotations
 
+from app.core.messages.es import RULESET_DISCLAIMER
 from app.export.domain.entities import ExportableDocument
 
 __all__ = [
     "UNSPECIFIED_SESSION_TYPE_LABEL",
     "EMPTY_VALUE_PLACEHOLDER",
     "UNEXPLORED_BLOCK_PLACEHOLDER",
+    "RULESET_DISCLAIMER",
     "humanize_field_name",
     "header_fields",
 ]

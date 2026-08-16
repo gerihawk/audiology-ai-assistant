@@ -190,6 +190,15 @@ class TestTranscript:
 
 
 class TestClinicalFlags:
+    def test_includes_mandatory_ruleset_disclaimer(self):
+        """docs/clinical-safety.md §7: obligatorio en todo lugar donde se
+        exporten `clinical_flags`, con independencia de que estén vacías
+        o no — hito 6.6.5, hueco detectado en la verificación de cierre."""
+        document = _document(artifact_type=AIArtifactType.CLINICAL_FLAGS, content={"flags": []})
+        text = _exporter.export(document).decode("utf-8")
+        assert "Checklist de demostración" in text
+        assert "No validado clínicamente" in text
+
     def test_renders_each_flag_without_source_excerpt(self):
         document = _document(
             artifact_type=AIArtifactType.CLINICAL_FLAGS,

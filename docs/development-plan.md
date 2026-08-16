@@ -532,10 +532,14 @@ normativo para toda la Fase 6 a partir de aquí:
 El compromiso original de exportación se mantiene íntegro:
 
 - Interfaz `DocumentExporter` con `PdfDocumentExporter` y
-  `TextDocumentExporter`.
-- Endpoints de exportación (`GET .../export/{artifact_type}`),
-  bloqueados si el artefacto no está `approved`.
-- Pantalla: botón de exportar (PDF/texto) visible solo cuando corresponde.
+  `TextDocumentExporter` — implementado (hito 6.6, `app/export/`).
+- Endpoint de exportación individual
+  (`GET /ai-artifacts/{artifact_id}/export?format=pdf|text`), bloqueado
+  si el artefacto no está `approved`, vigente y no eliminado —
+  implementado (hito 6.6). La exportación longitudinal (`scope=patient`,
+  vía `clinical_record`) queda para el hito 6.7.
+- Pantalla: botón de exportar (PDF/texto) visible solo cuando corresponde
+  — pendiente (frontend, fuera del alcance de 6.6).
 
 **Criterio de aceptación**: un artefacto aprobado se descarga como PDF y
 como texto plano con formato legible; un artefacto no aprobado devuelve

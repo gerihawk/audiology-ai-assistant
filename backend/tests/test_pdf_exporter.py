@@ -207,6 +207,11 @@ class TestAllArtifactTypesRender:
         text = _extract_text(_exporter.export(document))
         assert "vertigo" in text
         assert "Mareos frecuentes." in text
+        # docs/clinical-safety.md §7: obligatorio en todo lugar donde se
+        # exporten clinical_flags — hito 6.6.5, hueco detectado en la
+        # verificación de cierre.
+        assert "Checklist de demostración" in text
+        assert "No validado clínicamente" in text
 
     def test_missing_information(self):
         document = _document(

@@ -29,6 +29,7 @@ from app.ai_pipeline.domain.entities import AIArtifactType
 from app.export.domain.entities import ExportableDocument
 from app.export.infrastructure.shared import (
     EMPTY_VALUE_PLACEHOLDER,
+    RULESET_DISCLAIMER,
     UNEXPLORED_BLOCK_PLACEHOLDER,
     header_fields,
     humanize_field_name,
@@ -66,10 +67,16 @@ def _render_transcript(content: dict[str, Any]) -> list[str]:
 
 
 def _render_clinical_flags(content: dict[str, Any]) -> list[str]:
+    """docs/clinical-safety.md §7: obligatorio en todo lugar donde se
+    exporten `clinical_flags`, además del aviso general ya cubierto por
+    "Aprobado por" en la cabecera — el checklist que las genera no está
+    validado clínicamente, con independencia de que el artefacto esté
+    aprobado."""
+    lines: list[str] = [RULESET_DISCLAIMER, ""]
     flags = content.get("flags") or []
     if not flags:
-        return [EMPTY_VALUE_PLACEHOLDER]
-    lines: list[str] = []
+        lines.append(EMPTY_VALUE_PLACEHOLDER)
+        return lines
     for flag in flags:
         lines.append(f"- [{flag['category']}] {flag['description']} ({flag['ruleset_name']})")
     return lines

@@ -384,9 +384,31 @@ señal ya generada.
 
 ## Export
 
+Implementado en la Fase 6.6 (`scope=session` únicamente — ver
+[fase-6-rfc.md](fase-6-rfc.md) §7 y `app/export/`). La exportación
+longitudinal (`scope=patient`, agregación vía `clinical_record`) está
+diseñada pero no implementada; queda para la Fase 6.7.
+
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/clinical-sessions/{session_id}/export/{artifact_type}?format=pdf\|text` | clinician/admin | Exporta el artefacto de IA indicado (`summary`, `anamnesis`); **solo si su `status = approved`** |
+| GET | `/ai-artifacts/{artifact_id}/export?format=pdf\|text` | admin, audiologist (`ClinicalDocumentAction.EXPORT`) | Exporta la versión vigente del artefacto de IA indicado (identificado por `artifact_id`, no por `artifact_type` de sesión), en PDF o texto plano; **solo si `status = approved`**, vigente y no eliminado |
+
+Aplica a los 7 `AIArtifactType` actuales (`transcript`, `summary`,
+`patient_summary`, `clinical_flags`, `missing_information`, `anamnesis`,
+`session_notes`), no solo a `summary`/`anamnesis`. A diferencia de
+aprobar/rechazar/editar, exportar **no** exige ser el profesional
+responsable de la sesión: cualquier `admin`/`audiologist` con acceso a la
+clínica puede exportar; `viewer` recibe `403` (permiso vacío). El
+documento nunca incluye `source_excerpt`, `source_map`, `confidence` ni
+metadata de proveedor/modelo/coste — solo contenido clínico aprobado y
+metadata mínima (clínica, paciente, sesión, `session_type` o "Sin
+especificar", artefacto, versión, aprobación humana, fecha, hash de
+contenido). `clinical_flags` incluye además, de forma obligatoria, el
+aviso de checklist no validado clínicamente (ver
+[clinical-safety.md](clinical-safety.md) §7). Cada descarga registra
+`document.exported` en `audit_log` (metadata mínima, sin contenido
+clínico). `format` inválido devuelve `422` nativo; artefacto inexistente,
+de otra clínica o eliminado devuelve `404`.
 
 ## Consents
 

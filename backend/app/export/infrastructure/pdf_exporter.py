@@ -38,6 +38,7 @@ from app.ai_pipeline.domain.entities import AIArtifactType
 from app.export.domain.entities import ExportableDocument
 from app.export.infrastructure.shared import (
     EMPTY_VALUE_PLACEHOLDER,
+    RULESET_DISCLAIMER,
     UNEXPLORED_BLOCK_PLACEHOLDER,
     header_fields,
     humanize_field_name,
@@ -77,10 +78,18 @@ def _render_transcript(content: dict[str, Any], styles: StyleSheet1) -> list:
 
 
 def _render_clinical_flags(content: dict[str, Any], styles: StyleSheet1) -> list:
+    """docs/clinical-safety.md §7: obligatorio en todo lugar donde se
+    exporten `clinical_flags` — el checklist que las genera no está
+    validado clínicamente, con independencia de que el artefacto esté
+    aprobado."""
+    flowables = [
+        Paragraph(f"<i>{escape(RULESET_DISCLAIMER)}</i>", styles["Normal"]),
+        Spacer(1, _ITEM_SPACING),
+    ]
     flags = content.get("flags") or []
     if not flags:
-        return [Paragraph(EMPTY_VALUE_PLACEHOLDER, styles["Normal"])]
-    flowables = []
+        flowables.append(Paragraph(EMPTY_VALUE_PLACEHOLDER, styles["Normal"]))
+        return flowables
     for flag in flags:
         line = f"[{flag['category']}] {flag['description']} ({flag['ruleset_name']})"
         flowables.append(Paragraph(escape(line), styles["Normal"]))
