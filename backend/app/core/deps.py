@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_pipeline.service import AIPipelineService
 from app.audio.service import AudioRecordingService
+from app.clinical_record.service import ClinicalRecordService
 from app.clinical_sessions.service import ClinicalSessionService
 from app.core.config import get_settings
 from app.core.context import get_request_id
 from app.core.current_user import CurrentUser, CurrentUserProvider, FakeCurrentUserProvider
 from app.core.db import get_db_session
+from app.export.service import ExportService
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.factory import build_transcription_provider
 from app.patients.service import PatientService
@@ -28,6 +30,8 @@ __all__ = [
     "get_ai_pipeline_service",
     "get_audio_recording_service",
     "get_configured_transcription_provider",
+    "get_export_service",
+    "get_clinical_record_service",
 ]
 
 
@@ -83,3 +87,15 @@ async def get_ai_pipeline_service(
     return AIPipelineService(
         session, configured_transcription_provider=configured_transcription_provider
     )
+
+
+async def get_export_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ExportService:
+    return ExportService(session)
+
+
+async def get_clinical_record_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ClinicalRecordService:
+    return ClinicalRecordService(session)

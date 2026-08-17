@@ -48,6 +48,8 @@ def _artifact_to_domain(row: AIArtifactORM) -> AIArtifact:
         deleted_at=row.deleted_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        baseline_artifact_id=row.baseline_artifact_id,
+        baseline_version_id=row.baseline_version_id,
     )
 
 
@@ -169,6 +171,37 @@ class SqlAlchemyAIArtifactRepository:
         row = result.scalar_one_or_none()
         return _artifact_to_domain(row) if row is not None else None
 
+    async def get_latest_approved(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        artifact_type: AIArtifactType,
+        *,
+        exclude_clinical_session_id: uuid.UUID | None = None,
+    ) -> AIArtifact | None:
+        from app.clinical_sessions.infrastructure.orm import ClinicalSessionORM
+
+        filters = [
+            ClinicalSessionORM.clinic_id == clinic_id,
+            ClinicalSessionORM.patient_id == patient_id,
+            AIArtifactORM.artifact_type == artifact_type.value,
+            AIArtifactORM.status == AIArtifactStatus.APPROVED.value,
+            AIArtifactORM.deleted_at.is_(None),
+        ]
+        if exclude_clinical_session_id is not None:
+            filters.append(AIArtifactORM.clinical_session_id != exclude_clinical_session_id)
+
+        result = await session.execute(
+            select(AIArtifactORM)
+            .join(ClinicalSessionORM, AIArtifactORM.clinical_session_id == ClinicalSessionORM.id)
+            .where(*filters)
+            .order_by(AIArtifactORM.approved_at.desc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        return _artifact_to_domain(row) if row is not None else None
+
     async def list_by_session(
         self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_id: uuid.UUID
     ) -> list[AIArtifact]:
@@ -204,6 +237,8 @@ class SqlAlchemyAIArtifactRepository:
             current_version_id=None,
             confidence=None,
             schema_version=artifact.schema_version,
+            baseline_artifact_id=artifact.baseline_artifact_id,
+            baseline_version_id=artifact.baseline_version_id,
         )
         session.add(row)
         await session.flush()

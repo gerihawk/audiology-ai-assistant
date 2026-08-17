@@ -46,8 +46,10 @@ class TestInputCase:
             input_from_dict(data)
 
     def test_input_artifact_type_invalido(self):
+        # "session_notes" fue el ejemplo histórico de tipo inválido hasta
+        # la Fase 6.4.3 — ahora es un AIArtifactType real.
         with pytest.raises(InputValidationError):
-            input_from_dict(_minimal_input(artifact_type="session_notes"))
+            input_from_dict(_minimal_input(artifact_type="tipo_inexistente"))
 
     def test_input_context_no_str_rechazado(self):
         with pytest.raises(InputValidationError):

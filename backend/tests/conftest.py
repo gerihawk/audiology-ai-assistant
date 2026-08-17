@@ -114,7 +114,41 @@ async def test_engine() -> AsyncIterator[AsyncEngine]:
         # NULL antes del borrado genérico en orden topológico inverso.
         if "ai_artifacts" in Base.metadata.tables:
             ai_artifacts = Base.metadata.tables["ai_artifacts"]
-            await conn.execute(ai_artifacts.update().values(current_version_id=None))
+            # `current_version_id` (ai_artifacts <-> ai_artifact_versions) y,
+            # desde el Hito 6.5.3, `baseline_artifact_id` (autorreferencial)/
+            # `baseline_version_id` (-> ai_artifact_versions): tres FKs más
+            # que `sorted_tables` no puede ordenar linealmente. Mismo
+            # criterio que ya se aplicaba a `current_version_id`.
+            await conn.execute(
+                ai_artifacts.update().values(
+                    current_version_id=None,
+                    baseline_artifact_id=None,
+                    baseline_version_id=None,
+                )
+            )
+        # Nulling esas columnas solo desbloquea el DELETE de `ai_artifacts`
+        # en sí — `sorted_tables()` sigue sin poder ordenar el ciclo
+        # (schema estático, no depende de los valores de fila) y ese "no
+        # puedo ordenar" arrastra su posición relativa frente a CUALQUIER
+        # otra tabla del módulo AI Pipeline (`clinical_sessions` incluida,
+        # no solo `ai_pipeline_runs`/`ai_generation_runs` — desde el Hito
+        # 6.5.3 el ciclo autorreferencial de `baseline_artifact_id` lo hizo
+        # visible). Se rompe borrando explícitamente, en orden de
+        # dependencia real verificado a mano, todo el subgrafo del AI
+        # Pipeline antes del bucle genérico — el resto (patients, users,
+        # clinics, audit_logs...) sí es un grafo acíclico y `sorted_tables()`
+        # lo ordena bien.
+        for dependency_ordered_table_name in (
+            "clinical_flags",
+            "ai_artifact_versions",
+            "ai_generation_runs",
+            "ai_artifacts",
+            "ai_pipeline_runs",
+            "audio_recordings",
+            "consents",
+        ):
+            if dependency_ordered_table_name in Base.metadata.tables:
+                await conn.execute(Base.metadata.tables[dependency_ordered_table_name].delete())
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(table.delete())
     yield engine

@@ -326,49 +326,68 @@ Diseño cerrado en la Fase 4 (ver
 [ai-pipeline-architecture.md](ai-pipeline-architecture.md)), sustituye
 por completo al diseño previo de secciones independientes
 "Transcription"/"Anamnesis"/"Session notes" — eliminadas de este
-documento, no quedan rutas alternativas para el mismo propósito. Todas
-las rutas van bajo `/clinical-sessions/{session_id}/ai/` y requieren un
-`CurrentUser` resuelto, operando exclusivamente sobre
-`current_user.clinic_id`. `{artifact_type}` es uno de `transcript`,
-`summary`, `clinical_flags`, `missing_information`, `anamnesis`.
+documento, no quedan rutas alternativas para el mismo propósito.
+Requieren un `CurrentUser` resuelto, operando exclusivamente sobre
+`current_user.clinic_id`.
+
+**Corrección de ruteo (Fase 6.3 — deuda documental, sin cambio de
+comportamiento)**: la implementación real direcciona los artefactos por
+`artifact_id` (UUID), no por `{session_id}/ai/artifacts/{artifact_type}`
+como describía el diseño original de la Fase 4 — mismo criterio de
+direccionamiento ya usado por `Export` (`/ai-artifacts/{artifact_id}/export`).
+El disparo del pipeline (`run-mock-pipeline`/`run-pipeline`) vive bajo
+`/clinical-sessions/{session_id}/...`, no bajo un prefijo `/ai/` — ver
+nota de la sección [Audio](#audio-fase-5). No existe endpoint
+`GET .../pipeline-runs/{run_id}`: el resultado del disparo se devuelve
+directamente en la respuesta de `run-mock-pipeline`/`run-pipeline`
+(`RunPipelineResponse`), no se consulta después por separado.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/clinical-sessions/{session_id}/ai/generate` | Dispara el pipeline completo (grafo de dependencias, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.4); requiere audio en `ready`; `409` si ya hay un `ai_pipeline_run` `queued`/`processing` para la sesión; devuelve el `PipelineResult` |
-| GET | `/clinical-sessions/{session_id}/ai/pipeline-runs/{run_id}` | Detalle de una ejecución del pipeline (estado agregado, estado de cada paso) |
-| GET | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}` | Artefacto vigente (contenido de la versión actual + `schema_version` + `confidence` + estado + aviso IA); `404` si el pipeline no se ha ejecutado todavía para ese tipo |
-| GET | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}/versions` | Historial de versiones (solo lectura) |
-| PUT | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}` | Guarda contenido editado; crea una `AIArtifactVersion` (`source = human_edited`); si el artefacto estaba `approved` o `rejected`, vuelve a `review_pending` |
-| POST | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}/approve` | Aprobación explícita; `status → approved`, registra `approved_by/at` |
-| POST | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}/reject` | Rechazo explícito; `status → rejected`, registra `rejected_by/at` y `rejection_reason`; no es un estado terminal, el artefacto puede editarse o regenerarse después |
-| DELETE | `/clinical-sessions/{session_id}/ai/artifacts/{artifact_type}` | Borrado lógico (`deleted_by/at`); nunca físico; `ai_artifact_versions` se conserva |
+| POST | `/clinical-sessions/{session_id}/run-mock-pipeline` | Dispara el pipeline **Mock** (grafo de dependencias, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.4); estructuralmente incapaz de invocar un proveedor real; devuelve `RunPipelineResponse` |
+| POST | `/clinical-sessions/{session_id}/run-pipeline` | Dispara el pipeline **configurado** (routing real por `artifact_type`, puede invocar Anthropic/OpenAI/Google); `409` si ya hay un `ai_pipeline_run` `queued`/`processing` para la sesión; devuelve `RunPipelineResponse` |
+| POST | `/clinical-sessions/{session_id}/propose-anamnesis-update` | Acción explícita (hito 6.5.3, nunca automática): propone una nueva versión de `ANAMNESIS` a partir del transcript actual; `200` con `created=false` si no hay cambios que proponer |
+| POST | `/audio-recordings/{audio_recording_id}/transcribe` | Ver sección [Audio](#audio-fase-5) |
+| GET | `/clinical-sessions/{session_id}/artifacts` | Lista los artefactos vigentes de la sesión (uno por `artifact_type` ya generado) |
+| GET | `/ai-artifacts/{artifact_id}` | Artefacto vigente (contenido de la versión actual + `schema_version` + `confidence` + estado + aviso IA); `404` si no existe o es de otra clínica |
+| GET | `/ai-artifacts/{artifact_id}/versions` | Historial de versiones (solo lectura) |
+| PATCH | `/ai-artifacts/{artifact_id}/content` | Guarda contenido editado; crea una `AIArtifactVersion` (`source = human_edited`); si el artefacto estaba `approved` o `rejected`, vuelve a `review_pending` |
+| POST | `/ai-artifacts/{artifact_id}/approve` | Aprobación explícita; `status → approved`, registra `approved_by/at` |
+| POST | `/ai-artifacts/{artifact_id}/reject` | Rechazo explícito (`rejection_reason` opcional); `status → rejected`, registra `rejected_by/at`; no es un estado terminal, el artefacto puede editarse o regenerarse después |
+| DELETE | `/ai-artifacts/{artifact_id}` | Borrado lógico (`deleted_by/at`); nunca físico; `ai_artifact_versions` se conserva; `204` |
 
 No existe un endpoint por artefacto para "generar" individualmente: el
-pipeline siempre se dispara completo (`POST .../ai/generate`), y el
-orquestador decide qué pasos ejecutar según sus dependencias — ver
+pipeline siempre se dispara completo (`run-mock-pipeline`/`run-pipeline`),
+y el orquestador decide qué pasos ejecutar según sus dependencias — ver
 [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §8. `confidence`
 se expone en las respuestas de artefacto pero nunca decide nada
-automáticamente por sí solo.
+automáticamente por sí solo. `artifact_type` de un `AIArtifact` es uno de
+los 7 `AIArtifactType` actuales (`transcript`, `summary`, `clinical_flags`,
+`missing_information`, `anamnesis`, `patient_summary`, `session_notes`),
+aunque `patient_summary` no se genera todavía en producción (hito 6.3, ver
+[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §4).
 
 ### Autorización
 
 Mismo patrón que `clinical_sessions` (matriz centralizada en
 `core/authorization.py`, dimensión de propiedad para `audiologist`):
 `admin` sin restricción; `audiologist` dispara el pipeline y
-aprueba/rechaza/edita únicamente sobre sesiones propias
-(`professional_id == current_user.id`); `viewer` solo lectura. Un
-intento sin permiso devuelve `403`; un `session_id` de otra clínica
-devuelve `404`.
+aprueba/rechaza/edita/elimina/propone actualización de anamnesis
+únicamente sobre sesiones propias (`professional_id ==
+current_user.id`); `viewer` solo lectura. Un intento sin permiso
+devuelve `403`; un `session_id`/`artifact_id` de otra clínica devuelve
+`404`.
 
 ### Validaciones
 
-- Cualquier campo no reconocido en el cuerpo de `PUT .../ai/artifacts/{artifact_type}`
-  (incluidos `confidence`, `source_map`, `status`, cualquier campo de
-  auditoría) se rechaza con `422` — no existen en el esquema de entrada.
-- `POST .../ai/artifacts/{artifact_type}/approve`/`reject` sobre un
-  artefacto que no existe todavía devuelve `404`.
-- `POST .../ai/generate` mientras ya hay una ejecución `queued`/`processing`
-  para la misma sesión devuelve `409`.
+- Cualquier campo no reconocido en el cuerpo de `PATCH
+  .../ai-artifacts/{artifact_id}/content` (incluidos `confidence`,
+  `source_map`, `status`, cualquier campo de auditoría) se rechaza con
+  `422` — no existen en el esquema de entrada.
+- `POST .../ai-artifacts/{artifact_id}/approve`/`reject` sobre un
+  artefacto que no existe todavía (u otra clínica) devuelve `404`.
+- `POST .../run-pipeline`/`run-mock-pipeline` mientras ya hay una
+  ejecución `queued`/`processing` para la misma sesión devuelve `409`.
 
 ## Clinical flags
 
@@ -384,9 +403,67 @@ señal ya generada.
 
 ## Export
 
+`scope=session` implementado en la Fase 6.6 (ver
+[fase-6-rfc.md](fase-6-rfc.md) §7 y `app/export/`). La exportación
+longitudinal (`scope=patient`) está implementada en la Fase 6.7 vía el
+módulo `clinical_record` — ver la sección [Clinical record](#clinical-record)
+más abajo; reutiliza `DocumentExporter`/`PdfDocumentExporter`/
+`TextDocumentExporter`, sin un exportador propio.
+
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/clinical-sessions/{session_id}/export/{artifact_type}?format=pdf\|text` | clinician/admin | Exporta el artefacto de IA indicado (`summary`, `anamnesis`); **solo si su `status = approved`** |
+| GET | `/ai-artifacts/{artifact_id}/export?format=pdf\|text` | admin, audiologist (`ClinicalDocumentAction.EXPORT`) | Exporta la versión vigente del artefacto de IA indicado (identificado por `artifact_id`, no por `artifact_type` de sesión), en PDF o texto plano; **solo si `status = approved`**, vigente y no eliminado |
+
+Aplica a los 7 `AIArtifactType` actuales (`transcript`, `summary`,
+`patient_summary`, `clinical_flags`, `missing_information`, `anamnesis`,
+`session_notes`), no solo a `summary`/`anamnesis`. A diferencia de
+aprobar/rechazar/editar, exportar **no** exige ser el profesional
+responsable de la sesión: cualquier `admin`/`audiologist` con acceso a la
+clínica puede exportar; `viewer` recibe `403` (permiso vacío). El
+documento nunca incluye `source_excerpt`, `source_map`, `confidence` ni
+metadata de proveedor/modelo/coste — solo contenido clínico aprobado y
+metadata mínima (clínica, paciente, sesión, `session_type` o "Sin
+especificar", artefacto, versión, aprobación humana, fecha, hash de
+contenido). `clinical_flags` incluye además, de forma obligatoria, el
+aviso de checklist no validado clínicamente (ver
+[clinical-safety.md](clinical-safety.md) §7). Cada descarga registra
+`document.exported` en `audit_log` (metadata mínima, sin contenido
+clínico). `format` inválido devuelve `422` nativo; artefacto inexistente,
+de otra clínica o eliminado devuelve `404`.
+
+## Clinical record
+
+Implementado en la Fase 6.7 (ver [fase-6-rfc.md](fase-6-rfc.md) §8 y
+`app/clinical_record/`). Módulo independiente de solo lectura — sin
+tabla ni ORM propios — que agrega, por paciente, las sesiones clínicas y
+sus documentos de IA `approved`, vigentes y no eliminados, ordenados
+cronológicamente (sesiones) y por `PIPELINE_STEP_ORDER` (documentos
+dentro de cada sesión).
+
+| Método | Ruta | Rol | Descripción |
+|---|---|---|---|
+| GET | `/patients/{patient_id}/clinical-record` | admin, audiologist, viewer (`ClinicalRecordAction.READ`) | Vista longitudinal paginada (`limit`/`offset`, mismo tope `PAGINATION_MAX_LIMIT` que el resto de listados); `404` si el paciente no existe o es de otra clínica |
+| GET | `/patients/{patient_id}/clinical-record/export?format=pdf\|text` | admin, audiologist (`ClinicalRecordAction.READ` **y** `ClinicalDocumentAction.EXPORT`) | Exporta el mismo universo de sesiones/documentos que la vista, en un único PDF/texto; `limit` opcional (por defecto `clinical_record_export_max_sessions`, configurable); `offset` para segmentar |
+
+`viewer` puede consultar la vista JSON pero nunca exportar (`403`, le
+falta `clinical_document:export`). Las `ANAMNESIS` históricas permanecen
+visibles en su sesión original; solo la aprobación más reciente de todo
+el paciente lleva `is_current_baseline=true`; ningún otro
+`artifact_type` usa ese campo (siempre `false`). `session_type` se
+devuelve `null` cuando no está especificado (nunca inferido); el
+exportador lo etiqueta como "Sin especificar". La respuesta nunca
+incluye `source_excerpt`, `source_map` ni metadata de generación (mismo
+criterio que `Export`); `clinical_flags` incluye
+`ruleset_disclaimer` obligatorio.
+
+Respuestas de `.../export`: `409` si `limit` supera el máximo
+configurado (segmentar con `offset`), si el paciente tiene más sesiones
+que el máximo y no se indicó `limit` explícito, o si no hay ningún
+documento aprobado en la ventana solicitada — nunca se exporta un
+PDF/texto vacío. Cada descarga registra `document.exported`
+(`scope=patient`); consultar la vista registra `clinical_record.viewed`
+(la exportación **no** genera este segundo evento). `format` inválido
+devuelve `422` nativo.
 
 ## Consents
 

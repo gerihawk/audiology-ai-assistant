@@ -11,7 +11,17 @@ texto, nunca deriva de `ClinicalFlagDraft`). `_format_clinical_flags` es
 la única responsable de esa conversión, deliberadamente simple: una línea
 por señal con su categoría y descripción, nunca el `source_excerpt`
 (evitar filtrar contenido de la transcripción actual dos veces por rutas
-distintas de un mismo prompt)."""
+distintas de un mismo prompt).
+
+`target` (Fase 6.4.4, RFC técnico de 6.4 §7-§8): se acepta por
+conformidad con `MissingInformationGenerator.generate()`, pero
+DELIBERADAMENTE no participa todavía en `RenderContext.variables` —
+`missing_information_es_v1` (auditada en el informe del hito 6.4.4) no
+declara ninguna variable de esquema/target, y esta fase no improvisa una
+plantilla nueva. Opción B del RFC técnico: interfaz preparada, routing
+productivo sin cambios de comportamiento hasta una plantilla
+`missing_information_es_v2` que sí lo exprese — ver
+`test_real_missing_information_generator.py::test_target_no_altera_el_prompt_renderizado_en_6_4_4`."""
 
 from __future__ import annotations
 
@@ -23,6 +33,7 @@ from app.integrations.domain.language_model_provider import LanguageModelProvide
 from app.integrations.domain.missing_information_generator import (
     MissingInfoItem,
     MissingInformationResult,
+    MissingInformationTarget,
 )
 from app.integrations.domain.session_context import SessionContext
 from app.integrations.providers.json_response import parse_json_object
@@ -75,8 +86,10 @@ class RealMissingInformationGenerator:
         summary: str,
         clinical_flags: list[ClinicalFlagDraft],
         *,
+        target: MissingInformationTarget,
         context: SessionContext,
     ) -> MissingInformationResult:
+        del target  # ver docstring del módulo: inerte hasta la plantilla v2.
         rendered = self._renderer.render(
             self._template,
             RenderContext(

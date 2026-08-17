@@ -53,6 +53,17 @@ class AIArtifactORM(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    # Hito 6.5.3 (RFC técnico de 6.5 §11): identidad del baseline exacto de
+    # una propuesta de AnamnesisUpdateStep — NULL para todo lo demás. FK
+    # simple (no `use_alter`): a diferencia de `current_version_id`, no hay
+    # dependencia circular — el baseline siempre es un AIArtifact/versión
+    # YA existente y aprobado antes de crear esta fila.
+    baseline_artifact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ai_artifacts.id"), nullable=True
+    )
+    baseline_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ai_artifact_versions.id"), nullable=True
+    )
 
 
 class AIArtifactVersionORM(Base):

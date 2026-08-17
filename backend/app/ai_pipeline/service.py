@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_pipeline.domain.anamnesis_update import changed_field_names, reason_for_previous_status
 from app.ai_pipeline.domain.artifact_repository import AIArtifactRepository
 from app.ai_pipeline.domain.cost_budget import SessionCostBudget
 from app.ai_pipeline.domain.entities import (
@@ -32,12 +33,18 @@ from app.ai_pipeline.domain.entities import (
     PromptTemplate,
 )
 from app.ai_pipeline.domain.generation_run_repository import AIGenerationRunRepository
+from app.ai_pipeline.domain.patient_context import (
+    LoadedPatientContext,
+    PatientContextRequirement,
+    PreviousAnamnesisRef,
+)
 from app.ai_pipeline.domain.pipeline import (
     PipelineExecutionContext,
     PipelineOrchestrator,
     PipelineStep,
     PipelineStepOutcome,
     SequentialPipelineOrchestrator,
+    SkipReasonCode,
 )
 from app.ai_pipeline.domain.pipeline_run_repository import AIPipelineRunRepository
 from app.ai_pipeline.domain.prompt_template_repository import (
@@ -48,9 +55,11 @@ from app.ai_pipeline.domain.prompt_template_repository import (
 from app.ai_pipeline.domain.retry_policy import RetryConfig
 from app.ai_pipeline.domain.schemas import validate_content_schema
 from app.ai_pipeline.domain.steps.anamnesis_step import AnamnesisStep
+from app.ai_pipeline.domain.steps.anamnesis_update_step import AnamnesisUpdateStep
 from app.ai_pipeline.domain.steps.clinical_flags_step import ClinicalFlagsStep
 from app.ai_pipeline.domain.steps.missing_information_step import MissingInformationStep
 from app.ai_pipeline.domain.steps.patient_summary_step import PatientSummaryStep
+from app.ai_pipeline.domain.steps.session_notes_step import SessionNotesStep
 from app.ai_pipeline.domain.steps.summary_step import SummaryStep
 from app.ai_pipeline.domain.steps.transcription_step import TranscriptionStep
 from app.ai_pipeline.infrastructure.repository import (
@@ -83,12 +92,14 @@ from app.core.config import Settings, get_settings
 from app.core.current_user import CurrentUser
 from app.core.exceptions import ConflictError, NotFoundError, SchemaValidationError
 from app.core.processing_status import ProcessingStatus
-from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
+from app.integrations.domain.anamnesis_generator import AnamnesisFieldStatus, AnamnesisGenerator
+from app.integrations.domain.anamnesis_update_generator import AnamnesisUpdateGenerator
 from app.integrations.domain.clinical_flags_generator import ClinicalFlagsGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
 from app.integrations.domain.missing_information_generator import MissingInformationGenerator
 from app.integrations.domain.patient_summary_generator import PatientSummaryGenerator
 from app.integrations.domain.session_context import SessionContext
+from app.integrations.domain.session_notes_generator import SessionNotesGenerator
 from app.integrations.domain.summary_generator import SummaryGenerator
 from app.integrations.domain.token_counter import TokenCounter
 from app.integrations.domain.transcription_provider import (
@@ -97,12 +108,14 @@ from app.integrations.domain.transcription_provider import (
 )
 from app.integrations.factory import build_language_model_provider
 from app.integrations.mocks.mock_anamnesis_generator import MockAnamnesisGenerator
+from app.integrations.mocks.mock_anamnesis_update_generator import MockAnamnesisUpdateGenerator
 from app.integrations.mocks.mock_clinical_flags_generator import MockClinicalFlagsGenerator
 from app.integrations.mocks.mock_cost_estimator import MockCostEstimator
 from app.integrations.mocks.mock_missing_information_generator import (
     MockMissingInformationGenerator,
 )
 from app.integrations.mocks.mock_patient_summary_generator import MockPatientSummaryGenerator
+from app.integrations.mocks.mock_session_notes_generator import MockSessionNotesGenerator
 from app.integrations.mocks.mock_summary_generator import MockSummaryGenerator
 from app.integrations.mocks.mock_token_counter import MockTokenCounter
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
@@ -141,6 +154,19 @@ class PipelineRunOutcome:
 
 
 @dataclass(slots=True)
+class AnamnesisUpdateProposalOutcome:
+    """Resultado de `propose_anamnesis_update` (Hito 6.5.3). `detail` es
+    `None` exactamente cuando `changed_fields` está vacío — el generador no
+    propuso ningún cambio real, así que no se persistió ningún
+    `AIArtifact`/`AIArtifactVersion` (RFC técnico de 6.5 §9 del encargo de
+    6.5.3: "no changes proposed" es un resultado válido, nunca un fallo ni
+    una versión artificial)."""
+
+    detail: AIArtifactDetail | None
+    changed_fields: list[str]
+
+
+@dataclass(slots=True)
 class AIArtifactVersionDetail:
     """Una fila del historial — combina la versión con su ejecución (si la
     generó IA) y si es la vigente del artefacto."""
@@ -167,6 +193,8 @@ class AIPipelineService:
         clinical_flags_generator: ClinicalFlagsGenerator | None = None,
         missing_information_generator: MissingInformationGenerator | None = None,
         anamnesis_generator: AnamnesisGenerator | None = None,
+        anamnesis_update_generator: AnamnesisUpdateGenerator | None = None,
+        session_notes_generator: SessionNotesGenerator | None = None,
         token_counter: TokenCounter | None = None,
         cost_estimator: CostEstimator | None = None,
         llm_cost_estimator: CostEstimator | None = None,
@@ -206,6 +234,16 @@ class AIPipelineService:
             missing_information_generator or MockMissingInformationGenerator()
         )
         self._anamnesis_generator = anamnesis_generator or MockAnamnesisGenerator()
+        # Fase 6.5.3: sin routing real todavía (RFC técnico de 6.5 §16 —
+        # pendiente de benchmark propio antes de activar un proveedor real,
+        # mismo criterio que ANAMNESIS/SESSION_NOTES). Nunca se construye en
+        # `_build_steps()`/`_build_mock_steps()`: `AnamnesisUpdateStep` es
+        # una operación explícita, deliberadamente ausente de
+        # `PIPELINE_STEP_ORDER` — solo `propose_anamnesis_update()` la usa.
+        self._anamnesis_update_generator = (
+            anamnesis_update_generator or MockAnamnesisUpdateGenerator()
+        )
+        self._session_notes_generator = session_notes_generator or MockSessionNotesGenerator()
         self._token_counter = token_counter or MockTokenCounter()
         self._cost_estimator = cost_estimator or MockCostEstimator()
         # Fase 6.3.8: estimador de coste real, EXCLUSIVO de los steps con
@@ -252,11 +290,9 @@ class AIPipelineService:
         `llm_provider_patient_summary`/`llm_provider_missing_information`.
         Puede gastar dinero real y enviar datos a un tercero si el routing
         de producción está activo. Expuesto por `POST .../run-pipeline`."""
-        await self._authorize_trigger(current_user, clinical_session_id)
+        clinical_session = await self._authorize_trigger(current_user, clinical_session_id)
         steps = await self._build_steps()
-        return await self._execute_pipeline_run(
-            current_user, clinical_session_id, request_id, steps
-        )
+        return await self._execute_pipeline_run(current_user, clinical_session, request_id, steps)
 
     async def run_mock_pipeline(
         self, current_user: CurrentUser, clinical_session_id: uuid.UUID, request_id: str
@@ -266,11 +302,9 @@ class AIPipelineService:
         (`_build_mock_steps()` nunca consulta el routing). Único uso
         legítimo: development/tests/demo. Expuesto por
         `POST .../run-mock-pipeline`."""
-        await self._authorize_trigger(current_user, clinical_session_id)
+        clinical_session = await self._authorize_trigger(current_user, clinical_session_id)
         steps = self._build_mock_steps()
-        return await self._execute_pipeline_run(
-            current_user, clinical_session_id, request_id, steps
-        )
+        return await self._execute_pipeline_run(current_user, clinical_session, request_id, steps)
 
     async def _authorize_trigger(
         self, current_user: CurrentUser, clinical_session_id: uuid.UUID
@@ -287,10 +321,11 @@ class AIPipelineService:
     async def _execute_pipeline_run(
         self,
         current_user: CurrentUser,
-        clinical_session_id: uuid.UUID,
+        clinical_session: ClinicalSession,
         request_id: str,
         steps: list[PipelineStep],
     ) -> PipelineRunOutcome:
+        clinical_session_id = clinical_session.id
         existing_active = await self._pipeline_runs.get_active_for_session(
             self._session, current_user.clinic_id, clinical_session_id
         )
@@ -314,9 +349,16 @@ class AIPipelineService:
             cost_budget, retry_config, max_output_tokens_estimate = (
                 await self._build_execution_guardrails(clinical_session_id)
             )
+            patient_context = await self._resolve_patient_context(
+                current_user.clinic_id, clinical_session, steps
+            )
             context = PipelineExecutionContext(
                 clinical_session_id=clinical_session_id,
-                session_context=SessionContext(clinical_session_id=clinical_session_id),
+                session_context=SessionContext(
+                    clinical_session_id=clinical_session_id,
+                    session_type=clinical_session.session_type.value,
+                ),
+                patient_context=patient_context,
                 cost_budget=cost_budget,
                 retry_config=retry_config,
                 max_output_tokens_estimate=max_output_tokens_estimate,
@@ -329,7 +371,8 @@ class AIPipelineService:
 
             for outcome in result.outcomes:
                 if outcome.status is None:
-                    any_failed_or_skipped = True
+                    if _is_problematic_outcome(outcome):
+                        any_failed_or_skipped = True
                     continue  # saltado: nunca se invocó, no genera auditoría técnica
 
                 if outcome.status == AIGenerationRunStatus.FAILED:
@@ -409,7 +452,18 @@ class AIPipelineService:
         clinical_session_id: uuid.UUID,
         outcome: PipelineStepOutcome,
         request_id: str,
+        *,
+        baseline_artifact_id: uuid.UUID | None = None,
+        baseline_version_id: uuid.UUID | None = None,
     ) -> AIArtifactDetail:
+        """`baseline_artifact_id`/`baseline_version_id` (Hito 6.5.3): solo
+        los usa `propose_anamnesis_update()` — `None` para el resto de
+        llamadores (comportamiento histórico sin cambios). Se fijan
+        ÚNICAMENTE al crear el `AIArtifact` la primera vez
+        (`existing_artifact is None`): un rerun sobre un artefacto ya
+        existente nunca los toca — son identidad del baseline original de
+        la propuesta, no del intento de contenido más reciente (auditoría
+        de 6.5, §2 del encargo de 6.5.3)."""
         existing_artifact = await self._artifacts.get_by_session_and_type(
             self._session, current_user.clinic_id, clinical_session_id, outcome.artifact_type
         )
@@ -442,6 +496,8 @@ class AIPipelineService:
                     deleted_at=None,
                     created_at=now,
                     updated_at=now,
+                    baseline_artifact_id=baseline_artifact_id,
+                    baseline_version_id=baseline_version_id,
                 ),
             )
         else:
@@ -520,6 +576,169 @@ class AIPipelineService:
             generation_run=persisted_generation_run,
         )
 
+    # --- Actualización explícita de anamnesis (Fase 6.5.3) -----------------
+
+    async def propose_anamnesis_update(
+        self, current_user: CurrentUser, clinical_session_id: uuid.UUID, request_id: str
+    ) -> AnamnesisUpdateProposalOutcome:
+        """Acción EXPLÍCITA disparada desde una sesión concreta — nunca
+        parte de `run_pipeline`/`run_mock_pipeline` (RFC técnico de 6.5
+        §0/§3 del encargo de 6.5.3). Reutiliza `get_latest_approved`
+        (misma consulta longitudinal que `_resolve_patient_context`) y el
+        `AIArtifact(TRANSCRIPT)` ya existente de esta sesión — nunca invoca
+        un `TranscriptionProvider`."""
+        clinical_session = await self._get_clinical_session_or_404(
+            current_user, clinical_session_id
+        )
+        authorize_ai_artifact_action(
+            current_user,
+            AIArtifactAction.EDIT,
+            professional_id=clinical_session.professional_id,
+        )
+
+        previous_artifact = await self._artifacts.get_latest_approved(
+            self._session,
+            current_user.clinic_id,
+            clinical_session.patient_id,
+            AIArtifactType.ANAMNESIS,
+            exclude_clinical_session_id=clinical_session_id,
+        )
+        if previous_artifact is None or previous_artifact.current_version_id is None:
+            raise ConflictError(
+                "No existe una anamnesis aprobada previa del paciente en otra sesión; "
+                "no se puede proponer una actualización."
+            )
+        baseline_version = await self._artifacts.get_version_by_id(
+            self._session, previous_artifact.current_version_id
+        )
+        assert baseline_version is not None  # invariante: current_version_id ya resuelto
+        assert previous_artifact.approved_at is not None  # invariante: status=APPROVED
+        previous_ref = PreviousAnamnesisRef(
+            artifact_id=previous_artifact.id,
+            version_id=previous_artifact.current_version_id,
+            clinical_session_id=previous_artifact.clinical_session_id,
+            approved_at=previous_artifact.approved_at,
+            content=baseline_version.content,
+        )
+
+        transcript_artifact = await self._artifacts.get_by_session_and_type(
+            self._session, current_user.clinic_id, clinical_session_id, AIArtifactType.TRANSCRIPT
+        )
+        if transcript_artifact is None or transcript_artifact.current_version_id is None:
+            raise ConflictError(
+                "No existe una transcripción disponible para esta sesión; no se puede "
+                "proponer una actualización de anamnesis sin un transcript."
+            )
+        transcript_version = await self._artifacts.get_version_by_id(
+            self._session, transcript_artifact.current_version_id
+        )
+        assert transcript_version is not None  # invariante: current_version_id ya resuelto
+
+        # Rerun sobre la misma sesión (RFC técnico de 6.5 §14 del encargo
+        # de 6.5.3): si ya existe una propuesta B para esta sesión, su
+        # baseline debe coincidir EXACTAMENTE con el baseline recién
+        # resuelto — nunca rebase silencioso ni sobrescritura de
+        # `baseline_*`. Si no coincide, hay que resolver B primero
+        # (aprobarla/rechazarla/eliminarla) antes de regenerar.
+        existing_proposal = await self._artifacts.get_by_session_and_type(
+            self._session, current_user.clinic_id, clinical_session_id, AIArtifactType.ANAMNESIS
+        )
+        if existing_proposal is not None and (
+            existing_proposal.baseline_artifact_id != previous_ref.artifact_id
+            or existing_proposal.baseline_version_id != previous_ref.version_id
+        ):
+            raise ConflictError(
+                "Ya existe una propuesta de actualización para esta sesión generada contra "
+                "un baseline distinto del vigente. Resuelve la propuesta existente (apruébala, "
+                "recházala o elimínala) antes de generar una nueva."
+            )
+
+        context = PipelineExecutionContext(
+            clinical_session_id=clinical_session_id,
+            session_context=SessionContext(
+                clinical_session_id=clinical_session_id,
+                session_type=clinical_session.session_type.value,
+            ),
+            outputs={AIArtifactType.TRANSCRIPT: transcript_version.content},
+            patient_context=LoadedPatientContext(
+                session_type=clinical_session.session_type.value,
+                previous_approved_anamnesis=previous_ref,
+            ),
+        )
+        step = AnamnesisUpdateStep(self._anamnesis_update_generator)
+        if not step.applies_to(context):
+            raise ConflictError(
+                "No existe una anamnesis aprobada previa del paciente en otra sesión; "
+                "no se puede proponer una actualización."
+            )
+        outcome = await step.run(context)
+
+        if outcome.status == AIGenerationRunStatus.FAILED:
+            raise ConflictError(
+                "No se pudo generar la propuesta de actualización de anamnesis: "
+                f"{outcome.failure_reason or 'error desconocido.'}"
+            )
+
+        assert outcome.content is not None  # invariante: COMPLETED siempre trae content
+        changed_fields = changed_field_names(previous_ref.content, outcome.content)
+        if not changed_fields:
+            # RFC técnico de 6.5 §9 del encargo de 6.5.3: sin cambios reales
+            # propuestos, la operación es válida pero no persiste nada — ni
+            # AIArtifact, ni AIArtifactVersion, ni AIGenerationRun/AIPipelineRun.
+            return AnamnesisUpdateProposalOutcome(detail=None, changed_fields=[])
+
+        now = datetime.now(UTC)
+        pipeline_run = AIPipelineRun(
+            id=uuid.uuid4(),
+            clinical_session_id=clinical_session_id,
+            triggered_by=current_user.id,
+            status=AIPipelineRunStatus.PROCESSING,
+            started_at=now,
+            completed_at=None,
+            request_id=request_id,
+        )
+        try:
+            persisted_run = await self._pipeline_runs.add(self._session, pipeline_run)
+            detail = await self._persist_completed_outcome(
+                current_user,
+                persisted_run.id,
+                clinical_session_id,
+                outcome,
+                request_id,
+                baseline_artifact_id=previous_ref.artifact_id,
+                baseline_version_id=previous_ref.version_id,
+            )
+            await self._pipeline_runs.update_fields(
+                self._session,
+                persisted_run.id,
+                {"status": AIPipelineRunStatus.COMPLETED.value, "completed_at": datetime.now(UTC)},
+            )
+            await self._write_audit(
+                current_user,
+                request_id,
+                action="ai_artifact.update_proposed",
+                entity_type="ai_artifact",
+                entity_id=detail.artifact.id,
+                metadata={
+                    "proposing_clinical_session_id": str(clinical_session_id),
+                    "baseline_artifact_id": str(previous_ref.artifact_id),
+                    "baseline_version_id": str(previous_ref.version_id),
+                    "changed_fields": changed_fields,
+                    "reasons": {
+                        field_name: reason_for_previous_status(
+                            AnamnesisFieldStatus(previous_ref.content[field_name]["status"])
+                        ).value
+                        for field_name in changed_fields
+                    },
+                },
+            )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        return AnamnesisUpdateProposalOutcome(detail=detail, changed_fields=changed_fields)
+
     # --- Transcripción desde audio real (Fase 5) --------------------------
 
     async def transcribe_from_audio(
@@ -589,7 +808,10 @@ class AIPipelineService:
         )
         context = PipelineExecutionContext(
             clinical_session_id=audio_recording.clinical_session_id,
-            session_context=SessionContext(clinical_session_id=audio_recording.clinical_session_id),
+            session_context=SessionContext(
+                clinical_session_id=audio_recording.clinical_session_id,
+                session_type=clinical_session.session_type.value,
+            ),
             audio_input=AudioForTranscription(
                 audio_bytes=audio_bytes,
                 mime_type=audio_recording.mime_type,
@@ -824,6 +1046,32 @@ class AIPipelineService:
                 "(editando o regenerando) antes de cambiar su disposición."
             )
 
+        # Optimistic concurrency (Hito 6.5.3, RFC técnico de 6.5 §11):
+        # solo aplica a propuestas de AnamnesisUpdateStep
+        # (`baseline_artifact_id is not None`) y solo al aprobar — nunca al
+        # rechazar (rechazar una propuesta pendiente siempre debe poder
+        # hacerse, aunque el baseline haya cambiado entre tanto). Para
+        # cualquier otro artefacto (`baseline_artifact_id is None`) este
+        # bloque nunca se ejecuta: comportamiento idéntico al existente.
+        if action == AIArtifactAction.APPROVE and existing.baseline_artifact_id is not None:
+            current_baseline = await self._artifacts.get_latest_approved(
+                self._session,
+                current_user.clinic_id,
+                clinical_session.patient_id,
+                AIArtifactType.ANAMNESIS,
+                exclude_clinical_session_id=existing.clinical_session_id,
+            )
+            if (
+                current_baseline is None
+                or current_baseline.id != existing.baseline_artifact_id
+                or current_baseline.current_version_id != existing.baseline_version_id
+            ):
+                raise ConflictError(
+                    "El baseline sobre el que se generó esta propuesta de actualización ya "
+                    "no es el vigente. Regenera la propuesta contra el baseline actual antes "
+                    "de aprobarla."
+                )
+
         now = datetime.now(UTC)
         values: dict[str, object] = {"status": target_status.value, "updated_at": now}
         if action == AIArtifactAction.APPROVE:
@@ -1023,18 +1271,13 @@ class AIPipelineService:
         missing_information_step = await self._build_missing_information_step(settings)
 
         steps_by_type: dict[AIArtifactType, PipelineStep] = {
-            AIArtifactType.TRANSCRIPT: TranscriptionStep(
-                self._transcription_provider, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.TRANSCRIPT: self._mock_transcription_step(),
             AIArtifactType.SUMMARY: summary_step,
             AIArtifactType.PATIENT_SUMMARY: patient_summary_step,
-            AIArtifactType.CLINICAL_FLAGS: ClinicalFlagsStep(
-                self._clinical_flags_generator, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.CLINICAL_FLAGS: self._mock_clinical_flags_step(),
             AIArtifactType.MISSING_INFORMATION: missing_information_step,
-            AIArtifactType.ANAMNESIS: AnamnesisStep(
-                self._anamnesis_generator, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.ANAMNESIS: self._mock_anamnesis_step(),
+            AIArtifactType.SESSION_NOTES: self._mock_session_notes_step(),
         }
         return [steps_by_type[artifact_type] for artifact_type in PIPELINE_STEP_ORDER]
 
@@ -1056,26 +1299,53 @@ class AIPipelineService:
         interruptor de configuración por variable de entorno, que es el
         riesgo que esta función cierra."""
         steps_by_type: dict[AIArtifactType, PipelineStep] = {
-            AIArtifactType.TRANSCRIPT: TranscriptionStep(
-                self._transcription_provider, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.TRANSCRIPT: self._mock_transcription_step(),
             AIArtifactType.SUMMARY: SummaryStep(
                 self._summary_generator, self._token_counter, self._cost_estimator
             ),
             AIArtifactType.PATIENT_SUMMARY: PatientSummaryStep(
                 self._patient_summary_generator, self._token_counter, self._cost_estimator
             ),
-            AIArtifactType.CLINICAL_FLAGS: ClinicalFlagsStep(
-                self._clinical_flags_generator, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.CLINICAL_FLAGS: self._mock_clinical_flags_step(),
             AIArtifactType.MISSING_INFORMATION: MissingInformationStep(
                 self._missing_information_generator, self._token_counter, self._cost_estimator
             ),
-            AIArtifactType.ANAMNESIS: AnamnesisStep(
-                self._anamnesis_generator, self._token_counter, self._cost_estimator
-            ),
+            AIArtifactType.ANAMNESIS: self._mock_anamnesis_step(),
+            AIArtifactType.SESSION_NOTES: self._mock_session_notes_step(),
         }
         return [steps_by_type[artifact_type] for artifact_type in PIPELINE_STEP_ORDER]
+
+    def _mock_transcription_step(self) -> TranscriptionStep:
+        """Construcción puramente Mock, compartida por `_build_steps()` y
+        `_build_mock_steps()` (RFC técnico de 6.4, §12/§15): `TRANSCRIPT`
+        no tiene routing real todavía — sin `if provider_name == "mock"`
+        que factorizar, solo la llamada al constructor, antes duplicada
+        byte a byte en ambos métodos."""
+        return TranscriptionStep(
+            self._transcription_provider, self._token_counter, self._cost_estimator
+        )
+
+    def _mock_clinical_flags_step(self) -> ClinicalFlagsStep:
+        """Igual que `_mock_transcription_step`: `CLINICAL_FLAGS` es
+        rule-based, nunca tiene routing LLM — ver docs/fase-6-rfc.md §4.4."""
+        return ClinicalFlagsStep(
+            self._clinical_flags_generator, self._token_counter, self._cost_estimator
+        )
+
+    def _mock_anamnesis_step(self) -> AnamnesisStep:
+        """Igual que `_mock_transcription_step`: `ANAMNESIS` sigue sin
+        routing real en 6.4.1 (RFC técnico §11 — pendiente de benchmark
+        propio antes de activar un proveedor real, hito 6.4.2+)."""
+        return AnamnesisStep(self._anamnesis_generator, self._token_counter, self._cost_estimator)
+
+    def _mock_session_notes_step(self) -> SessionNotesStep:
+        """Igual que `_mock_transcription_step`: `SESSION_NOTES` sigue sin
+        routing real en 6.4.3 (RFC técnico §11 — misma razón que
+        `ANAMNESIS`: pendiente de benchmark propio antes de activar un
+        proveedor real)."""
+        return SessionNotesStep(
+            self._session_notes_generator, self._token_counter, self._cost_estimator
+        )
 
     async def _build_summary_step(self, settings: Settings) -> SummaryStep:
         provider_name = settings.llm_provider_summary
@@ -1207,6 +1477,53 @@ class AIPipelineService:
         )
         return cost_budget, retry_config, settings.llm_max_output_tokens_estimate
 
+    async def _resolve_patient_context(
+        self,
+        clinic_id: uuid.UUID,
+        clinical_session: ClinicalSession,
+        steps: list[PipelineStep],
+    ) -> LoadedPatientContext:
+        """Resuelve el contexto longitudinal UNA vez por *run*, antes de
+        invocar al orquestador (Fase 6.4.1, RFC técnico §7/§8) — nunca lo
+        resuelve el orquestador ni un `PipelineStep` por su cuenta.
+
+        Evita la consulta cross-sesión de `get_latest_approved` por
+        completo si ningún step de `steps` declaró
+        `patient_context_requirements()` no vacío — inspección
+        determinista y explícita de los steps ya construidos, sin
+        complejidad añadida (RFC técnico §7): en 6.4.1 ningún step
+        todavía declara requisitos reales, así que esta consulta nunca se
+        ejecuta en producción hasta el hito 6.4.2."""
+        required = _union_patient_context_requirements(steps)
+        previous_anamnesis: PreviousAnamnesisRef | None = None
+
+        if PatientContextRequirement.PREVIOUS_APPROVED_ANAMNESIS in required:
+            previous_artifact = await self._artifacts.get_latest_approved(
+                self._session,
+                clinic_id,
+                clinical_session.patient_id,
+                AIArtifactType.ANAMNESIS,
+                exclude_clinical_session_id=clinical_session.id,
+            )
+            if previous_artifact is not None and previous_artifact.current_version_id is not None:
+                version = await self._artifacts.get_version_by_id(
+                    self._session, previous_artifact.current_version_id
+                )
+                if version is not None:
+                    assert previous_artifact.approved_at is not None  # invariante: status=APPROVED
+                    previous_anamnesis = PreviousAnamnesisRef(
+                        artifact_id=previous_artifact.id,
+                        version_id=previous_artifact.current_version_id,
+                        clinical_session_id=previous_artifact.clinical_session_id,
+                        approved_at=previous_artifact.approved_at,
+                        content=version.content,
+                    )
+
+        return LoadedPatientContext(
+            session_type=clinical_session.session_type.value,
+            previous_approved_anamnesis=previous_anamnesis,
+        )
+
     async def _ensure_ai_processing_consent(
         self, current_user: CurrentUser, patient_id: uuid.UUID
     ) -> None:
@@ -1288,3 +1605,24 @@ def _resolve_pipeline_status(any_completed: bool, any_failed_or_skipped: bool) -
     if any_completed and any_failed_or_skipped:
         return AIPipelineRunStatus.PARTIALLY_FAILED.value
     return AIPipelineRunStatus.FAILED.value
+
+
+def _union_patient_context_requirements(
+    steps: list[PipelineStep],
+) -> frozenset[PatientContextRequirement]:
+    """Unión de `patient_context_requirements()` de todos los steps de
+    este *run* — pura, sin I/O. Determina si `_resolve_patient_context`
+    necesita tocar la base de datos en absoluto."""
+    required: set[PatientContextRequirement] = set()
+    for step in steps:
+        required |= step.patient_context_requirements()
+    return frozenset(required)
+
+
+def _is_problematic_outcome(outcome: PipelineStepOutcome) -> bool:
+    """`True` si un outcome con `status is None` cuenta como problema
+    para `AIPipelineRunStatus` (RFC técnico de 6.4.1, Decisión final 2):
+    `SKIPPED_DEPENDENCY` sí (deriva de un fallo/salto upstream, semántica
+    sin cambios desde la Fase 4); `SKIPPED_NOT_APPLICABLE` nunca — el
+    step simplemente no correspondía a esta sesión, no es un problema."""
+    return outcome.skip_reason_code != SkipReasonCode.NOT_APPLICABLE

@@ -12,3 +12,11 @@ AI_DISCLAIMER = (
     "Contenido generado mediante IA. Debe ser revisado y aprobado por un "
     "profesional cualificado antes de incorporarse al expediente."
 )
+
+#: docs/clinical-safety.md §7 — obligatorio, además de `AI_DISCLAIMER`,
+#: en todo lugar donde se muestren o exporten `clinical_flags` (API, UI,
+#: PDF/texto). El checklist que los genera (`MockClinicalFlagsGenerator`)
+#: no está validado clínicamente ni es apto para pacientes reales.
+RULESET_DISCLAIMER = (
+    "Checklist de demostración. No validado clínicamente. " "No apto para uso con pacientes reales."
+)

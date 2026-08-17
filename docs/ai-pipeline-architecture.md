@@ -210,6 +210,9 @@ backend/app/
         clinical_flags_step.py
         missing_information_step.py
         anamnesis_step.py
+        anamnesis_update_step.py       # Fase 6.5.3 — acción EXPLÍCITA,
+                                        # deliberadamente ausente de
+                                        # PIPELINE_STEP_ORDER (§1.4)
     infrastructure/
       orm.py
       repository.py
@@ -363,6 +366,12 @@ class AIArtifact:
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    baseline_artifact_id: uuid.UUID | None  # Fase 6.5.3: identidad del
+    baseline_version_id: uuid.UUID | None   # baseline exacto de una
+    # propuesta de AnamnesisUpdateStep — NULL para cualquier otro
+    # artefacto, incluida la anamnesis inicial. Nunca cambian tras la
+    # creación; usados para optimistic concurrency al aprobar (ver
+    # fase-6-rfc.md §4.8 y el RFC técnico de 6.5, decisión 2).
 
 
 @dataclass(slots=True)
@@ -372,7 +381,7 @@ class AIArtifactVersion:
     version_number: int
     content: dict[str, Any]         # forma validada por artifact_type (§7.1)
     confidence: int | None          # 0-100; solo si source = ai_generated
-    source_map: dict[str, Any] | None  # diseño, no poblado aún (§7.7)
+    source_map: dict[str, Any] | None  # poblado desde el hito 6.1 (§7.7)
     source: AIArtifactVersionSource
     generation_run_id: uuid.UUID | None
     created_by: uuid.UUID | None
@@ -846,34 +855,39 @@ es una tabla de **telemetría técnica**, no una copia del contenido
 clínico-adyacente generado — ese vive, versionado, en
 `ai_artifact_versions.content`.
 
-### 7.7 Source mapping (diseño — no implementado)
+### 7.7 Source mapping (implementado desde el hito 6.1)
 
-**Decisión cerrada sobre el diseño, implementación fuera de esta fase.**
-Cada fragmento generado debe poder asociarse a su origen: segmento de
-audio, rango de transcripción, timestamps, offsets — para que un
-audioprotesista pueda saber exactamente de dónde procede cualquier frase
-generada.
+Cada fragmento generado que declara `source_excerpt` queda asociado a su
+origen dentro de la transcripción de la sesión — offsets normalizados
+respecto al `transcript`, no un rango de audio (no depende de que el
+`TranscriptionProvider` produzca timestamps).
 
-Diseño: `AIArtifactVersion.source_map` (JSONB, nullable), estructurado
-como un mapa desde cada "ruta" del `content` hacia su origen:
+Implementación real: `AIArtifactVersion.source_map` (JSONB, nullable) se
+construye en `ai_pipeline/domain/validation_pipeline.py::_build_source_map`
+a partir de los `source_excerpt` ya verificados por `GroundingValidator`
+(§5.3/§7.5) — nunca lo aporta el proveedor LLM. Recorre `content` con
+`iter_dict_nodes` (genérico, sin asumir la forma de un `artifact_type`
+concreto) y, por cada nodo que declara `source_excerpt` con evidencia,
+añade una entrada bajo la ruta del campo:
 
 ```json
 {
   "tinnitus": {
-    "transcript_range": {"start_offset": 450, "end_offset": 512},
-    "audio_segment": {"start_ms": 34200, "end_ms": 36100}
+    "field": "tinnitus",
+    "excerpt": "un pitido leve en el oído derecho",
+    "original_start": 450,
+    "original_end": 484
   }
 }
 ```
 
-Para artefactos de texto único (`summary`, `transcript`) sería una lista
-de pares de alineación en vez de un mapa por campo. Depende de que el
-futuro `TranscriptionProvider` real produzca offsets/timestamps —
-`MockTranscriptionProvider` no está obligado a poblarlo con datos reales;
-puede dejarlo vacío o con offsets ficticios de la propia fixture. No se
-implementa la población de este campo en el backlog de esta fase (ver
-[development-plan.md](development-plan.md) Fase 4) — se deja el campo
-listo para cuando exista una fuente real de esos datos.
+`original_start`/`original_end` son opcionales (solo presentes cuando
+`verify_excerpt()` puede resolver la posición en el texto original). Un
+artefacto con campos que requieren evidencia y sin `source_map` válido no
+se persiste como generación exitosa (§5.1). `source_map` nunca forma
+parte de PDF/texto exportado (`export/domain`, Fase 6.6) — la
+trazabilidad campo a campo es de uso interno/auditoría, no de
+presentación al paciente.
 
 ---
 
@@ -937,16 +951,30 @@ merecen especial atención en la revisión humana.
 
 ### 9.1 Arquitectura
 
+**Corrección de ruteo (Fase 6.3 — deuda documental, sin cambio de
+comportamiento).** El diagrama siguiente reflejaba el diseño original de
+la Fase 4 (rutas por `{session_id}/ai/artifacts/{artifact_type}`). La
+implementación real direcciona por `artifact_id` (mismo criterio que
+`Export`), separa el disparo del pipeline en `run-mock-pipeline`/
+`run-pipeline` (Fase 6.3, ver [fase-6-rfc.md](fase-6-rfc.md) §6.4) y no
+tiene endpoint `GET .../pipeline-runs/{run_id}` — el resultado se
+devuelve directamente en la respuesta del disparo. Ver
+[api-specification.md](api-specification.md) sección "AI Pipeline" para
+la tabla de rutas actual.
+
 ```
 ┌───────────────────────────────────────────────────────────────────┐
 │ ai_pipeline/api/router.py                                         │
-│   POST   /clinical-sessions/{id}/ai/generate                      │
-│   GET    /clinical-sessions/{id}/ai/artifacts/{type}               │
-│   GET    /clinical-sessions/{id}/ai/artifacts/{type}/versions       │
-│   PUT    /clinical-sessions/{id}/ai/artifacts/{type}                 │
-│   POST   /clinical-sessions/{id}/ai/artifacts/{type}/approve          │
-│   POST   /clinical-sessions/{id}/ai/artifacts/{type}/reject            │
-│   GET    /clinical-sessions/{id}/ai/pipeline-runs/{run_id}              │
+│   POST   /clinical-sessions/{id}/run-mock-pipeline                │
+│   POST   /clinical-sessions/{id}/run-pipeline                     │
+│   POST   /clinical-sessions/{id}/propose-anamnesis-update          │
+│   GET    /clinical-sessions/{id}/artifacts                          │
+│   GET    /ai-artifacts/{artifact_id}                                  │
+│   GET    /ai-artifacts/{artifact_id}/versions                          │
+│   PATCH  /ai-artifacts/{artifact_id}/content                            │
+│   POST   /ai-artifacts/{artifact_id}/approve                             │
+│   POST   /ai-artifacts/{artifact_id}/reject                               │
+│   DELETE /ai-artifacts/{artifact_id}                                       │
 └───────────────────────────┬───────────────────────────────────────┘
                              ▼
 ┌───────────────────────────────────────────────────────────────────┐
@@ -1071,8 +1099,8 @@ de cada una están en la sección correspondiente enlazada.
    en esta fase; un `ai_pipeline_run` activo por sesión a la vez — ver §8.
 9. **`confidence` (0-100)** en todo `AIArtifact`/`AIArtifactVersion`,
    nunca usado para aprobación automática — ver §4, §8.
-10. **Source mapping**: diseño del campo `source_map`, sin implementar la
-    población todavía — ver §7.7.
+10. **Source mapping**: campo `source_map` implementado y poblado desde
+    el hito 6.1, derivado de `source_excerpt` ya verificado — ver §7.7.
 11. **JSON First**: contrato interno siempre JSON estructurado, nunca
     texto libre ni Markdown — ver §7.1.
 12. **Estados en dos ejes independientes** (ejecución vs. disposición

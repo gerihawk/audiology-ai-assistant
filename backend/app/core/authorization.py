@@ -283,3 +283,31 @@ def authorize_clinical_document_action(
             f"El rol '{current_user.role.value}' no tiene permiso para "
             f"'{action.value}' sobre documentos clínicos."
         )
+
+
+class ClinicalRecordAction(StrEnum):
+    READ = "read"
+
+
+#: Hito 6.7.3 (docs/fase-6-rfc.md §7.5/§8). Deliberadamente más permisivo
+#: que `CLINICAL_DOCUMENT_PERMISSIONS`: `viewer` puede consultar la
+#: historia clínica longitudinal en pantalla pero no descargarla — la
+#: exportación longitudinal (hito 6.7.4) exigirá además
+#: `ClinicalDocumentAction.EXPORT`, que `viewer` no posee. Sin ownership
+#: por `professional_id`: es una vista de solo lectura del expediente
+#: completo del paciente, no de "mis sesiones".
+CLINICAL_RECORD_PERMISSIONS: dict[Role, frozenset[ClinicalRecordAction]] = {
+    Role.ADMIN: frozenset(ClinicalRecordAction),
+    Role.AUDIOLOGIST: frozenset(ClinicalRecordAction),
+    Role.VIEWER: frozenset(ClinicalRecordAction),
+}
+
+
+def authorize_clinical_record_action(
+    current_user: CurrentUser, action: ClinicalRecordAction
+) -> None:
+    if action not in CLINICAL_RECORD_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre la historia clínica longitudinal."
+        )

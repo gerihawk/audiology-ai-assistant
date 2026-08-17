@@ -28,6 +28,7 @@ from app.ai_pipeline.api.schemas import (
     AIArtifactResponse,
     AIArtifactVersionListResponse,
     AIArtifactVersionResponse,
+    AnamnesisUpdateProposalResponse,
     ArtifactEditRequest,
     ArtifactRejectRequest,
     RunPipelineResponse,
@@ -73,6 +74,26 @@ async def run_pipeline(
     indica (ver `AIPipelineService.run_pipeline`)."""
     outcome = await service.run_pipeline(current_user, session_id, request_id)
     return RunPipelineResponse.from_outcome(outcome)
+
+
+@router.post(
+    "/clinical-sessions/{session_id}/propose-anamnesis-update",
+    response_model=AnamnesisUpdateProposalResponse,
+    status_code=200,
+)
+async def propose_anamnesis_update(
+    session_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AIPipelineService = Depends(get_ai_pipeline_service),
+    request_id: str = Depends(get_request_id),
+) -> AnamnesisUpdateProposalResponse:
+    """Acción EXPLÍCITA (RFC técnico de 6.5 §4 del encargo de 6.5.3) —
+    nunca forma parte de `run-pipeline`/`run-mock-pipeline`, nunca se
+    dispara automáticamente. `200` (no `201`): la operación puede
+    completarse válidamente sin crear ningún recurso nuevo ("no changes
+    proposed", ver `AnamnesisUpdateProposalResponse`)."""
+    outcome = await service.propose_anamnesis_update(current_user, session_id, request_id)
+    return AnamnesisUpdateProposalResponse.from_outcome(outcome)
 
 
 @router.post("/audio-recordings/{audio_recording_id}/transcribe", response_model=AIArtifactResponse)

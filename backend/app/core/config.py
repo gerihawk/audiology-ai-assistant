@@ -6,7 +6,7 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Contraseñas de ejemplo que nunca deben usarse fuera de desarrollo local.
@@ -63,6 +63,15 @@ class Settings(BaseSettings):
 
     pagination_default_limit: int = 20
     pagination_max_limit: int = 100
+
+    # --- Exportación longitudinal de historia clínica (Fase 6.7, hito 6.7.4) ---
+    # Techo de sesiones por exportación scope=patient — independiente de
+    # `pagination_max_limit` (paginación de la vista JSON): mezclarlos
+    # produciría dos guardarraíles contradictorios para dos operaciones
+    # distintas (ver docs/fase-6-rfc.md §7.2). Sin proveedor real de por
+    # medio, 50 es un valor conservador y explícito para no generar
+    # documentos desmedidos en memoria; ajustable por entorno.
+    clinical_record_export_max_sessions: int = Field(default=50, gt=0)
 
     # --- Audio (Fase 5) ---
     audio_storage_provider: str = "local"

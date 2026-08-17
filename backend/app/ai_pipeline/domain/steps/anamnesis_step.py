@@ -8,6 +8,15 @@ cascada que `summary`/`clinical_flags` se salten (por su propio
 `depends_on()`), y por tanto que `missing_information` se salte, y por
 tanto que este paso también se salte: nunca se ejecuta `run()` sin que
 `transcript` haya completado con éxito.
+
+`applies_to()` (Fase 6.4.2, RFC técnico §5): `True` solo si el paciente
+no tiene ya una `ANAMNESIS` aprobada de OTRA sesión en esta clínica —
+`session_type` nunca determina esta decisión (RFC §2/§4). El propio
+`source_excerpt` de cada campo se valida contra el transcript ACTUAL
+únicamente (RFC técnico §7): este step nunca pasa el contexto
+longitudinal a `run_provider_step`/`validate_generated_content`, solo al
+`AnamnesisGenerator` para enriquecer el prompt — dos canales separados
+por firma de tipos, no por convención.
 """
 
 from __future__ import annotations
@@ -15,17 +24,28 @@ from __future__ import annotations
 from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.ai_pipeline.domain.pipeline import PipelineExecutionContext, PipelineStepOutcome
+from app.ai_pipeline.domain.patient_context import (
+    PatientContextRequirement,
+    resolve_missing_information_target,
+)
+from app.ai_pipeline.domain.pipeline import (
+    PipelineExecutionContext,
+    PipelineStep,
+    PipelineStepOutcome,
+)
 from app.ai_pipeline.domain.steps.base import ProduceResult, run_provider_step
 from app.integrations.domain.anamnesis_generator import AnamnesisGenerator
 from app.integrations.domain.cost_estimator import CostEstimator
-from app.integrations.domain.missing_information_generator import MissingInfoItem
+from app.integrations.domain.missing_information_generator import (
+    MissingInfoItem,
+    MissingInformationTarget,
+)
 from app.integrations.domain.token_counter import TokenCounter
 
 _CONFIDENCE = 55
 
 
-class AnamnesisStep:
+class AnamnesisStep(PipelineStep):
     artifact_type = AIArtifactType.ANAMNESIS
 
     def __init__(
@@ -46,6 +66,25 @@ class AnamnesisStep:
     def depends_on(self) -> frozenset[AIArtifactType]:
         return frozenset({AIArtifactType.MISSING_INFORMATION})
 
+    def patient_context_requirements(self) -> frozenset[PatientContextRequirement]:
+        return frozenset({PatientContextRequirement.PREVIOUS_APPROVED_ANAMNESIS})
+
+    def applies_to(self, context: PipelineExecutionContext) -> bool:
+        """`True` si no existe ya una anamnesis aprobada del paciente
+        procedente de otra sesión (RFC técnico §5). Puro: solo lee
+        `context.patient_context`, ya resuelto por `AIPipelineService`
+        antes de invocar al orquestador — nunca consulta un repositorio.
+
+        Delegado en `resolve_missing_information_target` (Fase 6.4.4):
+        misma fuente de verdad binaria que `SessionNotesStep.applies_to()`
+        y `MissingInformationStep`, sin reglas duplicadas. `target is
+        None` (contexto nunca cargado, p. ej. un `PipelineExecutionContext`
+        construido a mano en un test sin pasar por el servicio) se trata
+        como "sin anamnesis previa conocida" y por tanto aplica — mismo
+        comportamiento por defecto que tenía este step antes de 6.4.2."""
+        target = resolve_missing_information_target(context.patient_context)
+        return target != MissingInformationTarget.SESSION_NOTES_BLOCKS
+
     async def run(self, context: PipelineExecutionContext) -> PipelineStepOutcome:
         transcript_text: str = context.outputs[AIArtifactType.TRANSCRIPT]["text"]
         missing_info_content: dict[str, Any] = context.outputs[AIArtifactType.MISSING_INFORMATION]
@@ -56,7 +95,11 @@ class AnamnesisStep:
                 transcript_text, missing_information, context=context.session_context
             )
             content = {
-                field_name: {"value": field_value.value, "status": field_value.status.value}
+                field_name: {
+                    "value": field_value.value,
+                    "status": field_value.status.value,
+                    "source_excerpt": field_value.source_excerpt,
+                }
                 for field_name, field_value in draft.fields.items()
             }
             return content, _CONFIDENCE, None, None, None

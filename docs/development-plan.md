@@ -532,16 +532,35 @@ normativo para toda la Fase 6 a partir de aquí:
 El compromiso original de exportación se mantiene íntegro:
 
 - Interfaz `DocumentExporter` con `PdfDocumentExporter` y
-  `TextDocumentExporter`.
-- Endpoints de exportación (`GET .../export/{artifact_type}`),
-  bloqueados si el artefacto no está `approved`.
-- Pantalla: botón de exportar (PDF/texto) visible solo cuando corresponde.
+  `TextDocumentExporter` — implementado (hito 6.6, `app/export/`).
+- Endpoint de exportación individual
+  (`GET /ai-artifacts/{artifact_id}/export?format=pdf|text`), bloqueado
+  si el artefacto no está `approved`, vigente y no eliminado —
+  implementado (hito 6.6).
+- `clinical_record`: módulo independiente de solo lectura (sin tabla ni
+  ORM propios) que agrega la historia clínica longitudinal de un
+  paciente — implementado (hito 6.7, `app/clinical_record/`).
+  `GET /patients/{patient_id}/clinical-record` (vista paginada) y
+  `GET /patients/{patient_id}/clinical-record/export?format=pdf|text`
+  (exportación longitudinal `scope=patient`, reutilizando
+  `DocumentExporter`, sin exportador propio).
+- Pantalla: botón de exportar (PDF/texto) y vista de historia clínica
+  longitudinal — pendiente (frontend, fuera del alcance de 6.6/6.7).
 
 **Criterio de aceptación**: un artefacto aprobado se descarga como PDF y
 como texto plano con formato legible; un artefacto no aprobado devuelve
 error controlado y la UI no ofrece la opción. Ver
 [fase-6-rfc.md](fase-6-rfc.md) §10 para el roadmap de hitos (6.0-6.7) y
 los criterios de aceptación de cada uno.
+
+**Estado (hito 6.7.5 — cierre de Fase 6 backend)**: hitos 6.0-6.7
+implementados y verificados (1112 tests backend en verde, `ruff`/`black`
+limpios, migración Alembic única desde base vacía). Fase 6 backend
+cerrada dentro del alcance de [fase-6-rfc.md](fase-6-rfc.md). Pendiente
+explícitamente fuera de alcance: frontend de exportación e historia
+clínica longitudinal, proveedor/modelo LLM de producción distinto del ya
+configurado (revisable ante un benchmark posterior, ver RFC §11.2), y
+toda integración externa (Noah/HIMSA, calendario) — ver Fase 7.
 
 ## Fase 7 — `integrations` (Noah/calendario), `consents`, retención
 
