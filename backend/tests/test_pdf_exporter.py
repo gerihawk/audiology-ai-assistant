@@ -17,7 +17,7 @@ import pytest
 from pypdf import PdfReader
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.export.domain.entities import ExportableDocument
+from app.export.domain.entities import ExportableDocument, ExportBundle, ExportBundleSession
 from app.export.infrastructure.pdf_exporter import PdfDocumentExporter
 from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS
 from app.integrations.domain.session_notes_generator import SESSION_NOTES_BLOCKS
@@ -319,3 +319,114 @@ class TestNoTemporaryFiles:
 
         after = set(os.listdir(tmp_dir))
         assert after - before == set()
+
+
+# ============================================================
+# G. export_many — Hito 6.7.2 (RFC §7.2, scope=patient)
+# ============================================================
+
+
+def _session(
+    *,
+    clinical_session_id: uuid.UUID | None = None,
+    session_type: str | None = "follow_up",
+    created_at: datetime = _APPROVED_AT,
+    documents: tuple[ExportableDocument, ...] = (),
+) -> ExportBundleSession:
+    return ExportBundleSession(
+        clinical_session_id=clinical_session_id or uuid.uuid4(),
+        session_type=session_type,
+        created_at=created_at,
+        documents=documents,
+    )
+
+
+def _bundle(
+    *,
+    sessions: tuple[ExportBundleSession, ...] = (),
+    patient_display_name: str | None = "Paciente Ficticio",
+) -> ExportBundle:
+    return ExportBundle(
+        clinic_name="Clínica de prueba",
+        patient_internal_code="PAC-0001",
+        patient_display_name=patient_display_name,
+        sessions=sessions,
+    )
+
+
+class TestExportMany:
+    def test_empty_bundle_produces_valid_single_page_pdf(self):
+        result = _exporter.export_many(_bundle(sessions=()))
+        assert result[:5] == b"%PDF-"
+        reader = PdfReader(io.BytesIO(result))
+        assert len(reader.pages) == 1
+        text = _extract_text(result)
+        assert "Clínica de prueba" in text
+        assert "PAC-0001" in text
+
+    def test_one_session_one_document(self):
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        text = _extract_text(_exporter.export_many(bundle))
+        assert "Resumen." in text
+
+    def test_multiple_sessions_produce_pagebreak_and_multiple_pages(self):
+        doc_a = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Sesión A."})
+        doc_b = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Sesión B."})
+        bundle = _bundle(
+            sessions=(
+                _session(documents=(doc_a,)),
+                _session(documents=(doc_b,)),
+            )
+        )
+        pdf_bytes = _exporter.export_many(bundle)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        assert len(reader.pages) >= 2
+
+        text = _extract_text(pdf_bytes)
+        assert text.index("Sesión A.") < text.index("Sesión B.")
+
+    def test_session_type_none_renders_as_sin_especificar(self):
+        bundle = _bundle(sessions=(_session(session_type=None, documents=()),))
+        text = _extract_text(_exporter.export_many(bundle))
+        assert "Sin especificar" in text
+
+    def test_unicode_survives(self):
+        sample = "ñ á é í ó ú ü ¿Cómo estás?"
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": sample})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        text = _extract_text(_exporter.export_many(bundle))
+        for char in "ñáéíóúü¿":
+            assert char in text
+
+    def test_output_never_contains_internal_metadata_terms(self):
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        text = _extract_text(_exporter.export_many(bundle)).lower()
+        for forbidden in (
+            "source_excerpt",
+            "source_map",
+            "confidence",
+            "provider",
+            "generation_run",
+            "estimated_cost",
+        ):
+            assert forbidden not in text
+
+    def test_export_many_creates_no_files_on_disk(self):
+        tmp_dir = tempfile.gettempdir()
+        before = set(os.listdir(tmp_dir))
+
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        _exporter.export_many(bundle)
+
+        after = set(os.listdir(tmp_dir))
+        assert after - before == set()
+
+    def test_existing_export_of_single_document_is_unchanged(self):
+        """Regresión crítica: `export_many` no debe alterar `export`."""
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        text = _extract_text(_exporter.export(document))
+        assert "Documento clínico exportado" in text
+        assert "Historia clínica longitudinal" not in text

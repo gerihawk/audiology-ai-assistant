@@ -1,4 +1,4 @@
-"""`PdfDocumentExporter` — Hito 6.6.3 (docs/fase-6-rfc.md §7.1/§7.4).
+"""`PdfDocumentExporter` — Hito 6.6.3/6.7.2 (docs/fase-6-rfc.md §7.1/§7.2/§7.4).
 
 Renderiza un `ExportableDocument` a PDF legible — nunca JSON crudo. Sin
 BD, sin HTTP, sin ORM, sin ficheros temporales: `SimpleDocTemplate` de
@@ -32,14 +32,15 @@ from xml.sax.saxutils import escape
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import StyleSheet1, getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.export.domain.entities import ExportableDocument
+from app.export.domain.entities import ExportableDocument, ExportBundle
 from app.export.infrastructure.shared import (
     EMPTY_VALUE_PLACEHOLDER,
     RULESET_DISCLAIMER,
     UNEXPLORED_BLOCK_PLACEHOLDER,
+    UNSPECIFIED_SESSION_TYPE_LABEL,
     header_fields,
     humanize_field_name,
 )
@@ -151,36 +152,87 @@ _BODY_RENDERERS: dict[AIArtifactType, Callable[[dict[str, Any], StyleSheet1], li
 }
 
 
+def _lookup_renderer(
+    artifact_type: AIArtifactType,
+) -> Callable[[dict[str, Any], StyleSheet1], list]:
+    renderer = _BODY_RENDERERS.get(artifact_type)
+    if renderer is None:
+        raise ValueError(f"PdfDocumentExporter no sabe renderizar artifact_type={artifact_type!r}.")
+    return renderer
+
+
+def _document_flowables(document: ExportableDocument, styles: StyleSheet1) -> list:
+    """Cabecera (`header_fields`) + cuerpo (`_BODY_RENDERERS`) de un único
+    documento — extraído de `export()` para que `export_many()` reutilice
+    exactamente el mismo bloque por documento sin duplicarlo."""
+    renderer = _lookup_renderer(document.artifact_type)
+    flowables: list = []
+    for label, value in header_fields(document):
+        flowables.append(Paragraph(f"<b>{label}:</b> {escape(value)}", styles["Normal"]))
+    flowables.append(Spacer(1, _SECTION_SPACING * 2))
+    flowables.append(Paragraph("Contenido", styles["Heading2"]))
+    flowables.append(Spacer(1, _SECTION_SPACING))
+    flowables.extend(renderer(document.content, styles))
+    return flowables
+
+
 class PdfDocumentExporter:
-    """Implementación en PDF de `DocumentExporter` (hito 6.6.1).
+    """Implementación en PDF de `DocumentExporter` (hito 6.6.1/6.7.2).
     Renderizado puro en memoria — sin E/S, sin async, sin ficheros
     temporales (ver el docstring de `DocumentExporter.export`)."""
 
     def export(self, document: ExportableDocument) -> bytes:
-        renderer = _BODY_RENDERERS.get(document.artifact_type)
-        if renderer is None:
-            raise ValueError(
-                f"PdfDocumentExporter no sabe renderizar artifact_type="
-                f"{document.artifact_type!r}."
-            )
-
         styles = getSampleStyleSheet()
         story: list = [
             Paragraph("Documento clínico exportado", styles["Title"]),
             Spacer(1, _SECTION_SPACING),
+            *_document_flowables(document, styles),
         ]
-        for label, value in header_fields(document):
-            story.append(Paragraph(f"<b>{label}:</b> {escape(value)}", styles["Normal"]))
-        story.append(Spacer(1, _SECTION_SPACING * 2))
-        story.append(Paragraph("Contenido", styles["Heading2"]))
-        story.append(Spacer(1, _SECTION_SPACING))
-        story.extend(renderer(document.content, styles))
 
         buffer = io.BytesIO()
         # `SimpleDocTemplate`/Platypus dividen automáticamente el `story`
         # en páginas según A4 cuando el contenido no cabe en una sola —
         # sin `PageBreak` manual, ver docs/fase-6-rfc.md (requisito 6.6.3
         # punto 6, "paginación automática").
+        document_template = SimpleDocTemplate(buffer, pagesize=A4)
+        document_template.build(story)
+        return buffer.getvalue()
+
+    def export_many(self, bundle: ExportBundle) -> bytes:
+        """Expediente longitudinal (RFC §7.2, hito 6.7.2): un único PDF,
+        con `PageBreak` entre sesiones (nunca antes de la primera) y,
+        dentro de cada sesión, el mismo bloque cabecera+cuerpo por
+        documento que usa `export` (`_document_flowables`). Bundle sin
+        sesiones: PDF válido de una sola página con solo la cabecera de
+        clínica/paciente, sin crashear ni inventar una sesión vacía."""
+        styles = getSampleStyleSheet()
+        patient = bundle.patient_internal_code
+        if bundle.patient_display_name:
+            patient = f"{patient} ({bundle.patient_display_name})"
+
+        story: list = [
+            Paragraph("Historia clínica longitudinal", styles["Title"]),
+            Spacer(1, _SECTION_SPACING),
+            Paragraph(f"<b>Clínica:</b> {escape(bundle.clinic_name)}", styles["Normal"]),
+            Paragraph(f"<b>Paciente:</b> {escape(patient)}", styles["Normal"]),
+        ]
+        for session_index, session in enumerate(bundle.sessions, start=1):
+            story.append(PageBreak() if session_index > 1 else Spacer(1, _SECTION_SPACING * 2))
+            session_type = session.session_type or UNSPECIFIED_SESSION_TYPE_LABEL
+            story.append(
+                Paragraph(
+                    f"Sesión {session_index} — {escape(session_type)} "
+                    f"({session.created_at.isoformat()})",
+                    styles["Heading1"],
+                )
+            )
+            story.append(Spacer(1, _SECTION_SPACING))
+            for document in session.documents:
+                story.append(Paragraph(escape(document.artifact_type.value), styles["Heading2"]))
+                story.extend(_document_flowables(document, styles))
+                story.append(Spacer(1, _SECTION_SPACING * 2))
+
+        buffer = io.BytesIO()
         document_template = SimpleDocTemplate(buffer, pagesize=A4)
         document_template.build(story)
         return buffer.getvalue()

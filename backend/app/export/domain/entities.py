@@ -38,6 +38,8 @@ from app.ai_pipeline.domain.entities import (
 
 __all__ = [
     "ExportableDocument",
+    "ExportBundleSession",
+    "ExportBundle",
     "is_exportable",
     "strip_source_excerpt",
     "compute_content_hash",
@@ -70,6 +72,41 @@ class ExportableDocument:
     content: dict[str, Any]
     content_hash: str
     generated_at: datetime
+
+
+@dataclass(slots=True, frozen=True)
+class ExportBundleSession:
+    """Una sesión dentro de un `ExportBundle` (hito 6.7.2, RFC §7.2
+    scope=patient). `documents` son `ExportableDocument` ya construidos
+    vía `build_exportable_document` — este DTO no vuelve a resolver
+    elegibilidad, hashing ni saneado de `source_excerpt`, solo agrupa lo
+    que el llamador (`clinical_record`, hito 6.7.3+) ya resolvió."""
+
+    clinical_session_id: uuid.UUID
+    session_type: str | None
+    created_at: datetime
+    documents: tuple[ExportableDocument, ...]
+
+
+@dataclass(slots=True, frozen=True)
+class ExportBundle:
+    """DTO agregado de exportación longitudinal (hito 6.7.2, RFC §7.2
+    scope=patient) — contrato propio de `export/domain`. No importa DTOs
+    de `clinical_record` (módulo hermano, no dependencia de `export`:
+    ver docstring de `app.clinical_record.domain.entities`); es
+    `clinical_record.ClinicalRecordService` (hito 6.7.3+) quien construye
+    este bundle a partir de sus propios `ClinicalRecordSessionEntry`/
+    `ClinicalRecordDocument` ya resueltos.
+
+    El orden de `sessions`, y de `documents` dentro de cada sesión, se
+    conserva tal cual llega — la selección/orden clínico (qué sesión es
+    vigente, qué `ANAMNESIS` es baseline) es competencia de
+    `clinical_record`, nunca de `export`."""
+
+    clinic_name: str
+    patient_internal_code: str
+    patient_display_name: str | None
+    sessions: tuple[ExportBundleSession, ...]
 
 
 def is_exportable(artifact: AIArtifact) -> bool:

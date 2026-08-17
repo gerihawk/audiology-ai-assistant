@@ -19,6 +19,9 @@ from app.ai_pipeline.domain.entities import (
     AIArtifactVersionSource,
 )
 from app.export.domain.entities import (
+    ExportableDocument,
+    ExportBundle,
+    ExportBundleSession,
     build_exportable_document,
     compute_content_hash,
     is_exportable,
@@ -304,3 +307,80 @@ class TestBuildExportableDocument:
                 version=stale_version,
                 generated_at=_NOW,
             )
+
+
+# ============================================================
+# E. ExportBundle / ExportBundleSession — Hito 6.7.2 (RFC §7.2, scope=patient)
+# ============================================================
+
+
+def _exportable_document(*, clinical_session_id: uuid.UUID) -> ExportableDocument:
+    return ExportableDocument(
+        clinic_name="Clínica de prueba",
+        patient_internal_code="PAC-0001",
+        patient_display_name="Paciente Ficticio",
+        clinical_session_id=clinical_session_id,
+        session_type="follow_up",
+        artifact_type=AIArtifactType.SUMMARY,
+        version_number=1,
+        approved_by=uuid.uuid4(),
+        approved_at=_NOW,
+        content={"text": "Resumen de prueba."},
+        content_hash="deadbeef" * 8,
+        generated_at=_NOW,
+    )
+
+
+class TestExportBundle:
+    def test_bundle_is_frozen(self):
+        bundle = ExportBundle(
+            clinic_name="Clínica de prueba",
+            patient_internal_code="PAC-0001",
+            patient_display_name=None,
+            sessions=(),
+        )
+        with pytest.raises(AttributeError):
+            bundle.clinic_name = "Otra clínica"  # type: ignore[misc]
+
+    def test_empty_sessions_is_valid(self):
+        bundle = ExportBundle(
+            clinic_name="Clínica de prueba",
+            patient_internal_code="PAC-0001",
+            patient_display_name=None,
+            sessions=(),
+        )
+        assert bundle.sessions == ()
+
+    def test_session_order_is_preserved_as_given_not_resorted(self):
+        """El dominio no vuelve a ordenar `sessions` — quien construye el
+        bundle (`clinical_record`, hito 6.7.3+) ya decidió el orden."""
+        session_id_a, session_id_b = uuid.uuid4(), uuid.uuid4()
+        session_a = ExportBundleSession(
+            clinical_session_id=session_id_a,
+            session_type="review",
+            created_at=_NOW,
+            documents=(_exportable_document(clinical_session_id=session_id_a),),
+        )
+        session_b = ExportBundleSession(
+            clinical_session_id=session_id_b,
+            session_type="initial_assessment",
+            created_at=_NOW,
+            documents=(_exportable_document(clinical_session_id=session_id_b),),
+        )
+        bundle = ExportBundle(
+            clinic_name="Clínica de prueba",
+            patient_internal_code="PAC-0001",
+            patient_display_name=None,
+            sessions=(session_a, session_b),
+        )
+        assert [s.clinical_session_id for s in bundle.sessions] == [session_id_a, session_id_b]
+
+    def test_session_type_none_is_preserved_as_none(self):
+        session_id = uuid.uuid4()
+        session = ExportBundleSession(
+            clinical_session_id=session_id,
+            session_type=None,
+            created_at=_NOW,
+            documents=(),
+        )
+        assert session.session_type is None

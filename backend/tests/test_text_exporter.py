@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.export.domain.entities import ExportableDocument
+from app.export.domain.entities import ExportableDocument, ExportBundle, ExportBundleSession
 from app.export.infrastructure.text_exporter import TextDocumentExporter
 from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS
 from app.integrations.domain.session_notes_generator import SESSION_NOTES_BLOCKS
@@ -323,3 +323,133 @@ class TestSessionNotes:
 
         positions = [text.index(f":\n{name}") for name in SESSION_NOTES_BLOCKS]
         assert positions == sorted(positions)
+
+
+# ============================================================
+# H. export_many — Hito 6.7.2 (RFC §7.2, scope=patient)
+# ============================================================
+
+
+def _session(
+    *,
+    clinical_session_id: uuid.UUID | None = None,
+    session_type: str | None = "follow_up",
+    created_at: datetime = _APPROVED_AT,
+    documents: tuple[ExportableDocument, ...] = (),
+) -> ExportBundleSession:
+    return ExportBundleSession(
+        clinical_session_id=clinical_session_id or uuid.uuid4(),
+        session_type=session_type,
+        created_at=created_at,
+        documents=documents,
+    )
+
+
+def _bundle(
+    *,
+    sessions: tuple[ExportBundleSession, ...] = (),
+    patient_display_name: str | None = "Paciente Ficticio",
+) -> ExportBundle:
+    return ExportBundle(
+        clinic_name="Clínica de prueba",
+        patient_internal_code="PAC-0001",
+        patient_display_name=patient_display_name,
+        sessions=sessions,
+    )
+
+
+class TestExportMany:
+    def test_empty_bundle_returns_header_only_without_crashing(self):
+        result = _exporter.export_many(_bundle(sessions=()))
+        text = result.decode("utf-8")
+        assert isinstance(result, bytes)
+        assert "Clínica de prueba" in text
+        assert "PAC-0001" in text
+        assert "SESIÓN" not in text
+
+    def test_one_session_one_document(self):
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        text = _exporter.export_many(bundle).decode("utf-8")
+        assert "Resumen." in text
+        assert "=== SESIÓN 1 ===" in text
+
+    def test_one_session_multiple_artifact_types(self):
+        summary = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        transcript = _document(
+            artifact_type=AIArtifactType.TRANSCRIPT, content={"text": "Hola.", "language": "es"}
+        )
+        bundle = _bundle(sessions=(_session(documents=(summary, transcript)),))
+        text = _exporter.export_many(bundle).decode("utf-8")
+        assert "Resumen." in text
+        assert "Idioma: es" in text
+        assert text.index("Resumen.") < text.index("Idioma: es")
+
+    def test_multiple_sessions_preserve_bundle_order(self):
+        """El exportador no reordena — usa exactamente el orden en el
+        que llegan las sesiones en el bundle."""
+        doc_a = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Sesión B."})
+        doc_b = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Sesión A."})
+        session_review = _session(session_type="review", documents=(doc_a,))
+        session_initial = _session(session_type="initial_assessment", documents=(doc_b,))
+        bundle = _bundle(sessions=(session_review, session_initial))
+        text = _exporter.export_many(bundle).decode("utf-8")
+
+        assert text.index("=== SESIÓN 1 ===") < text.index("=== SESIÓN 2 ===")
+        assert text.index("Sesión B.") < text.index("Sesión A.")
+
+    def test_sessions_are_deterministically_separated(self):
+        session_1 = _session(documents=())
+        session_2 = _session(documents=())
+        bundle = _bundle(sessions=(session_1, session_2))
+        text = _exporter.export_many(bundle).decode("utf-8")
+        assert "=== SESIÓN 1 ===" in text
+        assert "=== SESIÓN 2 ===" in text
+        assert text.index("=== SESIÓN 1 ===") < text.index("=== SESIÓN 2 ===")
+
+    def test_session_type_none_renders_as_sin_especificar(self):
+        bundle = _bundle(sessions=(_session(session_type=None, documents=()),))
+        text = _exporter.export_many(bundle).decode("utf-8")
+        assert "Sin especificar" in text
+
+    def test_unicode_survives(self):
+        document = _document(
+            artifact_type=AIArtifactType.SUMMARY, content={"text": "Pitido leve, oído derecho."}
+        )
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        text = _exporter.export_many(bundle).decode("utf-8")
+        assert "oído" in text
+
+    def test_clinical_flags_disclaimer_still_present(self):
+        document = _document(artifact_type=AIArtifactType.CLINICAL_FLAGS, content={"flags": []})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        text = _exporter.export_many(bundle).decode("utf-8")
+        assert "Checklist de demostración" in text
+        assert "No validado clínicamente" in text
+
+    def test_output_never_contains_internal_metadata_terms(self):
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        text = _exporter.export_many(bundle).decode("utf-8").lower()
+        for forbidden in (
+            "source_excerpt",
+            "source_map",
+            "confidence",
+            "provider",
+            "generation_run",
+            "estimated_cost",
+        ):
+            assert forbidden not in text
+
+    def test_rendering_is_deterministic(self):
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        bundle = _bundle(sessions=(_session(documents=(document,)),))
+        assert _exporter.export_many(bundle) == _exporter.export_many(bundle)
+
+    def test_existing_export_of_single_document_is_unchanged(self):
+        """Regresión crítica: `export_many` no debe alterar `export`."""
+        document = _document(artifact_type=AIArtifactType.SUMMARY, content={"text": "Resumen."})
+        assert _exporter.export(document) == _exporter.export(document)
+        text = _exporter.export(document).decode("utf-8")
+        assert "=== DOCUMENTO CLÍNICO EXPORTADO ===" in text
+        assert "HISTORIA CLÍNICA LONGITUDINAL" not in text

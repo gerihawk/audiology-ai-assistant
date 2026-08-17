@@ -1,4 +1,4 @@
-"""`TextDocumentExporter` — Hito 6.6.2 (docs/fase-6-rfc.md §7.1/§7.4).
+"""`TextDocumentExporter` — Hito 6.6.2/6.7.2 (docs/fase-6-rfc.md §7.1/§7.2/§7.4).
 
 Renderiza un `ExportableDocument` (ya construido y saneado por
 `export/domain`, hito 6.6.1) a texto plano UTF-8 legible — nunca JSON
@@ -26,11 +26,12 @@ from collections.abc import Callable
 from typing import Any
 
 from app.ai_pipeline.domain.entities import AIArtifactType
-from app.export.domain.entities import ExportableDocument
+from app.export.domain.entities import ExportableDocument, ExportBundle
 from app.export.infrastructure.shared import (
     EMPTY_VALUE_PLACEHOLDER,
     RULESET_DISCLAIMER,
     UNEXPLORED_BLOCK_PLACEHOLDER,
+    UNSPECIFIED_SESSION_TYPE_LABEL,
     header_fields,
     humanize_field_name,
 )
@@ -134,18 +135,22 @@ _BODY_RENDERERS: dict[AIArtifactType, Callable[[dict[str, Any]], list[str]]] = {
 }
 
 
+def _lookup_renderer(artifact_type: AIArtifactType) -> Callable[[dict[str, Any]], list[str]]:
+    renderer = _BODY_RENDERERS.get(artifact_type)
+    if renderer is None:
+        raise ValueError(
+            f"TextDocumentExporter no sabe renderizar artifact_type={artifact_type!r}."
+        )
+    return renderer
+
+
 class TextDocumentExporter:
-    """Implementación en texto plano de `DocumentExporter` (hito 6.6.1).
-    Renderizado puro en memoria — sin E/S, sin async (ver el docstring de
-    `DocumentExporter.export`)."""
+    """Implementación en texto plano de `DocumentExporter` (hito 6.6.1/
+    6.7.2). Renderizado puro en memoria — sin E/S, sin async (ver el
+    docstring de `DocumentExporter.export`)."""
 
     def export(self, document: ExportableDocument) -> bytes:
-        renderer = _BODY_RENDERERS.get(document.artifact_type)
-        if renderer is None:
-            raise ValueError(
-                f"TextDocumentExporter no sabe renderizar artifact_type="
-                f"{document.artifact_type!r}."
-            )
+        renderer = _lookup_renderer(document.artifact_type)
         header_lines = [
             "=== DOCUMENTO CLÍNICO EXPORTADO ===",
             *(f"{label}: {value}" for label, value in header_fields(document)),
@@ -157,4 +162,42 @@ class TextDocumentExporter:
             "",
             *renderer(document.content),
         ]
+        return "\n".join(lines).encode("utf-8")
+
+    def export_many(self, bundle: ExportBundle) -> bytes:
+        """Expediente longitudinal (RFC §7.2, hito 6.7.2): cabecera de
+        clínica/paciente una sola vez, luego cada sesión en el orden
+        recibido del `bundle` (`clinical_record` ya decidió ese orden,
+        ver docstring de `ExportBundle`) con sus documentos separados por
+        el mismo bloque de cabecera por documento que usa `export`
+        (`header_fields`), reutilizando los mismos `_BODY_RENDERERS`.
+        Bundle sin sesiones: se documenta como cabecera sola, sin
+        crashear ni inventar una sesión vacía."""
+        patient = bundle.patient_internal_code
+        if bundle.patient_display_name:
+            patient = f"{patient} ({bundle.patient_display_name})"
+
+        lines = [
+            "=== HISTORIA CLÍNICA LONGITUDINAL ===",
+            f"Clínica: {bundle.clinic_name}",
+            f"Paciente: {patient}",
+        ]
+        for session_index, session in enumerate(bundle.sessions, start=1):
+            session_type = session.session_type or UNSPECIFIED_SESSION_TYPE_LABEL
+            lines += [
+                "",
+                f"=== SESIÓN {session_index} ===",
+                f"Sesión: {session.clinical_session_id}",
+                f"Tipo de sesión: {session_type}",
+                f"Fecha de la sesión: {session.created_at.isoformat()}",
+            ]
+            for document in session.documents:
+                renderer = _lookup_renderer(document.artifact_type)
+                lines += [
+                    "",
+                    f"--- {document.artifact_type.value} (v{document.version_number}) ---",
+                    *(f"{label}: {value}" for label, value in header_fields(document)),
+                    "",
+                    *renderer(document.content),
+                ]
         return "\n".join(lines).encode("utf-8")
