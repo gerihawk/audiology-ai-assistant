@@ -951,16 +951,30 @@ merecen especial atención en la revisión humana.
 
 ### 9.1 Arquitectura
 
+**Corrección de ruteo (Fase 6.3 — deuda documental, sin cambio de
+comportamiento).** El diagrama siguiente reflejaba el diseño original de
+la Fase 4 (rutas por `{session_id}/ai/artifacts/{artifact_type}`). La
+implementación real direcciona por `artifact_id` (mismo criterio que
+`Export`), separa el disparo del pipeline en `run-mock-pipeline`/
+`run-pipeline` (Fase 6.3, ver [fase-6-rfc.md](fase-6-rfc.md) §6.4) y no
+tiene endpoint `GET .../pipeline-runs/{run_id}` — el resultado se
+devuelve directamente en la respuesta del disparo. Ver
+[api-specification.md](api-specification.md) sección "AI Pipeline" para
+la tabla de rutas actual.
+
 ```
 ┌───────────────────────────────────────────────────────────────────┐
 │ ai_pipeline/api/router.py                                         │
-│   POST   /clinical-sessions/{id}/ai/generate                      │
-│   GET    /clinical-sessions/{id}/ai/artifacts/{type}               │
-│   GET    /clinical-sessions/{id}/ai/artifacts/{type}/versions       │
-│   PUT    /clinical-sessions/{id}/ai/artifacts/{type}                 │
-│   POST   /clinical-sessions/{id}/ai/artifacts/{type}/approve          │
-│   POST   /clinical-sessions/{id}/ai/artifacts/{type}/reject            │
-│   GET    /clinical-sessions/{id}/ai/pipeline-runs/{run_id}              │
+│   POST   /clinical-sessions/{id}/run-mock-pipeline                │
+│   POST   /clinical-sessions/{id}/run-pipeline                     │
+│   POST   /clinical-sessions/{id}/propose-anamnesis-update          │
+│   GET    /clinical-sessions/{id}/artifacts                          │
+│   GET    /ai-artifacts/{artifact_id}                                  │
+│   GET    /ai-artifacts/{artifact_id}/versions                          │
+│   PATCH  /ai-artifacts/{artifact_id}/content                            │
+│   POST   /ai-artifacts/{artifact_id}/approve                             │
+│   POST   /ai-artifacts/{artifact_id}/reject                               │
+│   DELETE /ai-artifacts/{artifact_id}                                       │
 └───────────────────────────┬───────────────────────────────────────┘
                              ▼
 ┌───────────────────────────────────────────────────────────────────┐
