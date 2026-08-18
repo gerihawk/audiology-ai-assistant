@@ -562,6 +562,45 @@ clínica longitudinal, proveedor/modelo LLM de producción distinto del ya
 configurado (revisable ante un benchmark posterior, ver RFC §11.2), y
 toda integración externa (Noah/HIMSA, calendario) — ver Fase 7.
 
+**Estado (cierre de Fase 6 frontend)**: implementado el pendiente
+señalado arriba — routing con URLs canónicas y deep-links, disparo del
+pipeline mock/real, revisión de los 7 `AIArtifactType` (incluido
+`source_excerpt` visible en `anamnesis`/`clinical_flags`/`session_notes`,
+nunca en `transcript`/`summary`/`patient_summary`/`missing_information`,
+que no lo llevan en su `content`), historial de versiones,
+aprobar/rechazar, edición humana de `summary`/`patient_summary`,
+`propose-anamnesis-update`, historia clínica longitudinal y exportación
+individual/longitudinal PDF/texto. Auditoría de cierre (2026-08-18)
+determinó que ningún documento normativo exige editor de UI para los
+otros 5 `AIArtifactType` — decisión explícita, no una omisión:
+
+- `transcript`: edición diferida hasta decidir cómo invalidar o
+  revalidar el `source_map`/`source_excerpt` de los artefactos que ya se
+  generaron con grounding contra el texto anterior — editar el transcript
+  hoy dejaría trazabilidad "verificada" que ya no correspondería al texto
+  real, sin que nada lo detecte.
+- `clinical_flags`: sin editor genérico — su disposición diseñada es por
+  ítem (confirmar/descartar), no edición de contenido completo (ver
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.2). Esa
+  disposición por ítem sigue documentada
+  (`PATCH /clinical-flags/{flag_id}` en
+  [api-specification.md](api-specification.md)) pero **no existe en el
+  backend actual** — ni tabla `clinical_flags` ni router ni módulo; deuda
+  documental detectada en la auditoría de cierre, no corregida aquí para
+  no inventar un requisito nuevo sin decidirlo aparte.
+- `missing_information`: no requiere editor — son sugerencias de
+  seguimiento para la próxima visita, no una afirmación clínica que
+  corregir; aprobar/rechazar el artefacto completo ya cubre "revisado".
+- `anamnesis`: sin editor genérico de contenido — colisionaría con
+  `propose-anamnesis-update` (el mecanismo normativo ya cerrado para
+  modificarla, con evidencia nueva explícita y motivo tipado) y, al
+  saltarse `GroundingValidator` como toda edición humana, permitiría
+  marcar un campo `informado` sin verificar el `source_excerpt` tecleado.
+- `session_notes`: candidato natural para un incremento futuro (mismo
+  espíritu narrativo que `summary`/`patient_summary`, sin las
+  restricciones de los otros cuatro), pero no es requisito de cierre de
+  esta fase.
+
 ## Fase 7 — `integrations` (Noah/calendario), `consents`, retención
 
 - Interfaces `PatientRecordIntegration` y `CalendarIntegration` +

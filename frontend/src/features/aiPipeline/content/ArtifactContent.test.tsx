@@ -169,6 +169,57 @@ describe('ArtifactContent', () => {
     expect(screen.queryByText(/{"/)).not.toBeInTheDocument()
   })
 
+  it('anamnesis: muestra el fragmento de origen solo cuando existe, sin tocar value/status', () => {
+    render(
+      <ArtifactContent
+        artifactType="anamnesis"
+        content={{
+          motivo_consulta: {
+            value: 'Dificultad para seguir conversaciones en grupo.',
+            status: 'informado',
+            source_excerpt: 'me cuesta seguir conversaciones cuando hay más gente',
+          },
+          tinnitus: {
+            value: 'Niega acúfenos.',
+            status: 'negado_explicitamente',
+            source_excerpt: 'no, no oigo ningún pitido',
+          },
+          vertigo_o_inestabilidad: { value: '', status: 'no_preguntado', source_excerpt: null },
+          antecedentes_familiares: { value: '', status: 'no_determinado', source_excerpt: null },
+        }}
+        confidence={70}
+        rulesetDisclaimer={null}
+      />,
+    )
+
+    // Regresión: value/status se siguen mostrando exactamente igual.
+    expect(screen.getByText('Motivo de consulta')).toBeInTheDocument()
+    expect(screen.getByText(/dificultad para seguir conversaciones en grupo/i)).toBeInTheDocument()
+    expect(screen.getByText('Informado')).toBeInTheDocument()
+    expect(screen.getByText(/niega acúfenos/i)).toBeInTheDocument()
+    expect(screen.getByText('Negado explícitamente')).toBeInTheDocument()
+
+    // informado con source_excerpt → se muestra.
+    expect(
+      screen.getByText('me cuesta seguir conversaciones cuando hay más gente', { exact: false }),
+    ).toBeInTheDocument()
+    // negado_explicitamente con source_excerpt → se muestra.
+    expect(screen.getByText('no, no oigo ningún pitido', { exact: false })).toBeInTheDocument()
+
+    // no_preguntado / no_determinado con source_excerpt=null → sin bloque de evidencia.
+    const vertigoField = screen
+      .getByText('Vértigo o inestabilidad')
+      .closest('.artifact-anamnesis-field')
+    const antecedentesField = screen
+      .getByText('Antecedentes familiares')
+      .closest('.artifact-anamnesis-field')
+    expect(vertigoField).not.toHaveTextContent('Fragmento de origen')
+    expect(antecedentesField).not.toHaveTextContent('Fragmento de origen')
+
+    // Solo dos bloques de evidencia en total (uno por campo con excerpt).
+    expect(screen.getAllByText('Fragmento de origen:')).toHaveLength(2)
+  })
+
   it('session_notes: renderiza los 4 bloques, con texto cuando hay contenido', () => {
     render(
       <ArtifactContent

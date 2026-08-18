@@ -14,10 +14,8 @@ interface Props {
  * sin contenido (`text === ''`) se representa explícitamente como "sin
  * información registrada" — nunca se omite el bloque ni se inventa
  * continuidad con el resto de la nota. `source_excerpt` se muestra igual
- * que en `ClinicalFlagsContent` (política ya existente en el frontend);
- * `AnamnesisContent` no lo muestra todavía aunque el backend también lo
- * envía ahí — inconsistencia preexistente, fuera de alcance de este
- * cambio. */
+ * que en `ClinicalFlagsContent`/`AnamnesisContent` — mismo patrón en los
+ * tres tipos que lo llevan en `content`. */
 export function SessionNotesContent({ content }: Props) {
   return (
     <div className="artifact-session-notes">
