@@ -1,4 +1,4 @@
-import { ApiError } from '../../shared/api/client'
+import { ApiError } from './api/client'
 
 export interface ActionErrorDescription {
   label: string
@@ -6,11 +6,12 @@ export interface ActionErrorDescription {
 }
 
 /** Traduce el error de una acción (run-pipeline, edición humana,
- * propose-anamnesis-update) a una etiqueta + mensaje visibles. Nunca
- * reinterpreta el motivo: el mensaje siempre es el que ya devuelve el
- * backend tal cual (`ApiError.message`) — especialmente importante para
- * 409 (consentimiento, ejecución en curso, configuración de proveedor,
- * baseline obsoleto…), donde el backend ya explica la causa real. */
+ * propose-anamnesis-update, exportación individual/longitudinal) a una
+ * etiqueta + mensaje visibles. Nunca reinterpreta el motivo: el mensaje
+ * siempre es el que ya devuelve el backend tal cual (`ApiError.message`) —
+ * especialmente importante para 409 (consentimiento, ejecución en curso,
+ * configuración de proveedor, baseline obsoleto, límite de sesiones
+ * exportables…), donde el backend ya explica la causa real. */
 export function describeActionError(error: unknown): ActionErrorDescription {
   if (error instanceof ApiError) {
     switch (error.status) {

@@ -224,6 +224,50 @@ export interface AnamnesisUpdateProposalResponse {
   ai_disclaimer: string
 }
 
+/** `Literal["pdf", "text"]` en el backend (`export/service.py`,
+ * `clinical_record/service.py`) — mismo valor para exportación individual
+ * y longitudinal. */
+export type ExportFormat = 'pdf' | 'text'
+
+/** `ClinicalRecordDocumentResponse` (`clinical_record/api/schemas.py`).
+ * Deliberadamente sin `confidence`, `provider_name`, `model_name`,
+ * `source_map` ni coste — el contrato longitudinal no los expone (ver
+ * `clinical_record/domain/entities.py::strip_source_excerpt`, que además
+ * elimina recursivamente `source_excerpt` de `content` para todos los
+ * tipos). No es un `AIArtifact`: no se debe fabricar uno falso a partir de
+ * esto. */
+export interface ClinicalRecordDocument {
+  ai_artifact_id: string
+  artifact_type: AIArtifactType
+  version_number: number
+  approved_by: string
+  approved_at: string
+  content: Record<string, unknown>
+  /** Solo tiene sentido para `artifact_type === 'anamnesis'` — el backend
+   * lo calcula una única vez sobre el paciente completo
+   * (`_apply_known_anamnesis_baseline`), nunca se recalcula aquí. */
+  is_current_baseline: boolean
+  ruleset_disclaimer: string | null
+}
+
+export interface ClinicalRecordSessionEntry {
+  clinical_session_id: string
+  session_type: string | null
+  created_at: string
+  documents: ClinicalRecordDocument[]
+}
+
+export interface ClinicalRecordPage {
+  patient_id: string
+  patient_internal_code: string
+  patient_display_name: string | null
+  sessions: ClinicalRecordSessionEntry[]
+  total: number
+  limit: number
+  offset: number
+  ai_disclaimer: string
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string

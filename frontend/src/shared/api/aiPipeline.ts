@@ -1,10 +1,11 @@
-import { apiRequest } from './client'
+import { apiDownload, apiRequest, type DownloadResult } from './client'
 import type {
   AIArtifact,
   AIArtifactListResponse,
   AIArtifactVersionListResponse,
   AnamnesisUpdateProposalResponse,
   ArtifactEditInput,
+  ExportFormat,
   RunPipelineResponse,
 } from './types'
 
@@ -99,4 +100,16 @@ export function rejectAIArtifact(
     devUserId,
     body: rejectionReason ? { rejection_reason: rejectionReason } : undefined,
   })
+}
+
+/** Bloqueado por el backend si el artefacto no tiene una versión aprobada
+ * y vigente (`ExportService.export`, 409) — el frontend solo ofrece el
+ * botón cuando `status === 'approved'`, pero el backend sigue siendo la
+ * autoridad final. */
+export function exportAIArtifact(
+  devUserId: string,
+  artifactId: string,
+  format: ExportFormat,
+): Promise<DownloadResult> {
+  return apiDownload(`/api/v1/ai-artifacts/${artifactId}/export?format=${format}`, { devUserId })
 }

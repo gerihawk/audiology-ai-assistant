@@ -44,6 +44,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # `Content-Disposition` no está en la lista CORS-safelisted de headers
+    # de respuesta (a diferencia de Content-Type/Content-Length): sin esto,
+    # `fetch()` desde un origen distinto (frontend Vite en :5173, backend
+    # en :8000) recibe el header en la red pero `Response.headers.get(...)`
+    # devuelve `null` en el navegador. Necesario para que el frontend pueda
+    # leer el nombre de fichero real de `GET .../export` en vez de
+    # reconstruirlo — ver `ai-artifacts/{id}/export` y
+    # `clinical-record/export`.
+    expose_headers=["Content-Disposition"],
 )
 app.add_middleware(RequestIdMiddleware)
 

@@ -4,6 +4,7 @@ import type { AIArtifact, AIArtifactVersion, Role } from '../../shared/api/types
 import { AIDisclaimer } from './AIDisclaimer'
 import { ArtifactActions } from './ArtifactActions'
 import { ArtifactEditForm } from './ArtifactEditForm'
+import { ArtifactExportActions } from './ArtifactExportActions'
 import { ArtifactMetadata } from './ArtifactMetadata'
 import { ArtifactVersionList } from './ArtifactVersionList'
 import { ArtifactContent } from './content/ArtifactContent'
@@ -131,6 +132,8 @@ export function ArtifactViewer({
                 isViewingCurrentVersion={selectedVersion.is_current}
                 onChanged={onChanged}
               />
+
+              <ArtifactExportActions devUserId={devUserId} role={role} artifact={artifact} />
             </>
           )
         })()}

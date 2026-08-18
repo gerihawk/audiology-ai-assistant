@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { archivePatient, restorePatient } from '../../shared/api/patients'
 import type { DevUser, Patient, Role } from '../../shared/api/types'
+import { ClinicalRecordSection } from '../clinicalRecord/ClinicalRecordSection'
 import { PatientClinicalSessionsSection } from '../clinicalSessions/PatientClinicalSessionsSection'
 import { canArchivePatient, canRestorePatient, canUpdatePatient } from './permissions'
 
@@ -99,6 +100,13 @@ export function PatientDetail({
         devUserId={devUserId}
         role={role}
         currentUserId={currentUserId}
+        patient={patient}
+        professionalOptions={professionalOptions}
+      />
+
+      <ClinicalRecordSection
+        devUserId={devUserId}
+        role={role}
         patient={patient}
         professionalOptions={professionalOptions}
       />

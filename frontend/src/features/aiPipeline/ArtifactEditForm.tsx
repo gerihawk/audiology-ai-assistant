@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { editAIArtifactContent } from '../../shared/api/aiPipeline'
 import type { AIArtifact, AIArtifactType, AIArtifactVersion, Role } from '../../shared/api/types'
-import { describeActionError } from './apiErrorMessage'
+import { describeActionError } from '../../shared/apiErrorMessage'
 import { canEdit } from './permissions'
 
 /** Alcance de este bloque (ver informe de auditoría): solo los tipos con

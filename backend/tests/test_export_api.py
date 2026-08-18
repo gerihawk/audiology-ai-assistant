@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit_log.infrastructure.orm import AuditLogORM
+from app.core.config import get_settings
 from app.export.domain.entities import ExportableDocument
 from app.export.service import ExportService
 from app.patients.domain.entities import Patient
@@ -127,6 +128,29 @@ class TestSuccessfulExport:
 
         assert response.status_code == 200
         assert "=== DOCUMENTO CLÍNICO EXPORTADO ===" in response.text
+
+    async def test_export_response_exposes_content_disposition_for_cross_origin_fetch(
+        self, api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+    ):
+        """Sin `expose_headers=["Content-Disposition"]` en `CORSMiddleware`
+        (`app/main.py`), un `fetch()` del frontend (origen distinto del
+        backend: :5173 vs :8000) recibe el header en la red pero
+        `Response.headers.get(...)` devuelve `null` en el navegador —
+        bloqueante para que el frontend use el filename real en vez de
+        reconstruirlo."""
+        origins = get_settings().cors_origins
+        assert origins, "BACKEND_CORS_ORIGINS debe estar configurado para este test"
+        origin = origins[0] if origins[0] != "*" else "http://localhost:5173"
+        headers = {**dev_headers(clinic_with_users.admin), "Origin": origin}
+        artifact = await _approved_artifact(
+            api_client, dev_headers(clinic_with_users.admin), clinical_session["id"]
+        )
+
+        response = await api_client.get(_export_url(artifact["id"], "pdf"), headers=headers)
+
+        assert response.status_code == 200
+        exposed = response.headers.get("access-control-expose-headers", "")
+        assert "content-disposition" in exposed.lower(), response.headers
 
     async def test_pdf_content_type(
         self, api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict

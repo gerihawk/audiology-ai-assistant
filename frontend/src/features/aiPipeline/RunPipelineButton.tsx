@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { runMockPipeline, runPipeline } from '../../shared/api/aiPipeline'
 import type { Role, RunPipelineResponse } from '../../shared/api/types'
-import { describeActionError } from './apiErrorMessage'
+import { describeActionError } from '../../shared/apiErrorMessage'
 import { canTriggerPipeline } from './permissions'
 
 type Mode = 'mock' | 'real'
