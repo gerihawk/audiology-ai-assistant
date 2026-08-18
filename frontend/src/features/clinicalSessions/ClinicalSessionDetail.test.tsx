@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderWithRouter } from '../../testUtils/renderWithRouter'
 import type { ClinicalSession, DevUser } from '../../shared/api/types'
 import { ClinicalSessionDetail } from './ClinicalSessionDetail'
 
@@ -46,7 +47,7 @@ describe('ClinicalSessionDetail', () => {
 
   it('muestra scheduled_at, started_at y ended_at', () => {
     const session = makeSession()
-    render(
+    renderWithRouter(
       <ClinicalSessionDetail
         devUserId="u-admin"
         role="admin"
@@ -69,7 +70,7 @@ describe('ClinicalSessionDetail', () => {
       reviewed_by: 'u-admin',
       reviewed_at: '2026-02-11T10:00:00Z',
     })
-    const { rerender } = render(
+    const { rerender } = renderWithRouter(
       <ClinicalSessionDetail
         devUserId="u-admin"
         role="admin"
@@ -100,7 +101,7 @@ describe('ClinicalSessionDetail', () => {
   })
 
   it('muestra el profesional responsable con nombre legible', () => {
-    render(
+    renderWithRouter(
       <ClinicalSessionDetail
         devUserId="u-admin"
         role="admin"
@@ -116,7 +117,7 @@ describe('ClinicalSessionDetail', () => {
   })
 
   it('muestra el botón de editar cuando el rol y el estado lo permiten', () => {
-    render(
+    renderWithRouter(
       <ClinicalSessionDetail
         devUserId="u-admin"
         role="admin"
@@ -132,7 +133,7 @@ describe('ClinicalSessionDetail', () => {
   })
 
   it('oculta el botón de editar para una sesión reviewed', () => {
-    render(
+    renderWithRouter(
       <ClinicalSessionDetail
         devUserId="u-admin"
         role="admin"
@@ -148,7 +149,7 @@ describe('ClinicalSessionDetail', () => {
   })
 
   it('oculta el botón de editar para un audiologist sobre una sesión ajena', () => {
-    render(
+    renderWithRouter(
       <ClinicalSessionDetail
         devUserId="u-audiologist"
         role="audiologist"

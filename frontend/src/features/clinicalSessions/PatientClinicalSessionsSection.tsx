@@ -1,14 +1,9 @@
 import { useState } from 'react'
-import type { ClinicalSession, DevUser, Patient, Role } from '../../shared/api/types'
-import { ClinicalSessionDetail } from './ClinicalSessionDetail'
+import type { DevUser, Patient, Role } from '../../shared/api/types'
 import { ClinicalSessionForm } from './ClinicalSessionForm'
 import { ClinicalSessionList } from './ClinicalSessionList'
 
-type View =
-  | { name: 'list' }
-  | { name: 'create' }
-  | { name: 'edit'; session: ClinicalSession }
-  | { name: 'detail'; session: ClinicalSession }
+type View = { name: 'list' } | { name: 'create' }
 
 interface Props {
   devUserId: string
@@ -18,6 +13,9 @@ interface Props {
   professionalOptions: DevUser[]
 }
 
+/** Lista embebida en el detalle de un paciente, con la creación fija a ese
+ * paciente (`lockedPatient`). Ver detalle/editar navegan a la URL canónica
+ * `/clinical-sessions/:id` — una sesión no tiene dos pantallas propias. */
 export function PatientClinicalSessionsSection({
   devUserId,
   role,
@@ -46,7 +44,6 @@ export function PatientClinicalSessionsSection({
           professionalOptions={professionalOptions}
           lockedPatient={patient}
           onCreate={() => setView({ name: 'create' })}
-          onSelect={(session) => setView({ name: 'detail', session })}
         />
       )}
       {view.name === 'create' && (
@@ -60,31 +57,6 @@ export function PatientClinicalSessionsSection({
           lockedPatient={patient}
           onDone={goToList}
           onCancel={goToList}
-        />
-      )}
-      {view.name === 'edit' && (
-        <ClinicalSessionForm
-          devUserId={devUserId}
-          mode="edit"
-          session={view.session}
-          currentUserId={currentUserId}
-          role={role}
-          patientOptions={[patient]}
-          professionalOptions={professionalOptions}
-          onDone={(updated) => setView({ name: 'detail', session: updated })}
-          onCancel={() => setView({ name: 'detail', session: view.session })}
-        />
-      )}
-      {view.name === 'detail' && (
-        <ClinicalSessionDetail
-          devUserId={devUserId}
-          role={role}
-          currentUserId={currentUserId}
-          session={view.session}
-          professionalOptions={professionalOptions}
-          onBack={goToList}
-          onEdit={() => setView({ name: 'edit', session: view.session })}
-          onChanged={(updated) => setView({ name: 'detail', session: updated })}
         />
       )}
     </div>

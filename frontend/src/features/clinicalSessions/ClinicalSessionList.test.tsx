@@ -1,6 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderWithRouter } from '../../testUtils/renderWithRouter'
 import type { ClinicalSession, DevUser } from '../../shared/api/types'
 import { ClinicalSessionList } from './ClinicalSessionList'
 
@@ -57,7 +58,7 @@ describe('ClinicalSessionList', () => {
 
   it('muestra el estado de carga antes de recibir respuesta', () => {
     fetchMock.mockReturnValue(new Promise(() => {}))
-    render(
+    renderWithRouter(
       <ClinicalSessionList
         devUserId="u-1"
         role="admin"
@@ -65,7 +66,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     expect(screen.getByRole('status')).toHaveTextContent('Cargando sesiones clínicas')
@@ -73,7 +73,7 @@ describe('ClinicalSessionList', () => {
 
   it('muestra un mensaje cuando el listado está vacío', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }))
-    render(
+    renderWithRouter(
       <ClinicalSessionList
         devUserId="u-1"
         role="admin"
@@ -81,7 +81,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     expect(await screen.findByText(/no hay sesiones clínicas/i)).toBeInTheDocument()
@@ -91,7 +90,7 @@ describe('ClinicalSessionList', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: { code: 'internal_error', message: 'boom' } }, { status: 500 }),
     )
-    render(
+    renderWithRouter(
       <ClinicalSessionList
         devUserId="u-1"
         role="admin"
@@ -99,7 +98,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     expect(await screen.findByRole('alert')).toHaveTextContent('Error al cargar sesiones clínicas')
@@ -109,7 +107,7 @@ describe('ClinicalSessionList', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ items: [makeSession()], total: 1, limit: 10, offset: 0 }),
     )
-    render(
+    renderWithRouter(
       <ClinicalSessionList
         devUserId="u-1"
         role="admin"
@@ -117,7 +115,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     await screen.findByText('Valoración inicial')
@@ -129,7 +126,7 @@ describe('ClinicalSessionList', () => {
   it('aplica los filtros de estado como parámetros de la petición', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }))
     const user = userEvent.setup()
-    render(
+    renderWithRouter(
       <ClinicalSessionList
         devUserId="u-1"
         role="admin"
@@ -137,7 +134,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     await screen.findByText(/no hay sesiones clínicas/i)
@@ -156,7 +152,7 @@ describe('ClinicalSessionList', () => {
       jsonResponse({ items: [makeSession()], total: 25, limit: 10, offset: 0 }),
     )
     const user = userEvent.setup()
-    render(
+    renderWithRouter(
       <ClinicalSessionList
         devUserId="u-1"
         role="admin"
@@ -164,7 +160,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     await screen.findByText('Valoración inicial')
@@ -181,7 +176,7 @@ describe('ClinicalSessionList', () => {
 
   it('oculta "Crear sesión clínica" para viewer y lo muestra para admin', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }))
-    const { rerender } = render(
+    const { rerender } = renderWithRouter(
       <ClinicalSessionList
         devUserId="u-1"
         role="viewer"
@@ -189,7 +184,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     await screen.findByText(/no hay sesiones clínicas/i)
@@ -203,7 +197,6 @@ describe('ClinicalSessionList', () => {
         patientOptions={[]}
         professionalOptions={PROFESSIONALS}
         onCreate={vi.fn()}
-        onSelect={vi.fn()}
       />,
     )
     expect(await screen.findByRole('button', { name: /crear sesión clínica/i })).toBeInTheDocument()

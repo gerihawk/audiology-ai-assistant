@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { archivePatient, listPatients, restorePatient } from '../../shared/api/patients'
 import type { Patient, Role } from '../../shared/api/types'
 import { canArchivePatient, canCreatePatient, canRestorePatient } from './permissions'
@@ -8,20 +9,11 @@ const PAGE_SIZE = 10
 interface PatientListProps {
   devUserId: string
   role: Role | undefined
-  refreshToken: number
-  onCreate: () => void
-  onSelect: (patient: Patient) => void
 }
 
 type LoadState = 'loading' | 'ready' | 'error'
 
-export function PatientList({
-  devUserId,
-  role,
-  refreshToken,
-  onCreate,
-  onSelect,
-}: PatientListProps) {
+export function PatientList({ devUserId, role }: PatientListProps) {
   const [search, setSearch] = useState('')
   const [includeArchived, setIncludeArchived] = useState(false)
   const [offset, setOffset] = useState(0)
@@ -49,8 +41,7 @@ export function PatientList({
         setErrorMessage(error instanceof Error ? error.message : 'No se pudo cargar el listado.')
         setState('error')
       })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [devUserId, search, includeArchived, offset, refreshToken])
+  }, [devUserId, search, includeArchived, offset])
 
   useEffect(() => {
     load()
@@ -110,11 +101,7 @@ export function PatientList({
             Mostrar archivados
           </label>
         </div>
-        {canCreatePatient(role) && (
-          <button type="button" onClick={onCreate}>
-            Crear paciente
-          </button>
-        )}
+        {canCreatePatient(role) && <Link to="/patients/new">Crear paciente</Link>}
       </div>
 
       {actionError && <p role="alert">{actionError}</p>}
@@ -143,9 +130,7 @@ export function PatientList({
                 <td>{patient.display_name ?? '—'}</td>
                 <td>{patient.is_archived ? 'Archivado' : 'Activo'}</td>
                 <td>
-                  <button type="button" onClick={() => onSelect(patient)}>
-                    Ver detalle de {patient.internal_code}
-                  </button>
+                  <Link to={`/patients/${patient.id}`}>Ver detalle de {patient.internal_code}</Link>
                   {!patient.is_archived && canArchivePatient(role) && (
                     <button type="button" onClick={() => handleArchive(patient)}>
                       Archivar {patient.internal_code}

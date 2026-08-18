@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AIDisclaimer } from '../aiPipeline/AIDisclaimer'
 import { getClinicalRecord } from '../../shared/api/clinicalRecord'
 import type { ClinicalRecordPage, DevUser, Patient, Role } from '../../shared/api/types'
@@ -21,12 +22,28 @@ interface Props {
  * paginada por sesiones (no por documentos), en el orden recibido del
  * backend. `viewer` puede leer esta sección igual que admin/audiologist
  * (`ClinicalRecordAction.READ` sin ownership) pero no exportar — ver
- * `ClinicalRecordExportActions`. */
+ * `ClinicalRecordExportActions`. La página (`offset`) vive en el query
+ * param de la URL: permite compartir/recargar en una página concreta. */
 export function ClinicalRecordSection({ devUserId, role, patient, professionalOptions }: Props) {
-  const [offset, setOffset] = useState(0)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const offset = Number(searchParams.get('offset') ?? '0') || 0
   const [page, setPage] = useState<ClinicalRecordPage | null>(null)
   const [state, setState] = useState<LoadState>('loading')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  function setOffset(next: number) {
+    if (next === 0) {
+      setSearchParams((params) => {
+        params.delete('offset')
+        return params
+      })
+    } else {
+      setSearchParams((params) => {
+        params.set('offset', String(next))
+        return params
+      })
+    }
+  }
 
   const load = useCallback(() => {
     setState('loading')

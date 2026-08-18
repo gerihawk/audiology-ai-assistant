@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { listClinicalSessions } from '../../shared/api/clinicalSessions'
 import type { ClinicalSession, DevUser, Patient, Role } from '../../shared/api/types'
 import { ClinicalSessionBadge } from './ClinicalSessionBadge'
@@ -22,7 +23,6 @@ interface Props {
    * listado a ese paciente y oculta el selector de paciente en los filtros. */
   lockedPatient?: Patient
   onCreate: () => void
-  onSelect: (session: ClinicalSession) => void
 }
 
 export function ClinicalSessionList({
@@ -33,7 +33,6 @@ export function ClinicalSessionList({
   professionalOptions,
   lockedPatient,
   onCreate,
-  onSelect,
 }: Props) {
   const [filters, setFilters] = useState<ClinicalSessionFiltersState>({
     ...EMPTY_CLINICAL_SESSION_FILTERS,
@@ -129,9 +128,7 @@ export function ClinicalSessionList({
                 <td>{professionalName(session.professional_id, professionalOptions)}</td>
                 <td>{formatDateTime(session.scheduled_at)}</td>
                 <td>
-                  <button type="button" onClick={() => onSelect(session)}>
-                    Ver detalle
-                  </button>
+                  <Link to={`/clinical-sessions/${session.id}`}>Ver detalle</Link>
                 </td>
               </tr>
             ))}

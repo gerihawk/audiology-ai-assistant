@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { archivePatient, restorePatient } from '../../shared/api/patients'
 import type { DevUser, Patient, Role } from '../../shared/api/types'
-import { ClinicalRecordSection } from '../clinicalRecord/ClinicalRecordSection'
+import { canReadClinicalRecord } from '../../shared/clinicalDocumentPermissions'
 import { PatientClinicalSessionsSection } from '../clinicalSessions/PatientClinicalSessionsSection'
 import { canArchivePatient, canRestorePatient, canUpdatePatient } from './permissions'
 
@@ -104,12 +105,11 @@ export function PatientDetail({
         professionalOptions={professionalOptions}
       />
 
-      <ClinicalRecordSection
-        devUserId={devUserId}
-        role={role}
-        patient={patient}
-        professionalOptions={professionalOptions}
-      />
+      {canReadClinicalRecord(role) && (
+        <p>
+          <Link to={`/patients/${patient.id}/clinical-record`}>Ver historia clínica completa</Link>
+        </p>
+      )}
     </div>
   )
 }

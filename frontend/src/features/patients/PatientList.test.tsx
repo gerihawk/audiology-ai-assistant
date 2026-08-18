@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderWithRouter } from '../../testUtils/renderWithRouter'
 import type { Patient } from '../../shared/api/types'
 import { PatientList } from './PatientList'
 
@@ -48,29 +49,13 @@ describe('PatientList', () => {
 
   it('muestra el estado de carga antes de recibir respuesta', () => {
     fetchMock.mockReturnValue(new Promise(() => {})) // nunca resuelve durante el test
-    render(
-      <PatientList
-        devUserId="u-1"
-        role="admin"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    renderWithRouter(<PatientList devUserId="u-1" role="admin" />)
     expect(screen.getByRole('status')).toHaveTextContent('Cargando pacientes')
   })
 
   it('muestra un mensaje cuando el listado está vacío', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }))
-    render(
-      <PatientList
-        devUserId="u-1"
-        role="admin"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    renderWithRouter(<PatientList devUserId="u-1" role="admin" />)
     expect(await screen.findByText(/no hay pacientes/i)).toBeInTheDocument()
   })
 
@@ -78,59 +63,36 @@ describe('PatientList', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ items: [makePatient()], total: 1, limit: 10, offset: 0 }),
     )
-    render(
-      <PatientList
-        devUserId="u-1"
-        role="admin"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    renderWithRouter(<PatientList devUserId="u-1" role="admin" />)
     expect(await screen.findByText('PAT-0001')).toBeInTheDocument()
     expect(screen.getByText('Paciente Uno')).toBeInTheDocument()
+  })
+
+  it('enlaza al detalle del paciente con la URL canónica', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ items: [makePatient()], total: 1, limit: 10, offset: 0 }),
+    )
+    renderWithRouter(<PatientList devUserId="u-1" role="admin" />)
+    const link = await screen.findByRole('link', { name: /ver detalle de pat-0001/i })
+    expect(link).toHaveAttribute('href', '/patients/p-1')
   })
 
   it('muestra un error cuando la API falla', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: { code: 'internal_error', message: 'boom' } }, { status: 500 }),
     )
-    render(
-      <PatientList
-        devUserId="u-1"
-        role="admin"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    renderWithRouter(<PatientList devUserId="u-1" role="admin" />)
     expect(await screen.findByRole('alert')).toHaveTextContent('Error al cargar pacientes')
   })
 
   it('oculta "Crear paciente" para viewer y lo muestra para admin', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }))
-    const { rerender } = render(
-      <PatientList
-        devUserId="u-1"
-        role="viewer"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    const { rerender } = renderWithRouter(<PatientList devUserId="u-1" role="viewer" />)
     await screen.findByText(/no hay pacientes/i)
-    expect(screen.queryByRole('button', { name: /crear paciente/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /crear paciente/i })).not.toBeInTheDocument()
 
-    rerender(
-      <PatientList
-        devUserId="u-1"
-        role="admin"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
-    expect(await screen.findByRole('button', { name: /crear paciente/i })).toBeInTheDocument()
+    rerender(<PatientList devUserId="u-1" role="admin" />)
+    expect(await screen.findByRole('link', { name: /crear paciente/i })).toBeInTheDocument()
   })
 
   it('archiva un paciente tras confirmar', async () => {
@@ -144,15 +106,7 @@ describe('PatientList', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     const user = userEvent.setup()
-    render(
-      <PatientList
-        devUserId="u-1"
-        role="admin"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    renderWithRouter(<PatientList devUserId="u-1" role="admin" />)
     const archiveButton = await screen.findByRole('button', { name: /archivar pat-0001/i })
     await user.click(archiveButton)
 
@@ -174,15 +128,7 @@ describe('PatientList', () => {
     })
 
     const user = userEvent.setup()
-    render(
-      <PatientList
-        devUserId="u-1"
-        role="admin"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    renderWithRouter(<PatientList devUserId="u-1" role="admin" />)
     const restoreButton = await screen.findByRole('button', { name: /restaurar pat-0001/i })
     await user.click(restoreButton)
 
@@ -197,15 +143,7 @@ describe('PatientList', () => {
   it('no ofrece restaurar a un audiologist sobre un paciente archivado', async () => {
     const archived = makePatient({ is_archived: true })
     fetchMock.mockResolvedValue(jsonResponse({ items: [archived], total: 1, limit: 10, offset: 0 }))
-    render(
-      <PatientList
-        devUserId="u-1"
-        role="audiologist"
-        refreshToken={0}
-        onCreate={vi.fn()}
-        onSelect={vi.fn()}
-      />,
-    )
+    renderWithRouter(<PatientList devUserId="u-1" role="audiologist" />)
     await screen.findByText('PAT-0001')
     expect(screen.queryByRole('button', { name: /restaurar/i })).not.toBeInTheDocument()
   })

@@ -1,6 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderWithRouter } from '../../testUtils/renderWithRouter'
 import type { ClinicalRecordPage, Patient } from '../../shared/api/types'
 import { ClinicalRecordSection } from './ClinicalRecordSection'
 
@@ -62,7 +63,7 @@ describe('ClinicalRecordSection', () => {
 
   it('un viewer puede leer la historia clínica', async () => {
     fetchMock.mockResolvedValue(jsonResponse(makePage()))
-    render(
+    renderWithRouter(
       <ClinicalRecordSection
         devUserId="u-viewer"
         role="viewer"
@@ -75,7 +76,7 @@ describe('ClinicalRecordSection', () => {
 
   it('paciente sin sesiones: estado vacío normal, no un error', async () => {
     fetchMock.mockResolvedValue(jsonResponse(makePage({ sessions: [], total: 0 })))
-    render(
+    renderWithRouter(
       <ClinicalRecordSection
         devUserId="u-admin"
         role="admin"
@@ -93,7 +94,7 @@ describe('ClinicalRecordSection', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: { code: 'internal_error', message: 'fallo' } }, { status: 500 }),
     )
-    render(
+    renderWithRouter(
       <ClinicalRecordSection
         devUserId="u-admin"
         role="admin"
@@ -137,7 +138,7 @@ describe('ClinicalRecordSection', () => {
         }),
       ),
     )
-    render(
+    renderWithRouter(
       <ClinicalRecordSection
         devUserId="u-admin"
         role="admin"
@@ -174,7 +175,7 @@ describe('ClinicalRecordSection', () => {
         }),
       ),
     )
-    render(
+    renderWithRouter(
       <ClinicalRecordSection
         devUserId="u-admin"
         role="admin"
@@ -216,7 +217,7 @@ describe('ClinicalRecordSection', () => {
     })
     const user = userEvent.setup()
 
-    render(
+    renderWithRouter(
       <ClinicalRecordSection
         devUserId="u-admin"
         role="admin"

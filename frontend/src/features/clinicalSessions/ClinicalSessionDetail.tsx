@@ -1,4 +1,5 @@
-import type { ClinicalSession, DevUser, Role } from '../../shared/api/types'
+import { Link } from 'react-router-dom'
+import type { AIArtifact, ClinicalSession, DevUser, Role } from '../../shared/api/types'
 import { AIPipelinePanel } from '../aiPipeline/AIPipelinePanel'
 import { ClinicalSessionBadge } from './ClinicalSessionBadge'
 import { ClinicalSessionStatusActions } from './ClinicalSessionStatusActions'
@@ -15,6 +16,11 @@ interface Props {
   onBack: () => void
   onEdit: () => void
   onChanged: (session: ClinicalSession) => void
+  /** Id de artefacto de IA a mostrar directamente (deep-link vía
+   * `/clinical-sessions/:sessionId/ai-artifacts/:artifactId`). */
+  initialArtifactId?: string
+  onArtifactSelected?: (artifact: AIArtifact) => void
+  onArtifactDeselected?: () => void
 }
 
 export function ClinicalSessionDetail({
@@ -26,6 +32,9 @@ export function ClinicalSessionDetail({
   onBack,
   onEdit,
   onChanged,
+  initialArtifactId,
+  onArtifactSelected,
+  onArtifactDeselected,
 }: Props) {
   const showEdit =
     !session.is_archived &&
@@ -37,6 +46,7 @@ export function ClinicalSessionDetail({
       <button type="button" onClick={onBack}>
         Volver al listado
       </button>
+      <Link to={`/patients/${session.patient_id}`}>Ver paciente</Link>
 
       <h2>{session.title || SESSION_TYPE_LABELS[session.session_type]}</h2>
 
@@ -96,6 +106,9 @@ export function ClinicalSessionDetail({
         currentUserId={currentUserId}
         clinicalSessionId={session.id}
         professionalId={session.professional_id}
+        initialArtifactId={initialArtifactId}
+        onArtifactSelected={onArtifactSelected}
+        onArtifactDeselected={onArtifactDeselected}
       />
     </div>
   )

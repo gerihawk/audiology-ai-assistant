@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getAIArtifact } from '../../shared/api/aiPipeline'
 import type {
   AIArtifact,
   PipelineStepOutcome,
@@ -19,6 +20,13 @@ interface Props {
   currentUserId: string | undefined
   clinicalSessionId: string
   professionalId: string
+  /** Id de artefacto a abrir directamente al montar (deep-link por URL). */
+  initialArtifactId?: string
+  /** Notifica a la página contenedora que sincronice la URL con el
+   * artefacto mostrado — sin ellos, la selección de artefacto sigue
+   * siendo estado local (ver auditoría de navegación). */
+  onArtifactSelected?: (artifact: AIArtifact) => void
+  onArtifactDeselected?: () => void
 }
 
 function summarizeRun(result: RunPipelineResponse): string {
@@ -39,17 +47,51 @@ export function AIPipelinePanel({
   currentUserId,
   clinicalSessionId,
   professionalId,
+  initialArtifactId,
+  onArtifactSelected,
+  onArtifactDeselected,
 }: Props) {
   const [view, setView] = useState<View>({ name: 'list' })
   const [refreshToken, setRefreshToken] = useState(0)
   const [lastRunSummary, setLastRunSummary] = useState<string | null>(null)
   const [lastRunStepOutcomes, setLastRunStepOutcomes] = useState<PipelineStepOutcome[]>([])
+  const [initialArtifactError, setInitialArtifactError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!initialArtifactId) return
+    let cancelled = false
+    setInitialArtifactError(null)
+    getAIArtifact(devUserId, initialArtifactId)
+      .then((artifact) => {
+        if (!cancelled) setView({ name: 'detail', artifact })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setInitialArtifactError(
+            error instanceof Error ? error.message : 'No se pudo cargar el artefacto.',
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [devUserId, initialArtifactId])
+
+  function showList() {
+    setView({ name: 'list' })
+    onArtifactDeselected?.()
+  }
+
+  function showDetail(artifact: AIArtifact) {
+    setView({ name: 'detail', artifact })
+    onArtifactSelected?.(artifact)
+  }
 
   function handleRunCompleted(result: RunPipelineResponse) {
     setLastRunSummary(summarizeRun(result))
     setLastRunStepOutcomes(result.step_outcomes)
     setRefreshToken((token) => token + 1)
-    setView({ name: 'list' })
+    showList()
   }
 
   function handleArtifactChanged(updated: AIArtifact) {
@@ -59,7 +101,7 @@ export function AIPipelinePanel({
 
   function handleAnamnesisUpdateArtifact(artifact: AIArtifact) {
     setRefreshToken((token) => token + 1)
-    setView({ name: 'detail', artifact })
+    showDetail(artifact)
   }
 
   return (
@@ -94,12 +136,16 @@ export function AIPipelinePanel({
         />
       </section>
 
+      {initialArtifactError && (
+        <p role="alert">Error al cargar el artefacto: {initialArtifactError}</p>
+      )}
+
       {view.name === 'list' && (
         <ArtifactList
           devUserId={devUserId}
           clinicalSessionId={clinicalSessionId}
           refreshToken={refreshToken}
-          onSelect={(artifact) => setView({ name: 'detail', artifact })}
+          onSelect={showDetail}
         />
       )}
 
@@ -111,7 +157,7 @@ export function AIPipelinePanel({
           professionalId={professionalId}
           artifact={view.artifact}
           refreshToken={refreshToken}
-          onBack={() => setView({ name: 'list' })}
+          onBack={showList}
           onChanged={handleArtifactChanged}
         />
       )}

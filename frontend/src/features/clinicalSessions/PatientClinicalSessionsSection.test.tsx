@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderWithRouter } from '../../testUtils/renderWithRouter'
 import type { ClinicalSession, DevUser, Patient } from '../../shared/api/types'
 import { PatientClinicalSessionsSection } from './PatientClinicalSessionsSection'
 
@@ -77,7 +78,7 @@ describe('PatientClinicalSessionsSection', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ items: [makeSession()], total: 1, limit: 10, offset: 0 }),
     )
-    render(
+    renderWithRouter(
       <PatientClinicalSessionsSection
         devUserId="u-admin"
         role="admin"
@@ -94,7 +95,7 @@ describe('PatientClinicalSessionsSection', () => {
 
   it('no ofrece el selector de paciente en los filtros (paciente fijo)', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }))
-    render(
+    renderWithRouter(
       <PatientClinicalSessionsSection
         devUserId="u-admin"
         role="admin"
@@ -107,12 +108,11 @@ describe('PatientClinicalSessionsSection', () => {
     expect(screen.queryByLabelText(/^paciente$/i)).not.toBeInTheDocument()
   })
 
-  it('muestra "Crear sesión clínica" cuando el rol tiene permiso y permite navegar al detalle', async () => {
+  it('muestra "Crear sesión clínica" y enlaza al detalle con la URL canónica de la sesión', async () => {
     const session = makeSession()
     fetchMock.mockResolvedValue(jsonResponse({ items: [session], total: 1, limit: 10, offset: 0 }))
-    const user = userEvent.setup()
 
-    render(
+    renderWithRouter(
       <PatientClinicalSessionsSection
         devUserId="u-admin"
         role="admin"
@@ -124,15 +124,13 @@ describe('PatientClinicalSessionsSection', () => {
 
     expect(await screen.findByRole('button', { name: /crear sesión clínica/i })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /ver detalle/i }))
-
-    expect(await screen.findByText('Estado')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /volver al listado/i })).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /ver detalle/i })
+    expect(link).toHaveAttribute('href', '/clinical-sessions/s-1')
   })
 
   it('oculta "Crear sesión clínica" para un viewer', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }))
-    render(
+    renderWithRouter(
       <PatientClinicalSessionsSection
         devUserId="u-viewer"
         role="viewer"
@@ -156,7 +154,7 @@ describe('PatientClinicalSessionsSection', () => {
     })
     const user = userEvent.setup()
 
-    render(
+    renderWithRouter(
       <PatientClinicalSessionsSection
         devUserId="u-admin"
         role="admin"
