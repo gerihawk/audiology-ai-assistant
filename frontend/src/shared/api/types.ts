@@ -118,7 +118,13 @@ export interface ClinicalSessionUpdateInput {
 }
 
 export type AIArtifactType =
-  'transcript' | 'summary' | 'clinical_flags' | 'missing_information' | 'anamnesis'
+  | 'transcript'
+  | 'summary'
+  | 'patient_summary'
+  | 'clinical_flags'
+  | 'missing_information'
+  | 'anamnesis'
+  | 'session_notes'
 
 export type AIArtifactStatus = 'review_pending' | 'approved' | 'rejected'
 
@@ -146,6 +152,9 @@ export interface AIArtifact {
   created_at: string
   updated_at: string
   ai_disclaimer: string
+  /** Solo presente (no null) cuando `artifact_type === 'clinical_flags'` —
+   * ver docs/clinical-safety.md §7. `null` para el resto de tipos. */
+  ruleset_disclaimer: string | null
 }
 
 export interface AIArtifactListResponse {
@@ -180,13 +189,39 @@ export interface PipelineStepOutcome {
   estimated_cost_usd: string | null
 }
 
-export interface RunMockPipelineResponse {
+/** Forma de respuesta compartida por `run-pipeline` (real) y
+ * `run-mock-pipeline` — el backend documenta que es idéntica en ambos
+ * casos (ver `RunPipelineResponse` en `ai_pipeline/api/schemas.py`); la
+ * diferencia está en qué generators se ejecutan, nunca en la forma de la
+ * respuesta. */
+export interface RunPipelineResponse {
   pipeline_run_id: string
   status: AIPipelineRunStatus
   started_at: string
   completed_at: string | null
   artifacts: AIArtifact[]
   step_outcomes: PipelineStepOutcome[]
+}
+
+/** Entrada de `PATCH /ai-artifacts/{id}/content` — ver `ArtifactEditRequest`
+ * (`ai_pipeline/api/schemas.py`). */
+export interface ArtifactEditInput {
+  content: Record<string, unknown>
+  change_note?: string | null
+}
+
+/** Respuesta de `POST /clinical-sessions/{id}/propose-anamnesis-update` —
+ * ver `AnamnesisUpdateProposalResponse` (`ai_pipeline/api/schemas.py`).
+ * `created=false` es un resultado válido ("no changes proposed"), nunca un
+ * error: en ese caso `artifact_id`/`version_number`/`status` son `null` y
+ * `changed_fields` está vacío. */
+export interface AnamnesisUpdateProposalResponse {
+  created: boolean
+  artifact_id: string | null
+  version_number: number | null
+  status: AIArtifactStatus | null
+  changed_fields: string[]
+  ai_disclaimer: string
 }
 
 export interface ApiErrorDetail {

@@ -12,16 +12,27 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   })
 }
 
+/** Restringe la búsqueda de artefactos a la lista de artefactos, nunca a
+ * cualquier `role="listitem"` de la pantalla — el panel también renderiza
+ * el detalle de `step_outcomes` como lista, con sus propios `listitem`. */
+async function findArtifactListItems() {
+  const list = await screen.findByRole('list', { name: /artefactos de ia de la sesión/i })
+  return within(list).getAllByRole('listitem')
+}
+
 const ARTIFACT_TYPES: AIArtifactType[] = [
   'transcript',
   'summary',
+  'patient_summary',
   'clinical_flags',
   'missing_information',
   'anamnesis',
+  'session_notes',
 ]
 
 const DISCLAIMER =
   'Contenido generado mediante IA. Debe ser revisado y aprobado por un profesional cualificado antes de incorporarse al expediente.'
+const RULESET_DISCLAIMER = 'Checklist de demostración. No validado clínicamente.'
 
 /** Simula el backend real lo suficiente para probar la orquestación de
  * AIPipelinePanel de extremo a extremo: ejecutar el pipeline, listar,
@@ -65,6 +76,7 @@ function createBackendMock() {
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
         ai_disclaimer: DISCLAIMER,
+        ruleset_disclaimer: artifactType === 'clinical_flags' ? RULESET_DISCLAIMER : null,
         ...(existing ? { id: existing.id } : {}),
       }
       artifacts.set(artifactType, artifact)
@@ -184,11 +196,41 @@ describe('AIPipelinePanel (integración)', () => {
 
     await user.click(screen.getByRole('button', { name: /run mock pipeline/i }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/5\/5 artefactos generados/i)
-    const artifactItems = await screen.findAllByRole('listitem')
-    expect(artifactItems).toHaveLength(5)
+    expect(await screen.findByRole('status')).toHaveTextContent(/7\/7 artefactos generados/i)
+    const artifactItems = await findArtifactListItems()
+    expect(artifactItems).toHaveLength(7)
+    // Objetivo 3 de la auditoría: ninguno de los 7 tipos puede quedar con
+    // una tarjeta sin etiqueta (antes ocurría con patient_summary/session_notes).
+    for (const item of artifactItems) {
+      expect(item.querySelector('strong')?.textContent?.trim()).toBeTruthy()
+    }
 
-    const summaryItem = artifactItems.find((item) => item.textContent?.includes('Resumen'))!
+    const patientSummaryItem = artifactItems.find((item) =>
+      item.textContent?.includes('Resumen para el paciente'),
+    )!
+    await user.click(within(patientSummaryItem).getByRole('button', { name: /ver detalle/i }))
+    expect(await screen.findByText('patient_summary v1')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /volver al listado de artefactos/i }))
+
+    // ArtifactList se desmonta/remonta al volver — hay que volver a
+    // consultar el DOM, las referencias de `artifactItems` ya no viven aquí.
+    const itemsAfterPatientSummary = await findArtifactListItems()
+    const sessionNotesItem = itemsAfterPatientSummary.find((item) =>
+      item.textContent?.includes('Notas de la sesión'),
+    )!
+    await user.click(within(sessionNotesItem).getByRole('button', { name: /ver detalle/i }))
+    // El mock de este test no puebla los 4 bloques reales, pero el viewer
+    // debe seguir mostrando los 4 encabezados de bloque, nunca un hueco vacío.
+    expect(await screen.findByText('Cambios desde la última visita')).toBeInTheDocument()
+    expect(screen.getByText('Ajustes del dispositivo')).toBeInTheDocument()
+    expect(screen.getByText('Molestias referidas por el paciente')).toBeInTheDocument()
+    expect(screen.getByText('Próximos pasos')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /volver al listado de artefactos/i }))
+
+    const itemsAfterSessionNotes = await findArtifactListItems()
+    const summaryItem = itemsAfterSessionNotes.find(
+      (item) => item.textContent?.includes('Resumen') && !item.textContent?.includes('paciente'),
+    )!
     await user.click(within(summaryItem).getByRole('button', { name: /ver detalle/i }))
 
     expect(await screen.findByRole('note')).toHaveTextContent(DISCLAIMER)
@@ -199,7 +241,7 @@ describe('AIPipelinePanel (integración)', () => {
 
     await user.click(screen.getByRole('button', { name: /volver al listado de artefactos/i }))
 
-    const refreshedItems = await screen.findAllByRole('listitem')
+    const refreshedItems = await findArtifactListItems()
     const transcriptItem = refreshedItems.find((item) =>
       item.textContent?.includes('Transcripción'),
     )!
@@ -213,9 +255,9 @@ describe('AIPipelinePanel (integración)', () => {
 
     await user.click(screen.getByRole('button', { name: /volver al listado de artefactos/i }))
     await user.click(screen.getByRole('button', { name: /run mock pipeline/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/5\/5 artefactos generados/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/7\/7 artefactos generados/i)
 
-    const rerunItems = await screen.findAllByRole('listitem')
+    const rerunItems = await findArtifactListItems()
     const transcriptAgain = rerunItems.find((item) => item.textContent?.includes('Transcripción'))!
     await user.click(within(transcriptAgain).getByRole('button', { name: /ver detalle/i }))
 
@@ -248,8 +290,10 @@ describe('AIPipelinePanel (integración)', () => {
 
     expect(screen.queryByRole('button', { name: /run mock pipeline/i })).not.toBeInTheDocument()
 
-    const items = await screen.findAllByRole('listitem')
-    const summaryItem = items.find((item) => item.textContent?.includes('Resumen'))!
+    const items = await findArtifactListItems()
+    const summaryItem = items.find(
+      (item) => item.textContent?.includes('Resumen') && !item.textContent?.includes('paciente'),
+    )!
     await user.click(within(summaryItem).getByRole('button', { name: /ver detalle/i }))
 
     expect(await screen.findByRole('note')).toHaveTextContent(DISCLAIMER)

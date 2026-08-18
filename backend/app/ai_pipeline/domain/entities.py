@@ -15,6 +15,8 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from app.core.messages.es import RULESET_DISCLAIMER
+
 
 class AIArtifactType(StrEnum):
     TRANSCRIPT = "transcript"
@@ -31,6 +33,16 @@ class AIArtifactType(StrEnum):
     #: técnico de 6.4 §8). Mutuamente excluyente con `ANAMNESIS` en la
     #: misma sesión — ver `applies_to()` de ambos steps.
     SESSION_NOTES = "session_notes"
+
+
+def ruleset_disclaimer_for(artifact_type: AIArtifactType) -> str | None:
+    """Única fuente de verdad de docs/clinical-safety.md §7: dónde aplica
+    el aviso del checklist de demostración de `CLINICAL_FLAGS`. Toda capa
+    API (`ai_pipeline`, `clinical_record`, y cualquier superficie futura
+    que serialice un `artifact_type`) debe llamar a esta función en vez de
+    repetir el condicional — evita que la regla de seguridad clínica viva
+    duplicada, y potencialmente divergente, en cada schema de salida."""
+    return RULESET_DISCLAIMER if artifact_type == AIArtifactType.CLINICAL_FLAGS else None
 
 
 class AIArtifactStatus(StrEnum):

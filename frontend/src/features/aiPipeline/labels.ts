@@ -3,22 +3,44 @@ import type { AIArtifactStatus, AIArtifactType } from '../../shared/api/types'
 export const ARTIFACT_TYPE_LABELS: Record<AIArtifactType, string> = {
   transcript: 'Transcripción',
   summary: 'Resumen',
+  patient_summary: 'Resumen para el paciente',
   clinical_flags: 'Señales de alerta',
   missing_information: 'Información ausente',
   anamnesis: 'Anamnesis estructurada',
+  session_notes: 'Notas de la sesión',
 }
 
-/** Orden canónico del pipeline (ver docs/ai-pipeline-architecture.md §1.4):
- * transcript → {summary, clinical_flags} → missing_information → anamnesis.
- * El listado siempre se presenta en este orden, no en el orden (alfabético)
- * en que responde la API. */
+/** Orden canónico del pipeline — espejo exacto de `PIPELINE_STEP_ORDER` en
+ * `backend/app/ai_pipeline/domain/entities.py`: transcript → summary →
+ * patient_summary → clinical_flags → missing_information → anamnesis →
+ * session_notes. El listado siempre se presenta en este orden, no en el
+ * orden (alfabético) en que responde la API. */
 export const ARTIFACT_TYPE_ORDER: AIArtifactType[] = [
   'transcript',
   'summary',
+  'patient_summary',
   'clinical_flags',
   'missing_information',
   'anamnesis',
+  'session_notes',
 ]
+
+/** Etiqueta segura para un `artifact_type`: los 7 valores de
+ * `AIArtifactType` siempre tienen entrada en `ARTIFACT_TYPE_LABELS`, pero
+ * el valor real viaja como JSON sin validar en tiempo de ejecución — si el
+ * backend llegara a añadir un tipo nuevo antes de que el frontend lo
+ * conozca, esto evita una tarjeta con etiqueta en blanco (nunca silenciosa). */
+export function getArtifactTypeLabel(artifactType: AIArtifactType): string {
+  return ARTIFACT_TYPE_LABELS[artifactType] ?? `Tipo desconocido (${String(artifactType)})`
+}
+
+/** Posición segura en el orden canónico: un tipo no reconocido se envía al
+ * final del listado (nunca al principio, que es lo que producía
+ * `indexOf(...) === -1` sin este guardado). */
+export function getArtifactTypeOrder(artifactType: AIArtifactType): number {
+  const index = ARTIFACT_TYPE_ORDER.indexOf(artifactType)
+  return index === -1 ? Number.POSITIVE_INFINITY : index
+}
 
 export const ARTIFACT_STATUS_LABELS: Record<AIArtifactStatus, string> = {
   review_pending: 'Pendiente de revisión',
@@ -59,6 +81,26 @@ export const ANAMNESIS_FIELD_STATUS_LABELS: Record<AnamnesisFieldStatus, string>
   negado_explicitamente: 'Negado explícitamente',
   no_preguntado: 'No preguntado',
   no_determinado: 'No determinado',
+}
+
+/** Los 4 bloques cerrados de SESSION_NOTES (ver
+ * backend/app/integrations/domain/session_notes_generator.py
+ * `SESSION_NOTES_BLOCKS`) — mismo orden que el backend. */
+export const SESSION_NOTES_BLOCK_ORDER = [
+  'changes_since_last_visit',
+  'device_adjustments',
+  'patient_reported_issues',
+  'next_steps',
+] as const
+
+export const SESSION_NOTES_BLOCK_LABELS: Record<
+  (typeof SESSION_NOTES_BLOCK_ORDER)[number],
+  string
+> = {
+  changes_since_last_visit: 'Cambios desde la última visita',
+  device_adjustments: 'Ajustes del dispositivo',
+  patient_reported_issues: 'Molestias referidas por el paciente',
+  next_steps: 'Próximos pasos',
 }
 
 /** Formato de respaldo para categorías de señales de alerta que no tengan

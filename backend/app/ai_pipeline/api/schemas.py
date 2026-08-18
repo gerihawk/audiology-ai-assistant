@@ -20,6 +20,7 @@ from app.ai_pipeline.domain.entities import (
     AIArtifactType,
     AIArtifactVersionSource,
     AIPipelineRunStatus,
+    ruleset_disclaimer_for,
 )
 from app.ai_pipeline.service import (
     AIArtifactDetail,
@@ -69,6 +70,12 @@ class AIArtifactResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     ai_disclaimer: str = AI_DISCLAIMER
+    #: docs/clinical-safety.md §7 — decisión de qué `artifact_type` lo
+    #: lleva vive en `ruleset_disclaimer_for()`
+    #: (`ai_pipeline/domain/entities.py`), única fuente de verdad
+    #: compartida con `ClinicalRecordDocumentResponse`. Este schema solo
+    #: serializa el resultado.
+    ruleset_disclaimer: str | None = None
 
     @classmethod
     def from_detail(cls, detail: AIArtifactDetail) -> AIArtifactResponse:
@@ -92,6 +99,7 @@ class AIArtifactResponse(BaseModel):
             rejection_reason=artifact.rejection_reason,
             created_at=artifact.created_at,
             updated_at=artifact.updated_at,
+            ruleset_disclaimer=ruleset_disclaimer_for(artifact.artifact_type),
         )
 
 

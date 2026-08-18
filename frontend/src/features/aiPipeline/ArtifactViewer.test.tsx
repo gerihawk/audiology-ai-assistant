@@ -33,6 +33,7 @@ function makeArtifact(overrides: Partial<AIArtifact> = {}): AIArtifact {
     updated_at: '2026-01-02T00:00:00Z',
     ai_disclaimer:
       'Contenido generado mediante IA. Debe ser revisado y aprobado por un profesional cualificado antes de incorporarse al expediente.',
+    ruleset_disclaimer: null,
     ...overrides,
   }
 }

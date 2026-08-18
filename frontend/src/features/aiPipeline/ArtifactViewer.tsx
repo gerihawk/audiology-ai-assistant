@@ -3,10 +3,11 @@ import { listAIArtifactVersions } from '../../shared/api/aiPipeline'
 import type { AIArtifact, AIArtifactVersion, Role } from '../../shared/api/types'
 import { AIDisclaimer } from './AIDisclaimer'
 import { ArtifactActions } from './ArtifactActions'
+import { ArtifactEditForm } from './ArtifactEditForm'
 import { ArtifactMetadata } from './ArtifactMetadata'
 import { ArtifactVersionList } from './ArtifactVersionList'
 import { ArtifactContent } from './content/ArtifactContent'
-import { ARTIFACT_TYPE_LABELS } from './labels'
+import { getArtifactTypeLabel } from './labels'
 
 interface Props {
   devUserId: string
@@ -65,7 +66,7 @@ export function ArtifactViewer({
         Volver al listado de artefactos
       </button>
 
-      <h3>{ARTIFACT_TYPE_LABELS[artifact.artifact_type]}</h3>
+      <h3>{getArtifactTypeLabel(artifact.artifact_type)}</h3>
 
       <AIDisclaimer text={artifact.ai_disclaimer} />
 
@@ -101,12 +102,24 @@ export function ArtifactViewer({
                 artifactType={artifact.artifact_type}
                 content={selectedVersion.content}
                 confidence={selectedVersion.confidence}
+                rulesetDisclaimer={artifact.ruleset_disclaimer}
               />
 
               <ArtifactVersionList
                 versions={state.versions}
                 selectedVersionId={selectedVersion.id}
                 onSelect={(version) => setSelectedVersionId(version.id)}
+              />
+
+              <ArtifactEditForm
+                devUserId={devUserId}
+                role={role}
+                currentUserId={currentUserId}
+                professionalId={professionalId}
+                artifact={artifact}
+                currentVersion={selectedVersion}
+                isViewingCurrentVersion={selectedVersion.is_current}
+                onChanged={onChanged}
               />
 
               <ArtifactActions

@@ -1,3 +1,4 @@
+import { AIDisclaimer } from '../AIDisclaimer'
 import { ConfidenceIndicator } from '../ConfidenceIndicator'
 import { formatCategoryLabel } from '../labels'
 
@@ -58,22 +59,29 @@ function ClinicalFlagItem({ flag, confidence, onConfirm, onDiscard }: ItemProps)
 interface Props {
   content: Record<string, unknown>
   confidence: number | null
+  /** docs/clinical-safety.md §7 — obligatorio junto a las señales de
+   * alerta, siempre que la API lo envíe (nunca hardcodeado aquí). */
+  rulesetDisclaimer: string | null
 }
 
-export function ClinicalFlagsContent({ content, confidence }: Props) {
+export function ClinicalFlagsContent({ content, confidence, rulesetDisclaimer }: Props) {
   const flags = Array.isArray(content.flags) ? (content.flags as ClinicalFlagData[]) : []
 
-  if (flags.length === 0) {
-    return <p>No se han detectado señales de alerta.</p>
-  }
-
   return (
-    <ul className="artifact-flags-list">
-      {flags.map((flag) => (
-        // MockClinicalFlagsGenerator nunca repite categoría dentro de una
-        // misma generación, así que category es una clave estable.
-        <ClinicalFlagItem key={flag.category} flag={flag} confidence={confidence} />
-      ))}
-    </ul>
+    <div className="artifact-clinical-flags">
+      {rulesetDisclaimer && <AIDisclaimer text={rulesetDisclaimer} />}
+
+      {flags.length === 0 ? (
+        <p>No se han detectado señales de alerta.</p>
+      ) : (
+        <ul className="artifact-flags-list">
+          {flags.map((flag) => (
+            // MockClinicalFlagsGenerator nunca repite categoría dentro de
+            // una misma generación, así que category es una clave estable.
+            <ClinicalFlagItem key={flag.category} flag={flag} confidence={confidence} />
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

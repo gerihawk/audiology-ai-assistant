@@ -1,7 +1,14 @@
 import { useState } from 'react'
-import type { AIArtifact, Role, RunMockPipelineResponse } from '../../shared/api/types'
+import type {
+  AIArtifact,
+  PipelineStepOutcome,
+  Role,
+  RunPipelineResponse,
+} from '../../shared/api/types'
 import { ArtifactList } from './ArtifactList'
 import { ArtifactViewer } from './ArtifactViewer'
+import { PipelineStepOutcomesList } from './PipelineStepOutcomesList'
+import { ProposeAnamnesisUpdateButton } from './ProposeAnamnesisUpdateButton'
 import { RunPipelineButton } from './RunPipelineButton'
 
 type View = { name: 'list' } | { name: 'detail'; artifact: AIArtifact }
@@ -14,7 +21,7 @@ interface Props {
   professionalId: string
 }
 
-function summarizeRun(result: RunMockPipelineResponse): string {
+function summarizeRun(result: RunPipelineResponse): string {
   const total = result.step_outcomes.length
   const completed = result.step_outcomes.filter((s) => s.status === 'completed').length
   if (result.status === 'completed') {
@@ -35,10 +42,12 @@ export function AIPipelinePanel({
 }: Props) {
   const [view, setView] = useState<View>({ name: 'list' })
   const [refreshToken, setRefreshToken] = useState(0)
-  const [lastRunMessage, setLastRunMessage] = useState<string | null>(null)
+  const [lastRunSummary, setLastRunSummary] = useState<string | null>(null)
+  const [lastRunStepOutcomes, setLastRunStepOutcomes] = useState<PipelineStepOutcome[]>([])
 
-  function handleRunCompleted(result: RunMockPipelineResponse) {
-    setLastRunMessage(summarizeRun(result))
+  function handleRunCompleted(result: RunPipelineResponse) {
+    setLastRunSummary(summarizeRun(result))
+    setLastRunStepOutcomes(result.step_outcomes)
     setRefreshToken((token) => token + 1)
     setView({ name: 'list' })
   }
@@ -46,6 +55,11 @@ export function AIPipelinePanel({
   function handleArtifactChanged(updated: AIArtifact) {
     setView({ name: 'detail', artifact: updated })
     setRefreshToken((token) => token + 1)
+  }
+
+  function handleAnamnesisUpdateArtifact(artifact: AIArtifact) {
+    setRefreshToken((token) => token + 1)
+    setView({ name: 'detail', artifact })
   }
 
   return (
@@ -61,7 +75,24 @@ export function AIPipelinePanel({
         onCompleted={handleRunCompleted}
       />
 
-      {lastRunMessage && <p role="status">{lastRunMessage}</p>}
+      {lastRunSummary && (
+        <div>
+          <p role="status">{lastRunSummary}</p>
+          <PipelineStepOutcomesList stepOutcomes={lastRunStepOutcomes} />
+        </div>
+      )}
+
+      <section aria-label="Actualización de anamnesis">
+        <h4>Anamnesis</h4>
+        <ProposeAnamnesisUpdateButton
+          devUserId={devUserId}
+          role={role}
+          currentUserId={currentUserId}
+          professionalId={professionalId}
+          clinicalSessionId={clinicalSessionId}
+          onViewArtifact={handleAnamnesisUpdateArtifact}
+        />
+      </section>
 
       {view.name === 'list' && (
         <ArtifactList

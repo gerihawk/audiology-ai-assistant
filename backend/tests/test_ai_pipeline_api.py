@@ -31,6 +31,7 @@ from app.ai_pipeline.service import AIPipelineService
 from app.audit_log.infrastructure.orm import AuditLogORM
 from app.core.current_user import CurrentUser
 from app.core.exceptions import ConflictError
+from app.core.messages.es import RULESET_DISCLAIMER
 from app.patients.domain.entities import Patient
 from tests.factories import ClinicWithUsers, create_clinic_with_users, create_patient, dev_headers
 
@@ -137,6 +138,31 @@ async def test_run_pipeline_artifacts_are_review_pending_with_confidence_and_pro
         assert artifact["created_at"] is not None
         assert artifact["updated_at"] is not None
         assert "Contenido generado mediante IA" in artifact["ai_disclaimer"]
+
+
+async def test_run_pipeline_clinical_flags_artifact_exposes_ruleset_disclaimer(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers, clinical_session: dict
+):
+    """docs/clinical-safety.md §7: todo lugar donde se muestren
+    `clinical_flags` — API incluida — debe incluir el aviso específico del
+    checklist de demostración, además del `ai_disclaimer` general."""
+    headers = dev_headers(clinic_with_users.admin)
+    _, body = await _run_pipeline(api_client, headers, clinical_session["id"])
+
+    for artifact in body["artifacts"]:
+        if artifact["artifact_type"] == "clinical_flags":
+            assert artifact["ruleset_disclaimer"] == RULESET_DISCLAIMER
+        else:
+            assert artifact["ruleset_disclaimer"] is None
+
+    clinical_flags_id = next(
+        a["id"] for a in body["artifacts"] if a["artifact_type"] == "clinical_flags"
+    )
+    get_response = await api_client.get(
+        f"/api/v1/ai-artifacts/{clinical_flags_id}", headers=headers
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["ruleset_disclaimer"] == RULESET_DISCLAIMER
 
 
 async def test_run_pipeline_anamnesis_never_marks_informado_without_evidence(

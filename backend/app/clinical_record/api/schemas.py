@@ -17,13 +17,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from app.ai_pipeline.domain.entities import AIArtifactType
+from app.ai_pipeline.domain.entities import AIArtifactType, ruleset_disclaimer_for
 from app.clinical_record.domain.entities import (
     ClinicalRecordDocument,
     ClinicalRecordPage,
     ClinicalRecordSessionEntry,
 )
-from app.core.messages.es import AI_DISCLAIMER, RULESET_DISCLAIMER
+from app.core.messages.es import AI_DISCLAIMER
 
 __all__ = [
     "ClinicalRecordDocumentResponse",
@@ -57,11 +57,7 @@ class ClinicalRecordDocumentResponse(BaseModel):
             approved_at=document.approved_at,
             content=document.content,
             is_current_baseline=document.is_current_baseline,
-            ruleset_disclaimer=(
-                RULESET_DISCLAIMER
-                if document.artifact_type == AIArtifactType.CLINICAL_FLAGS
-                else None
-            ),
+            ruleset_disclaimer=ruleset_disclaimer_for(document.artifact_type),
         )
 
 

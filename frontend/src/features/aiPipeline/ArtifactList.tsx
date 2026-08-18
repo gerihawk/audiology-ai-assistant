@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { listClinicalSessionArtifacts } from '../../shared/api/aiPipeline'
 import type { AIArtifact } from '../../shared/api/types'
 import { ArtifactCard } from './ArtifactCard'
-import { ARTIFACT_TYPE_ORDER } from './labels'
+import { getArtifactTypeOrder } from './labels'
 
 interface Props {
   devUserId: string
@@ -52,8 +52,7 @@ export function ArtifactList({ devUserId, clinicalSessionId, refreshToken, onSel
   }
 
   const orderedItems = [...state.items].sort(
-    (a, b) =>
-      ARTIFACT_TYPE_ORDER.indexOf(a.artifact_type) - ARTIFACT_TYPE_ORDER.indexOf(b.artifact_type),
+    (a, b) => getArtifactTypeOrder(a.artifact_type) - getArtifactTypeOrder(b.artifact_type),
   )
 
   return (

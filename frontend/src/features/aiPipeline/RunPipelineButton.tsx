@@ -1,7 +1,10 @@
 import { useState } from 'react'
-import { runMockPipeline } from '../../shared/api/aiPipeline'
-import type { Role, RunMockPipelineResponse } from '../../shared/api/types'
+import { runMockPipeline, runPipeline } from '../../shared/api/aiPipeline'
+import type { Role, RunPipelineResponse } from '../../shared/api/types'
+import { describeActionError } from './apiErrorMessage'
 import { canTriggerPipeline } from './permissions'
+
+type Mode = 'mock' | 'real'
 
 interface Props {
   devUserId: string
@@ -9,9 +12,16 @@ interface Props {
   currentUserId: string | undefined
   professionalId: string
   clinicalSessionId: string
-  onCompleted: (result: RunMockPipelineResponse) => void
+  onCompleted: (result: RunPipelineResponse) => void
 }
 
+/** Dos entrypoints con distinta superficie de riesgo (ver
+ * docs/fase-6-rfc.md, corrección de frontera mock/real) — deliberadamente
+ * dos botones separados, nunca uno ambiguo: "Mock" es estructuralmente
+ * incapaz de tocar un proveedor real pase lo que pase en la configuración
+ * del backend; "real" respeta el routing configurado y puede gastar
+ * dinero. Comparten la misma autorización (`AIPipelineAction.TRIGGER`) —
+ * ver `AIPipelineService._authorize_trigger`. */
 export function RunPipelineButton({
   devUserId,
   role,
@@ -20,35 +30,54 @@ export function RunPipelineButton({
   clinicalSessionId,
   onCompleted,
 }: Props) {
-  const [busy, setBusy] = useState(false)
+  const [busyMode, setBusyMode] = useState<Mode | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   if (!canTriggerPipeline(role, professionalId, currentUserId)) {
     return null
   }
 
-  async function handleClick() {
-    if (busy) return
-    setBusy(true)
+  async function handleRun(mode: Mode) {
+    if (busyMode) return
+    setBusyMode(mode)
     setError(null)
     try {
-      const result = await runMockPipeline(devUserId, clinicalSessionId)
+      const result =
+        mode === 'mock'
+          ? await runMockPipeline(devUserId, clinicalSessionId)
+          : await runPipeline(devUserId, clinicalSessionId)
       onCompleted(result)
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'No se pudo ejecutar el pipeline de IA simulado.',
-      )
+      const described = describeActionError(err)
+      setError(`${described.label}: ${described.message}`)
     } finally {
-      setBusy(false)
+      setBusyMode(null)
     }
   }
 
   return (
-    <div>
+    <div className="run-pipeline-actions">
       {error && <p role="alert">{error}</p>}
-      <button type="button" disabled={busy} onClick={handleClick}>
-        {busy ? 'Ejecutando…' : 'Run Mock Pipeline'}
-      </button>
+
+      <div className="run-pipeline-action">
+        <button type="button" disabled={busyMode !== null} onClick={() => handleRun('mock')}>
+          {busyMode === 'mock' ? 'Ejecutando…' : 'Run Mock Pipeline'}
+        </button>
+        <p className="run-pipeline-hint">
+          Simulado — nunca usa proveedores externos ni genera coste, pase lo que pase en la
+          configuración del backend.
+        </p>
+      </div>
+
+      <div className="run-pipeline-action">
+        <button type="button" disabled={busyMode !== null} onClick={() => handleRun('real')}>
+          {busyMode === 'real' ? 'Ejecutando…' : 'Run Pipeline (real)'}
+        </button>
+        <p className="run-pipeline-hint run-pipeline-hint--warning">
+          Puede usar proveedores externos reales y generar coste, según la configuración activa del
+          backend.
+        </p>
+      </div>
     </div>
   )
 }

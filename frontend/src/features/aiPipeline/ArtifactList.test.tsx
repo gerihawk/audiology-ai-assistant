@@ -35,6 +35,7 @@ function makeArtifact(
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ai_disclaimer: 'Contenido generado mediante IA.',
+    ruleset_disclaimer: null,
     ...overrides,
   }
 }
@@ -97,9 +98,11 @@ describe('ArtifactList', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         items: [
+          makeArtifact('session_notes'),
           makeArtifact('anamnesis'),
           makeArtifact('clinical_flags'),
           makeArtifact('missing_information'),
+          makeArtifact('patient_summary'),
           makeArtifact('summary'),
           makeArtifact('transcript'),
         ],
@@ -118,10 +121,39 @@ describe('ArtifactList', () => {
     expect(items.map((item) => item.textContent)).toEqual([
       expect.stringContaining('Transcripción'),
       expect.stringContaining('Resumen'),
+      expect.stringContaining('Resumen para el paciente'),
       expect.stringContaining('Señales de alerta'),
       expect.stringContaining('Información ausente'),
       expect.stringContaining('Anamnesis estructurada'),
+      expect.stringContaining('Notas de la sesión'),
     ])
+  })
+
+  it('nunca deja una tarjeta sin etiqueta para ninguno de los 7 tipos de artefacto', async () => {
+    const allTypes: AIArtifactType[] = [
+      'transcript',
+      'summary',
+      'patient_summary',
+      'clinical_flags',
+      'missing_information',
+      'anamnesis',
+      'session_notes',
+    ]
+    fetchMock.mockResolvedValue(jsonResponse({ items: allTypes.map((type) => makeArtifact(type)) }))
+    render(
+      <ArtifactList
+        devUserId="u-admin"
+        clinicalSessionId="s-1"
+        refreshToken={0}
+        onSelect={vi.fn()}
+      />,
+    )
+
+    const items = await screen.findAllByRole('listitem')
+    expect(items).toHaveLength(7)
+    for (const item of items) {
+      expect(item.querySelector('strong')?.textContent?.trim()).toBeTruthy()
+    }
   })
 
   it('abre el detalle del artefacto seleccionado', async () => {

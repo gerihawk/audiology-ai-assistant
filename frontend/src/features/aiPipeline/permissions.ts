@@ -47,3 +47,24 @@ export function canReject(
 ): boolean {
   return canActOnSession(role, professionalId, currentUserId)
 }
+
+/** `AIArtifactAction.EDIT` en el backend — misma regla de propiedad que
+ * approve/reject (`_AI_ARTIFACT_OWNERSHIP_REQUIRED` en `core/authorization.py`). */
+export function canEdit(
+  role: Role | undefined,
+  professionalId: string,
+  currentUserId: string | undefined,
+): boolean {
+  return canActOnSession(role, professionalId, currentUserId)
+}
+
+/** `propose-anamnesis-update` también autoriza vía `AIArtifactAction.EDIT`
+ * (`AIPipelineService.propose_anamnesis_update`) — no existe una acción de
+ * autorización propia distinta para esta operación. */
+export function canProposeAnamnesisUpdate(
+  role: Role | undefined,
+  professionalId: string,
+  currentUserId: string | undefined,
+): boolean {
+  return canActOnSession(role, professionalId, currentUserId)
+}
