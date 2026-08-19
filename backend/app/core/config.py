@@ -89,7 +89,7 @@ class Settings(BaseSettings):
 
     # --- Audio (Fase 5) ---
     audio_storage_provider: str = "local"
-    audio_storage_local_dir: str = "/app/storage/audio"
+    audio_storage_local_dir: str = "storage/audio"
     audio_max_size_mb: int = 50
     audio_allowed_mime_types: str = (
         "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/webm,audio/ogg"
