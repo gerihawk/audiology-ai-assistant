@@ -12,6 +12,8 @@ import { PatientCreatePage } from './features/patients/PatientCreatePage'
 import { PatientDetailPage } from './features/patients/PatientDetailPage'
 import { PatientEditPage } from './features/patients/PatientEditPage'
 import { PatientClinicalRecordPage } from './features/patients/PatientClinicalRecordPage'
+import { RetentionPage } from './features/retention/RetentionPage'
+import { IntegrationsPage } from './features/integrations/IntegrationsPage'
 
 function App() {
   return (
@@ -33,6 +35,8 @@ function App() {
         <nav aria-label="Secciones de la aplicación">
           <NavLink to="/patients">Pacientes</NavLink>
           <NavLink to="/clinical-sessions">Sesiones clínicas</NavLink>
+          <NavLink to="/retention">Retención</NavLink>
+          <NavLink to="/integrations">Integraciones</NavLink>
         </nav>
 
         <Routes>
@@ -71,6 +75,9 @@ function App() {
             element={<ClinicalSessionDetailPage />}
           />
           <Route path="/clinical-sessions/:sessionId/edit" element={<ClinicalSessionEditPage />} />
+
+          <Route path="/retention" element={<RetentionPage />} />
+          <Route path="/integrations" element={<IntegrationsPage />} />
 
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

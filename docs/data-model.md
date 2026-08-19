@@ -336,13 +336,31 @@ active un proveedor LLM real.
 
 ### `integration_configs`
 Estado de activación de cada integración abstracta (todas `mock` en el
-MVP), para preparar el interruptor futuro sin tocar código.
+MVP), para preparar el interruptor futuro sin tocar código. Sin
+`clinic_id` propio: configuración global de aplicación, no por clínica —
+excepción deliberada al aislamiento por clínica del resto del esquema,
+consistente con la exclusión de multi-tenant del MVP (ver
+[architecture.md](architecture.md) §10). Cualquier `admin` de cualquier
+clínica puede leer/editar.
+
+**Corrección (Fase 7.3):** el diseño original de esta tabla listaba
+cuatro valores posibles de `integration_name` (`transcription`,
+`language_model`, `patient_record`, `calendar`). Se reduce a **dos**
+(`patient_record`, `calendar`) — mismo criterio ya aplicado a la
+corrección `clinician` → `audiologist` de la Fase 7.1
+([api-specification.md](api-specification.md)): la tabla solo cubre
+integraciones sin implementación real todavía. `transcription` y
+`language_model` ya tienen proveedores reales desde las Fases 5 y 6.3
+respectivamente, y se seleccionan por variable de entorno (`Settings`,
+ver [architecture.md](architecture.md) §4), no por esta tabla —
+incluirlos aquí crearía una segunda fuente de verdad que no controlaría
+nada real.
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | UUID PK | |
-| integration_name | enum | `transcription`, `language_model`, `patient_record`, `calendar` |
-| active_provider | string | p. ej. `mock` |
+| integration_name | enum | `patient_record`, `calendar` |
+| active_provider | string | p. ej. `mock` — único valor válido en el MVP |
 | enabled | bool | |
 | updated_by | FK users.id | |
 | updated_at | timestamp | |

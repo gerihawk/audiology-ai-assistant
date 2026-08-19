@@ -319,6 +319,24 @@ export interface AudioRecordingListResponse {
   items: AudioRecording[]
 }
 
+export type IntegrationName = 'patient_record' | 'calendar'
+
+/** `IntegrationConfigResponse` (`integrations/api/schemas.py`). Estado de
+ * cada integración abstracta (Fase 7.3) — solo lectura desde el frontend
+ * en esta ronda, sin formulario de `PATCH` todavía. */
+export interface IntegrationConfig {
+  id: string
+  integration_name: IntegrationName
+  active_provider: string
+  enabled: boolean
+  updated_by: string
+  updated_at: string
+}
+
+export interface IntegrationConfigListResponse {
+  items: IntegrationConfig[]
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string

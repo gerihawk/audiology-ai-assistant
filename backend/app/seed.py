@@ -25,6 +25,8 @@ from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core import orm_registry  # noqa: F401  (registra los modelos ORM)
 from app.core.config import get_settings
 from app.core.db import get_session_factory
+from app.integrations.domain.integration_config import IntegrationConfig, IntegrationName
+from app.integrations.infrastructure.repository import SqlAlchemyIntegrationConfigRepository
 from app.patients.domain.entities import Patient, Sex
 from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
 from app.users.domain.entities import Role, User
@@ -268,6 +270,28 @@ async def run_seed() -> None:
             await clinical_session_repository.add(session, spec)
             await session.commit()
             print(f"[creada]     sesión clínica {spec.title!r} ({spec.status.value})")
+
+        integration_config_repository = SqlAlchemyIntegrationConfigRepository()
+        for integration_name in IntegrationName:
+            existing_config = await integration_config_repository.get_by_name(
+                session, integration_name
+            )
+            if existing_config is None:
+                await integration_config_repository.add(
+                    session,
+                    IntegrationConfig(
+                        id=uuid.uuid4(),
+                        integration_name=integration_name,
+                        active_provider="mock",
+                        enabled=False,
+                        updated_by=admin_id,
+                        updated_at=_now(),
+                    ),
+                )
+                await session.commit()
+                print(f"[creada]     integration_config {integration_name.value}")
+            else:
+                print(f"[existente]  integration_config {integration_name.value}")
 
     print("\nSeed completado. Cabecera de desarrollo para probar la API:")
     for role, user_id in user_ids_by_role.items():

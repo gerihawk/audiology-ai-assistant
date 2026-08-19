@@ -684,6 +684,54 @@ mismo patrón que archivar paciente/sesión), porque es un borrado físico
 irreversible. Sin scheduler (Fase 8) ni retención configurable por
 clínica (global vía `RETENTION_DAYS_DEFAULT`, fuera de alcance).
 
+**Estado (hito 7.3 — integrations, cerrado)**: `integration_configs`
+(entidad + enum `IntegrationName`, solo `patient_record`/`calendar` —
+`transcription`/`language_model` siguen resueltos por `Settings`, ver
+corrección en [data-model.md](data-model.md) §2) + `IntegrationConfigService`
++ `integrations/api/` (`GET`/`PATCH /integrations...`) en `app/integrations/`
+(extiende el módulo ya existente desde las Fases 5/6.3, sin colisión con
+`TranscriptionProvider`/`LanguageModelProvider`/los `*Generator`).
+`IntegrationConfigAction` (`READ`/`UPDATE`) en `core/authorization.py`: solo
+`admin`, ni siquiera `audiologist` — mismo patrón que `RetentionAction`,
+configurar integraciones externas es una tarea puramente administrativa.
+Decisiones cerradas: (1) sin `clinic_id` propio — configuración global de
+aplicación, cualquier `admin` de cualquier clínica puede leer/editar,
+excepción deliberada al aislamiento por clínica del resto del sistema; (2)
+`PATCH .../{integration_name}` acepta `enabled`/`active_provider` (ambos
+opcionales, `extra="forbid"`, al menos uno obligatorio) — `active_provider`
+restringido a `Literal["mock"]`, único valor válido en el MVP; body vacío o
+`active_provider` inválido → `422` nativo; `integration_name` desconocido en
+la ruta → `422` (enum de FastAPI); fila no sembrada aún → `404`; sin cambios
+reales → no-op idempotente, sin nueva entrada de auditoría (mismo criterio
+que `patients.archive`/`restore`); (3) migración Alembic
+(`f3d8b1c4a920_create_integration_configs`) + seed idempotente (extiende
+`app/seed.py`, mismo patrón que el resto de entidades sembradas en ese
+script — no un script CLI aparte, a diferencia de `prompt_templates`): las 2
+filas (`patient_record`, `calendar`) con `active_provider="mock"`,
+`enabled=False`; (4) `PatientRecordIntegration`/`CalendarIntegration`
+(Protocols + DTOs propios, nunca `Patient`/`ClinicalSession` directamente)
+en `integrations/domain/`, marcadas explícitamente como **provisionales**
+en su docstring — firma basada en investigación ligera de alcance, no en la
+API real de ningún proveedor; `MockPatientRecordIntegration`/
+`MockCalendarIntegration` deterministas, sin I/O de red, sin ningún caller
+real desde otro módulo (verificado con un test dedicado que escanea el
+árbol de `app/` en busca de imports fuera de `integrations/`) — contrato +
+mock probado, tal y como especifica la documentación del MVP.
+`docs/architecture.md` corregido: `RetentionCleanupService` (Fase 7.2) ya
+no se documenta como `Protocol` en `audio/domain/retention.py` (diseño
+previo nunca implementado así) sino como clase concreta en
+`app/retention/service.py`, con purga en bloque — mismo criterio de
+corrección ya usado por este propio documento cuando la Fase 4 sustituyó
+por completo al bloque de fases anterior.
+
+**Fase 7 completa (7.1 + 7.2 + 7.3).** Las tres subfases quedan cerradas:
+registro de consentimiento, retención manual de audio expirado, y
+configuración (solo lectura desde el frontend) de las dos integraciones
+abstractas sin proveedor real. Ningún código del MVP llama a un servicio
+externo de pago — todas las integraciones externas siguen siendo `Mock*`
+seleccionadas por configuración. Fase 8 (RBAC más fino, scheduler de
+retención, hardening) queda como siguiente ronda, sin empezar.
+
 ## Fase 8 — RBAC más fino, scheduler de retención, hardening
 
 - Revisión de permisos por endpoint según

@@ -125,7 +125,10 @@ def test_baseline_columns_have_correct_foreign_keys(scratch_database_url):
 def test_downgrade_removes_baseline_columns(scratch_database_url):
     config = _alembic_config(scratch_database_url)
     command.upgrade(config, "head")
-    command.downgrade(config, "-1")
+    # Revisión explícita (down_revision de la migración de baseline), no un
+    # offset relativo ("-1") — robusto frente a migraciones añadidas
+    # después de esta (p. ej. f3d8b1c4a920, Fase 7.3).
+    command.downgrade(config, "edc67aea3044")
 
     engine = _scratch_engine(scratch_database_url)
     columns = {c["name"] for c in inspect(engine).get_columns("ai_artifacts")}

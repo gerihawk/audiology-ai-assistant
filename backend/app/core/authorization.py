@@ -365,3 +365,26 @@ def authorize_retention_action(current_user: CurrentUser, action: RetentionActio
         )
 
 
+class IntegrationConfigAction(StrEnum):
+    READ = "read"
+    UPDATE = "update"
+
+
+#: Fase 7.3 (docs/development-plan.md). Mismo patrón "admin únicamente"
+#: que `RetentionAction`: configurar integraciones externas es una tarea
+#: puramente administrativa, ni siquiera `audiologist` tiene acceso.
+INTEGRATION_CONFIG_PERMISSIONS: dict[Role, frozenset[IntegrationConfigAction]] = {
+    Role.ADMIN: frozenset(IntegrationConfigAction),
+    Role.AUDIOLOGIST: frozenset(),
+    Role.VIEWER: frozenset(),
+}
+
+
+def authorize_integration_config_action(
+    current_user: CurrentUser, action: IntegrationConfigAction
+) -> None:
+    if action not in INTEGRATION_CONFIG_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre la configuración de integraciones."
+        )

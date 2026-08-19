@@ -19,6 +19,7 @@ from app.core.db import get_db_session
 from app.export.service import ExportService
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.factory import build_transcription_provider
+from app.integrations.service import IntegrationConfigService
 from app.patients.service import PatientService
 from app.retention.service import RetentionCleanupService
 
@@ -36,6 +37,7 @@ __all__ = [
     "get_clinical_record_service",
     "get_consent_service",
     "get_retention_cleanup_service",
+    "get_integration_config_service",
 ]
 
 
@@ -116,3 +118,8 @@ async def get_retention_cleanup_service(
 ) -> RetentionCleanupService:
     return RetentionCleanupService(session)
 
+
+async def get_integration_config_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> IntegrationConfigService:
+    return IntegrationConfigService(session)
