@@ -828,8 +828,32 @@ solo añade fricción a development/test. Se revisa cuando se active de
 verdad un proveedor LLM real en producción, no antes. Decisión revisada
 y cerrada, no una omisión. Ronda puramente documental: sin cambios de
 código, sin cambios de tests, suite completa sigue en el mismo estado
-verde del hito 8.2. Hito 8.4 (hardening general) queda para la
-siguiente ronda, sin empezar.
+verde del hito 8.2.
+
+**Estado (hito 8.4 — revisión de seguridad general, cerrado, aplazado)**:
+evaluado el punto 3 de esta fase (cabeceras HTTP, rate limiting básico,
+revisión de límites de subida). **Decisión: se aplaza por completo**,
+documentado como deuda consciente en
+[privacy-and-security.md](privacy-and-security.md) §11 (nueva entrada de
+la tabla de amenazas) — el propio plan ya marcaba este punto como
+opcional ("si el tiempo lo permite"). Estado real verificado en
+`app/main.py`: exactamente tres middlewares montados hoy
+(`CORSMiddleware`, `RequestIdMiddleware`, `log_requests`); ningún
+middleware de cabeceras de seguridad (`X-Content-Type-Options`,
+`X-Frame-Options`, etc.) ni de rate limiting. Motivo del aplazamiento: no
+existe todavía ningún objetivo de despliegue real ni datos reales (ver
+[privacy-and-security.md](privacy-and-security.md) §1) — endurecer estos
+puntos tiene sentido frente a un entorno de producción real concreto, no
+en abstracto; se retoma cuando exista ese objetivo de despliegue. Ronda
+puramente documental: sin cambios de código, sin cambios de tests.
+
+**Fase 8 completa (8.1 + 8.2 + 8.3 + 8.4).** Los cuatro hitos quedan
+cerrados: auditoría RBAC (con una desviación estructural corregida),
+automatización de la purga de retención vía comando de gestión para cron
+externo, decisión revisada de mantener
+`AI_PROCESSING_CONSENT_ENFORCED` sin forzar, y aplazamiento documentado
+de la revisión de seguridad general hasta que exista un objetivo de
+despliegue real. Sin fases adicionales planificadas más allá de esta.
 
 ## Fuera de las fases del MVP
 
