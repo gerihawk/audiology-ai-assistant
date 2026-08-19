@@ -77,7 +77,14 @@ ningún endpoint implementa su propia comprobación de rol.
   del cliente. Un usuario nunca puede consultar ni inferir la existencia
   de datos de otra clínica: un identificador válido de otra clínica
   devuelve `404` (recurso no encontrado), no `403` (prohibido) — ver
-  [architecture.md](architecture.md) §10.
+  [architecture.md](architecture.md) §10. **Única excepción deliberada**:
+  `integration_configs` (Fase 7.3) no tiene `clinic_id` propio —
+  configuración global de aplicación, no de clínica; cualquier `admin` de
+  cualquier clínica puede leer/editarla (ver
+  [data-model.md](data-model.md) §2 y hito 7.3 en
+  [development-plan.md](development-plan.md)). Verificado en la auditoría
+  del hito 8.1 (§13 más abajo) que no existe ninguna otra excepción sin
+  documentar.
 - Sin autenticación real todavía: la identidad se resuelve vía
   `CurrentUserProvider` (ver §12 más abajo). Todas las reglas de RBAC se
   aplican igualmente sobre el usuario simulado que resuelva ese proveedor.
@@ -301,3 +308,77 @@ mecanismo de autenticación:
   autenticación real es trabajo de una fase futura no planificada aún.
 - El endpoint de apoyo `/dev/users` (que lista usuarios para poblar el
   selector del frontend) tampoco existe cuando `ENVIRONMENT=production`.
+
+## 13. Auditoría RBAC (Fase 8, hito 8.1)
+
+Auditoría endpoint por endpoint de los diez enums de `core/authorization.py`
+(`PatientAction`, `ClinicalSessionAction`, `AudioRecordingAction`,
+`AIPipelineAction`, `AIArtifactAction`, `ClinicalDocumentAction`,
+`ClinicalRecordAction`, `ConsentAction`, `RetentionAction`,
+`IntegrationConfigAction`) contra los routers reales de `patients`,
+`clinical_sessions`, `audio`, `ai_pipeline`, `clinical_record`, `export`,
+`consents`, `retention` e `integrations`, y contra los repositorios
+SQLAlchemy correspondientes, verificando los cuatro invariantes de §5: (1)
+toda escritura/lectura sensible pasa por `authorize_<módulo>_action()`, sin
+comprobaciones de rol ad-hoc; (2) aislamiento por clínica estructural
+(`clinic_id` siempre derivado de `current_user`, nunca del cliente; recurso
+de otra clínica → `404`, nunca `403`); (3) propiedad de recurso
+(`professional_id == current_user.id`) donde aplica; (4) toda escritura
+genera su entrada de `audit_log` en la misma transacción.
+
+**Desviación estructural encontrada y corregida:**
+
+- `ClinicalSessionService.create()` (`app/clinical_sessions/service.py`)
+  comprobaba la propiedad del profesional asignado con un `if
+  current_user.role == Role.AUDIOLOGIST and data.professional_id !=
+  current_user.id: raise ForbiddenError(...)` manual, en vez de a través de
+  `authorize_clinical_session_action()` — única excepción, en todo el
+  backend, al invariante "ningún router ni repositorio implementa
+  comprobaciones de rol propias: todo pasa por las funciones `authorize_*`"
+  (docstring de `core/authorization.py`). El comportamiento observable ya
+  era correcto (un `audiologist` solo podía crear sesiones asignadas a sí
+  mismo; `403` verificado por `test_audiologist_can_only_create_for_self`)
+  — no era una fuga de autorización, sino autorización descentralizada.
+  **Corregido**: `CREATE` se añadió a `_OWNERSHIP_REQUIRED_ACTIONS` y
+  `authorize_clinical_session_action()` ahora acepta, para esta acción
+  concreta, que `professional_id` sea el profesional que se pide asignar a
+  la sesión nueva (no el dueño de una sesión ya existente, como en el resto
+  de acciones) — mismo mecanismo ya usado por `CHANGE_PROFESSIONAL`, sin
+  introducir un parámetro ni una función nueva. Cubierto por
+  `tests/test_clinical_session_authorization.py` (nuevo, 4 casos:
+  audiologist sobre sí mismo, audiologist sobre otro, admin sin
+  restricción, viewer sin permiso alguno); la suite de API existente
+  (`test_clinical_sessions_api.py`) sigue en verde sin cambios, porque el
+  código de estado HTTP resultante (`403`) no varía.
+
+**Deuda consciente documentada (no corregida en esta ronda):**
+
+- `AIPipelineAction.READ` está declarado en `core/authorization.py` y tiene
+  una entrada en `AI_PIPELINE_PERMISSIONS`, pero ningún endpoint lo invoca
+  — no existe `GET .../pipeline-runs/{run_id}` (ver
+  [api-specification.md](api-specification.md) §AI Pipeline, "el resultado
+  del disparo se devuelve directamente en la respuesta de
+  `run-mock-pipeline`/`run-pipeline`"); la lectura de artefactos ya
+  generados pasa por `AIArtifactAction.READ`, no por este permiso. Es el
+  único miembro sin uso de los diez enums auditados. No representa un
+  riesgo — un permiso que nunca se comprueba no protege nada, pero tampoco
+  deja nada desprotegido — así que se documenta como permiso vestigial en
+  vez de eliminarlo a ciegas: `AIPipelineAction` seguiría necesitando
+  `TRIGGER` en cualquier caso, y borrar `READ` es un cambio cosmético sin
+  beneficio de seguridad que puede abordarse, si procede, en un futuro
+  cambio de la matriz de la Fase 4.
+- Confirmado que `integration_configs` (Fase 7.3) sigue siendo la única
+  excepción al aislamiento por clínica de §5 — ver nota añadida a §5 más
+  arriba. No es un hallazgo nuevo (ya documentado en
+  [data-model.md](data-model.md) §2 y el cierre del hito 7.3 en
+  [development-plan.md](development-plan.md)), solo confirmado como
+  exhaustivo por esta auditoría: ningún otro repositorio omite `clinic_id`.
+
+**Fuera de alcance de esta ronda** (hitos 8.2/8.3/8.4, sin tocar): scheduler
+de retención, activación por defecto de `AI_PROCESSING_CONSENT_ENFORCED`,
+hardening general (cabeceras HTTP, rate limiting, límites de subida). El
+`clinical_flags`/`audit_log` de [api-specification.md](api-specification.md)
+(§Clinical flags, §Audit log) siguen sin implementación (ni router, ni
+módulo `app/clinical_flags/`, ni endpoint `GET /audit-log`) — brecha de
+funcionalidad pendiente de fases anteriores, no de autorización: no hay
+endpoint que auditar porque no hay endpoint.

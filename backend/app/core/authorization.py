@@ -78,9 +78,17 @@ CLINICAL_SESSION_PERMISSIONS: dict[Role, frozenset[ClinicalSessionAction]] = {
 #: Acciones para las que, siendo `audiologist`, se exige además ser el
 #: profesional responsable de la sesión (`professional_id ==
 #: current_user.id`) — "sus propias sesiones", nunca las de un compañero
-#: de la misma clínica. `admin` no tiene esta restricción.
+#: de la misma clínica. `admin` no tiene esta restricción. `CREATE` es un
+#: caso especial (corrección de la auditoría RBAC del hito 8.1,
+#: docs/privacy-and-security.md §13): no hay sesión existente todavía, así
+#: que `professional_id` es aquí el profesional que el cliente pide
+#: asignar a la sesión nueva, no el dueño de un recurso ya persistido —
+#: mismo efecto ("un audiologist solo puede crear sesiones para sí
+#: mismo"), pero centralizado en esta función en vez de una comprobación
+#: de rol ad-hoc en `ClinicalSessionService.create`.
 _OWNERSHIP_REQUIRED_ACTIONS: frozenset[ClinicalSessionAction] = frozenset(
     {
+        ClinicalSessionAction.CREATE,
         ClinicalSessionAction.UPDATE,
         ClinicalSessionAction.START,
         ClinicalSessionAction.COMPLETE,
@@ -100,9 +108,10 @@ def authorize_clinical_session_action(
     """Autoriza una acción sobre `clinical_sessions`.
 
     `professional_id` es el `professional_id` de la sesión ya existente
-    sobre la que se actúa (`None` para acciones sin sesión concreta, p.
-    ej. `CREATE` o el listado). Para `audiologist`, las acciones en
-    `_OWNERSHIP_REQUIRED_ACTIONS` exigen además que
+    sobre la que se actúa, salvo para `CREATE`, donde es el profesional
+    que se pide asignar a la sesión nueva (`None` solo para acciones sin
+    ningún profesional implicado, p. ej. el listado). Para `audiologist`,
+    las acciones en `_OWNERSHIP_REQUIRED_ACTIONS` exigen además que
     `professional_id == current_user.id` — la comprobación de propiedad
     de la sesión, no solo de rol.
     """

@@ -27,7 +27,7 @@ from app.clinical_sessions.domain.normalization import normalize_free_text
 from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSessionRepository
 from app.core.authorization import ClinicalSessionAction, authorize_clinical_session_action
 from app.core.current_user import CurrentUser
-from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
 from app.users.domain.entities import Role
 from app.users.infrastructure.repository import SqlAlchemyUserRepository
@@ -71,10 +71,9 @@ class ClinicalSessionService:
     async def create(
         self, current_user: CurrentUser, data: ClinicalSessionCreateData, request_id: str
     ) -> ClinicalSession:
-        authorize_clinical_session_action(current_user, ClinicalSessionAction.CREATE)
-
-        if current_user.role == Role.AUDIOLOGIST and data.professional_id != current_user.id:
-            raise ForbiddenError("Un audiologist solo puede crear sesiones asignadas a sí mismo.")
+        authorize_clinical_session_action(
+            current_user, ClinicalSessionAction.CREATE, professional_id=data.professional_id
+        )
 
         if data.status not in CREATABLE_STATUSES:
             raise ConflictError(
