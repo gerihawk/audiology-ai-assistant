@@ -209,6 +209,27 @@ deba exigirse explícitamente, esta misma comprobación pasa a rechazar la
 generación (`409`) sin rediseñar nada — el campo y el punto de extensión
 ya existen.
 
+**Decisión revisada y cerrada (Fase 8, hito 8.3)**: se evaluó si activar
+`AI_PROCESSING_CONSENT_ENFORCED=true` incondicionalmente por defecto en
+producción (ver [development-plan.md](development-plan.md) §Fase 8, punto
+4). Se mantiene el flag tal cual — **no** se fuerza `true`
+incondicionalmente. Motivo: hoy los tres `artifact_type` de
+`run_pipeline` (`summary`, `patient_summary`, `missing_information`)
+siguen configurados en `mock` (`LLM_PROVIDER_*`, ver
+`core/config.py`); el validador `Settings._validate_production_safety`
+(`core/config.py`, líneas ~256-267) ya exige
+`ai_processing_consent_enforced=true` en production en el único
+escenario que importa hoy — cuando al menos un `artifact_type` tiene
+configurado un proveedor LLM real (`anthropic`/`openai`/`google`).
+Forzarlo siempre, tenga o no un proveedor real activo, no reduce ningún
+riesgo adicional mientras todo siga en `mock`, y sí añade fricción
+innecesaria en development/test sin ningún beneficio de seguridad. Se
+revisará cuando se **active de verdad** un proveedor LLM real en
+producción — no cuando exista solamente la posibilidad técnica de
+hacerlo —, momento en el que el propio validador ya obliga a tener el
+flag en `true`, así que no haría falta ningún cambio de código en ese
+momento, solo confirmar que la variable de entorno está puesta.
+
 ## 8. Retención y eliminación
 
 - **Retención por defecto: 30 días**, configurable mediante

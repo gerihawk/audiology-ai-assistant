@@ -777,9 +777,8 @@ aislamiento por clínica de `integration_configs` (Fase 7.3) confirmada
 como la única existente. Matriz `AIArtifactAction`/`AIPipelineAction` de
 la Fase 4 (la más antigua) verificada coherente con
 `ai_pipeline/api/router.py`: los cinco/dos miembros de cada enum se usan
-todos salvo el `READ` de `AIPipelineAction` ya señalado. Hitos 8.3
-(`AI_PROCESSING_CONSENT_ENFORCED`) y 8.4 (hardening general) quedan para
-rondas separadas, sin empezar.
+todos salvo el `READ` de `AIPipelineAction` ya señalado. Hito 8.4
+(hardening general) queda para la siguiente ronda, sin empezar.
 
 **Estado (hito 8.2 — automatización de `RetentionCleanupService`,
 cerrado)**: comando de gestión `app/retention/cli.py`
@@ -814,6 +813,23 @@ físico (`status=deleted`) como la entrada de auditoría
 `retention.purge_executed` con el `audio_recording_id` correspondiente —
 mismo patrón de aserciones que `test_retention_api.py` (hito 7.2). Suite
 completa (1189 tests) en verde, ruff/black limpios.
+
+**Estado (hito 8.3 — decisión sobre `AI_PROCESSING_CONSENT_ENFORCED`,
+cerrado)**: evaluado si forzar el flag a `true` incondicionalmente en
+producción (punto 4 de esta fase). **Decisión: se mantiene tal cual, sin
+forzarlo** — motivo y condición de revisión futura documentados en
+[privacy-and-security.md](privacy-and-security.md) §7. Resumen: el
+validador de `Settings` (`core/config.py`) ya exige
+`ai_processing_consent_enforced=true` en production en el único
+escenario relevante — al menos un `artifact_type` con proveedor LLM real
+activo; con los tres `artifact_type` de `run_pipeline` todavía en
+`mock`, forzarlo incondicionalmente no reduce ningún riesgo adicional y
+solo añade fricción a development/test. Se revisa cuando se active de
+verdad un proveedor LLM real en producción, no antes. Decisión revisada
+y cerrada, no una omisión. Ronda puramente documental: sin cambios de
+código, sin cambios de tests, suite completa sigue en el mismo estado
+verde del hito 8.2. Hito 8.4 (hardening general) queda para la
+siguiente ronda, sin empezar.
 
 ## Fuera de las fases del MVP
 
