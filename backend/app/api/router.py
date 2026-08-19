@@ -15,6 +15,7 @@ from app.core.current_user import CurrentUser
 from app.core.deps import get_current_user
 from app.export.api.router import router as export_router
 from app.patients.api.router import router as patients_router
+from app.retention.api.router import router as retention_router
 
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(patients_router)
@@ -24,6 +25,7 @@ v1_router.include_router(ai_pipeline_router)
 v1_router.include_router(export_router)
 v1_router.include_router(clinical_record_router)
 v1_router.include_router(consents_router)
+v1_router.include_router(retention_router)
 
 
 @v1_router.get("/me", response_model=CurrentUserResponse, tags=["dev-tools"])

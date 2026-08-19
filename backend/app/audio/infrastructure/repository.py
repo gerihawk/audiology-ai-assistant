@@ -9,6 +9,7 @@ devuelve filas, exactamente igual que si el audio no existiera.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -145,3 +146,21 @@ class SqlAlchemyAudioRecordingRepository:
             setattr(row, key, value)
         await session.flush()
         return _to_domain(row)
+
+    async def list_expired(
+        self, session: AsyncSession, clinic_id: uuid.UUID, cutoff: datetime
+    ) -> list[AudioRecording]:
+        result = await session.execute(
+            select(AudioRecordingORM)
+            .join(
+                ClinicalSessionORM,
+                ClinicalSessionORM.id == AudioRecordingORM.clinical_session_id,
+            )
+            .where(
+                ClinicalSessionORM.clinic_id == clinic_id,
+                AudioRecordingORM.status != ProcessingStatus.DELETED.value,
+                AudioRecordingORM.uploaded_at < cutoff,
+            )
+            .order_by(AudioRecordingORM.uploaded_at.asc())
+        )
+        return [_to_domain(row) for row in result.scalars().all()]

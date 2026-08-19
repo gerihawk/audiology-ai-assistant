@@ -203,6 +203,11 @@ class Settings(BaseSettings):
     google_base_url: str = "https://generativelanguage.googleapis.com"
     google_timeout_seconds: float = 120.0
 
+    # --- Retención (Fase 7.2) ---
+    # Umbral global vía entorno, no configurable por clínica (fuera de
+    # alcance de esta fase, ver docs/development-plan.md §Fase 7).
+    retention_days_default: int = Field(default=30, gt=0)
+
     # --- Benchmark de generación LLM (Fase 6.2) — ver docs/generation-benchmark.md ---
     # OpenRouter es EXCLUSIVO de `benchmark/generation/` (RFC v2 §6.1): la
     # app productiva arranca sin `OPENROUTER_API_KEY` configurada — solo

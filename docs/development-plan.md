@@ -647,6 +647,43 @@ para el `ORDER BY recorded_at`. Frontend: sección mínima en la ficha de
 paciente (`PatientConsentsSection`), no en la de sesión — listado +
 formulario de alta, visible solo para `audiologist`. `docs/api-specification.md`
 corregido (`clinician` → `audiologist`, rol inexistente en el código).
+**Estado (hito 7.2 — retención, cerrado)**: `RetentionCleanupService`
+(`app/retention/service.py`) + `retention/api/` (`GET`/`POST
+/retention/expired-audio...`) sobre la infraestructura de `audio` ya
+existente desde la Fase 5 — el borrado físico manual
+(`AudioRecordingService.delete()`) ya existía; a esta fase le quedaba
+únicamente decidir qué audio hay que purgar y exponerlo. Decisiones
+cerradas: (1) "expirado" es cualquier `audio_recordings` con
+`status != deleted` y `uploaded_at` anterior a `now -
+RETENTION_DAYS_DEFAULT` días (nuevo, `core/config.py`, 30 por defecto) —
+incluye deliberadamente estados atascados (`failed`/`uploaded`/
+`validating`/`transcribing`), no solo `ready`/`transcribed`, porque un
+audio olvidado a medio subir es justo el caso que la retención debe
+capturar; (2) `RetentionCleanupService` es una clase concreta sin puerto
+propio (a diferencia de `AudioStorage`/`TranscriptionProvider`) — opera
+sobre `AudioRecordingRepository.list_expired` (nuevo) y reutiliza
+`AudioRecordingService.delete()` para el borrado real, sin duplicar esa
+lógica; (3) `POST /retention/expired-audio/purge` no acepta body: siempre
+recalcula `find_expired_audio` en el momento de ejecutarse, nunca una
+lista de IDs enviada por el cliente; (4) la purga NO es una única
+transacción atómica — cada `delete()` reutilizado hace su propio commit,
+así que si un registro falla los anteriores ya purgados quedan purgados y
+una purga posterior (idempotente) recoge el resto; (5) `RetentionAction`
+(`READ`/`PURGE`) en `core/authorization.py`: solo `admin` tiene alguna
+acción, ni siquiera `audiologist` puede leer — a diferencia del patrón de
+`ConsentAction`, la purga de audio es una tarea puramente administrativa;
+(6) tras purgar, además de un `audio_recording.deleted` por registro
+(ya existente), se escribe una única entrada resumen
+`retention.purge_executed` (`purged_count`, `audio_recording_ids`), solo
+si `purged_count > 0` — así queda distinguible en `audit_log` que ese
+borrado vino de la política de retención. Frontend: pantalla mínima
+`/retention` (solo `admin`, `RetentionPage`/`ExpiredAudioSection`) —
+listado con los mismos campos que `AudioRecordingResponse` + botón
+"Purgar audio expirado" con confirmación explícita (`window.confirm`,
+mismo patrón que archivar paciente/sesión), porque es un borrado físico
+irreversible. Sin scheduler (Fase 8) ni retención configurable por
+clínica (global vía `RETENTION_DAYS_DEFAULT`, fuera de alcance).
+
 ## Fase 8 — RBAC más fino, scheduler de retención, hardening
 
 - Revisión de permisos por endpoint según

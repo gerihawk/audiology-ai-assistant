@@ -340,3 +340,28 @@ def authorize_consent_action(current_user: CurrentUser, action: ConsentAction) -
         )
 
 
+class RetentionAction(StrEnum):
+    READ = "read"
+    PURGE = "purge"
+
+
+#: Fase 7.2 (docs/development-plan.md). A diferencia de
+#: `ConsentAction`/resto de matrices, aquí ni siquiera `audiologist` tiene
+#: ninguna acción — la purga de audio expirado es una tarea puramente
+#: administrativa, no asistencial (ver docs/api-specification.md
+#: §Retention).
+RETENTION_PERMISSIONS: dict[Role, frozenset[RetentionAction]] = {
+    Role.ADMIN: frozenset(RetentionAction),
+    Role.AUDIOLOGIST: frozenset(),
+    Role.VIEWER: frozenset(),
+}
+
+
+def authorize_retention_action(current_user: CurrentUser, action: RetentionAction) -> None:
+    if action not in RETENTION_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre la retención de audio."
+        )
+
+

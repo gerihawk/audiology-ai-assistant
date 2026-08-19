@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audio.domain.entities import AudioRecording
+from app.audio.infrastructure.orm import AudioRecordingORM
 from app.clinical_sessions.domain.entities import (
     ClinicalSession,
     ClinicalSessionStatus,
@@ -17,6 +19,9 @@ from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSe
 from app.clinics.domain.entities import Clinic
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core.current_user import CurrentUser
+from app.core.processing_status import ProcessingStatus
+from app.integrations.domain.integration_config import IntegrationConfig, IntegrationName
+from app.integrations.infrastructure.orm import IntegrationConfigORM
 from app.patients.domain.entities import Patient
 from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
 from app.users.domain.entities import Role, User
@@ -148,6 +153,81 @@ async def create_clinical_session(
     await SqlAlchemyClinicalSessionRepository().add(session, clinical_session)
     await session.commit()
     return clinical_session
+
+
+async def create_audio_recording(
+    session: AsyncSession,
+    clinical_session_id: uuid.UUID,
+    uploaded_by: uuid.UUID,
+    *,
+    status: ProcessingStatus = ProcessingStatus.READY,
+    uploaded_at: datetime | None = None,
+) -> AudioRecording:
+    """`uploaded_at` explícito (no `server_default`) para poder simular
+    audio antiguo en los tests de retención (Fase 7.2)."""
+    row = AudioRecordingORM(
+        id=uuid.uuid4(),
+        clinical_session_id=clinical_session_id,
+        status=status.value,
+        storage_provider="local",
+        storage_reference=f"audio/{uuid.uuid4().hex}.mp3",
+        original_filename="consulta_ficticia.mp3",
+        mime_type="audio/mpeg",
+        extension="mp3",
+        duration_seconds=30,
+        size_bytes=1024,
+        checksum=uuid.uuid4().hex,
+        failure_reason=None,
+        uploaded_by=uploaded_by,
+        uploaded_at=uploaded_at or _now(),
+        deleted_at=None,
+    )
+    session.add(row)
+    await session.commit()
+    return AudioRecording(
+        id=row.id,
+        clinical_session_id=row.clinical_session_id,
+        status=ProcessingStatus(row.status),
+        storage_provider=row.storage_provider,
+        storage_reference=row.storage_reference,
+        original_filename=row.original_filename,
+        mime_type=row.mime_type,
+        extension=row.extension,
+        duration_seconds=row.duration_seconds,
+        size_bytes=row.size_bytes,
+        checksum=row.checksum,
+        failure_reason=row.failure_reason,
+        uploaded_by=row.uploaded_by,
+        uploaded_at=row.uploaded_at,
+        deleted_at=row.deleted_at,
+    )
+
+
+async def create_integration_config(
+    session: AsyncSession,
+    integration_name: IntegrationName,
+    updated_by: uuid.UUID,
+    *,
+    active_provider: str = "mock",
+    enabled: bool = False,
+) -> IntegrationConfig:
+    row = IntegrationConfigORM(
+        id=uuid.uuid4(),
+        integration_name=integration_name.value,
+        active_provider=active_provider,
+        enabled=enabled,
+        updated_by=updated_by,
+    )
+    session.add(row)
+    await session.commit()
+    return IntegrationConfig(
+        id=row.id,
+        integration_name=IntegrationName(row.integration_name),
+        active_provider=row.active_provider,
+        enabled=row.enabled,
+        updated_by=row.updated_by,
+        updated_at=row.updated_at,
+    )
 
 
 def dev_headers(user: User) -> dict[str, str]:

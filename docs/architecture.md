@@ -93,8 +93,8 @@ backend/
         audio_storage.py                # interfaz AudioStorage (puerto)
         validation.py                    # reglas de tamaño/duración/extensión/MIME
         repository.py                     # interfaz AudioRecordingRepository (puerto)
-        retention.py                       # interfaz RetentionCleanupService —
-                                            # todavía sin implementar, Fase 7
+                                           # (RetentionCleanupService NO vive aquí — ver
+                                           # nota tras este árbol y app/retention/, Fase 7.2)
       infrastructure/
         orm.py                          # AudioRecordingORM
         repository.py                     # SqlAlchemyAudioRecordingRepository
@@ -233,6 +233,25 @@ se detectan señales de alerta — ver
 [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.4 y §12,
 decisión 18).
 
+**Corrección sobre `RetentionCleanupService` (planificado como `Protocol` en
+`audio/domain/retention.py`, nunca implementado así).** El diseño previo a la
+Fase 7.2 preveía esta interfaz dentro de `audio/domain/`, con un método
+`purge(audio_recording_id) -> None` (un audio por llamada) pensado para un
+futuro proveedor real intercambiable. Al implementar la Fase 7.2 (ver
+[development-plan.md](development-plan.md) Fase 7, hito 7.2), ese diseño
+resultó innecesario: no existe ningún proveedor real que intercambiar (a
+diferencia de `AudioStorage`/`TranscriptionProvider`), así que un `Protocol`
+solo añadiría indirección sin beneficio. `RetentionCleanupService` se
+implementó en su lugar como **clase concreta** en `app/retention/service.py`
+(módulo propio, no dentro de `audio/domain/`), con purga **en bloque** de
+todos los audios expirados en una sola llamada (`purge(current_user,
+request_id) -> list[AudioRecording]`) en vez de uno por uno — purgar de uno
+en uno habría exigido N llamadas HTTP desde el frontend sin ninguna ventaja
+real. Mismo criterio que la sustitución de `ClinicalFlagRuleset` por
+`ClinicalFlagsGenerator` (nota anterior): un diseño previo documentado antes
+de implementarse se corrige aquí para reflejar la decisión realmente tomada,
+no la prevista.
+
 ## 3. Módulos de dominio
 
 | Módulo | Responsabilidad |
@@ -241,7 +260,7 @@ decisión 18).
 | `users` | Usuarios internos (`admin`/`audiologist`/`viewer`) por clínica. Sin autenticación real: solo resolución vía `CurrentUserProvider` (Fase 2). |
 | `patients` | Identidad y datos administrativos mínimos del paciente (ficticio), aislados por clínica. No contiene contenido clínico. |
 | `clinical_sessions` | Entidad central de la consulta: pertenece a una clínica, un paciente y un profesional responsable. Máquina de estados propia (`ClinicalSessionStatus`, Fase 3, diseño en [data-model.md](data-model.md) §8), borrado lógico (`is_archived`) independiente del estado. Base sobre la que cuelgan audio y el AI Pipeline. |
-| `audio` | Subida, validación (tamaño/duración/extensión/MIME) y almacenamiento de la grabación vía `AudioStorage`; borrado físico manual bajo demanda (`DELETE /audio-recordings/{id}`, Fase 5) — el borrado automático por política de retención (`RetentionCleanupService`) sigue sin implementar, ver Fase 7 en [development-plan.md](development-plan.md). |
+| `audio` | Subida, validación (tamaño/duración/extensión/MIME) y almacenamiento de la grabación vía `AudioStorage`; borrado físico manual bajo demanda (`DELETE /audio-recordings/{id}`, Fase 5) o por política de retención (`RetentionCleanupService`, `app/retention/`, Fase 7.2 — ver nota arriba). |
 | `ai_pipeline` | Orquesta la generación de artefactos de IA (transcripción, resumen, señales de alerta, información ausente, anamnesis) a partir de un grafo de dependencias (Fase 4, diseño cerrado en [ai-pipeline-architecture.md](ai-pipeline-architecture.md)); versionado, revisión humana y aprobación mediante la entidad genérica `AIArtifact`/`AIArtifactVersion`; auditoría técnica (proveedor, modelo, coste, tiempo) en `AIGenerationRun`. |
 | `clinical_flags` | Disposición humana por ítem (confirmar/descartar) sobre las señales de alerta generadas por el AI Pipeline — no genera contenido, solo gestiona su revisión individual (eje independiente de la disposición por documento de `AIArtifact`, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §1.2). |
 | `audit_log` | Registro append-only (tabla `audit_logs`) de acciones relevantes sobre pacientes, sesiones y artefactos de IA, escrito en la misma transacción que la entidad auditada. |
@@ -277,11 +296,6 @@ junto a su módulo:
   `read(reference) -> BinaryStream`, `delete(reference) -> None`. El
   dominio de `audio` solo conoce `StorageReference` (valor opaco), nunca
   una ruta de disco ni un bucket. MVP: `LocalAudioStorage` (filesystem).
-- **`RetentionCleanupService`** (`audio/domain/retention.py`):
-  `find_expired_audio(now) -> list[AudioRecording]`,
-  `purge(audio_recording_id) -> None` — borrado físico del audio +
-  invalidación de `storage_reference`, con entrada de auditoría. En el MVP
-  se invoca manualmente (endpoint/admin), sin scheduler.
 - **`PipelineOrchestrator`** (`ai_pipeline/domain/pipeline.py`):
   `run(clinical_session_id, triggered_by, steps) -> PipelineResult`. MVP:
   `SequentialPipelineOrchestrator`, síncrono, sin colas ni workers — ver

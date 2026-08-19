@@ -11,6 +11,7 @@ del audio en vez de una columna directa.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,3 +47,13 @@ class AudioRecordingRepository(Protocol):
         audio_recording_id: uuid.UUID,
         values: dict[str, Any],
     ) -> AudioRecording | None: ...
+
+    async def list_expired(
+        self, session: AsyncSession, clinic_id: uuid.UUID, cutoff: datetime
+    ) -> list[AudioRecording]:
+        """Grabaciones con `status != deleted` y `uploaded_at < cutoff` —
+        incluye deliberadamente estados atascados (`failed`/`uploaded`/
+        `validating`/`transcribing`), no solo `ready`/`transcribed` (Fase
+        7.2). Ordenado por `uploaded_at` ascendente: lo más vencido
+        primero, al revés que el resto de listados de audio."""
+        ...

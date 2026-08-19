@@ -293,6 +293,32 @@ export interface ClinicalRecordPage {
   ai_disclaimer: string
 }
 
+export type ProcessingStatus =
+  'uploaded' | 'validating' | 'ready' | 'transcribing' | 'transcribed' | 'failed' | 'deleted'
+
+/** `AudioRecordingResponse` (`audio/api/schemas.py`). `storage_reference`
+ * nunca se expone (detalle interno de `AudioStorage`), tampoco aquí. */
+export interface AudioRecording {
+  id: string
+  clinical_session_id: string
+  status: ProcessingStatus
+  storage_provider: string
+  original_filename: string
+  mime_type: string
+  extension: string
+  duration_seconds: number | null
+  size_bytes: number
+  checksum: string
+  failure_reason: string | null
+  uploaded_by: string
+  uploaded_at: string
+  deleted_at: string | null
+}
+
+export interface AudioRecordingListResponse {
+  items: AudioRecording[]
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string
