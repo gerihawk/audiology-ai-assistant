@@ -154,15 +154,14 @@ se confía en el UUID a ciegas) y queda **bloqueada por completo si
 - **API directa**: añade la cabecera a mano, usando uno de los UUID que
   imprime `make seed` (o consultando `GET /api/v1/dev/users`).
 
-### Autenticación real (Fase 9, opcional)
+### Autenticación real (Fase 9)
 
 Con `AUTH_MODE=real` en `.env`, `X-Dev-User-Id` deja de resolver la
 identidad: hace falta `POST /api/v1/auth/login` (email + contraseña de
 uno de los usuarios del seed, ver arriba) para obtener un JWT Bearer de
 8h, que se envía como `Authorization: Bearer <token>` en el resto de
 llamadas. `AUTH_MODE=fake` (por defecto) no cambia nada de lo descrito
-arriba. Sin pantalla de login en el frontend todavía (Fase 9.2,
-pendiente) — solo backend.
+arriba.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/login \
@@ -171,6 +170,22 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 
 curl http://localhost:8000/api/v1/me -H "Authorization: Bearer <access_token>"
 ```
+
+**Frontend (Fase 9, hito 9.2)**: `VITE_AUTH_MODE` en `.env` es el espejo
+en el frontend de `AUTH_MODE` — el frontend no detecta el modo
+dinámicamente contra el backend, se configura igual, vía entorno.
+`VITE_AUTH_MODE=fake` (por defecto) mantiene exactamente el
+comportamiento de hoy: selector de usuario ficticio
+(`DevUserSwitcher`), `X-Dev-User-Id` en cada petición.
+`VITE_AUTH_MODE=real` sustituye el selector por una pantalla de login
+(email + contraseña, contra `POST /api/v1/auth/login`); con sesión
+iniciada, el resto de la aplicación es idéntico (mismas rutas y
+páginas), con un botón "Cerrar sesión" donde antes vivía el selector. El
+JWT se guarda en `sessionStorage` (nunca `localStorage`, no sobrevive a
+cerrar la pestaña) y se adjunta automáticamente en cada llamada a la API
+— ningún componente de `features/*` necesita saber nada de esto. Ambos
+valores de `AUTH_MODE`/`VITE_AUTH_MODE` deben coincidir para que el
+frontend y el backend hablen el mismo protocolo de identidad.
 
 ### Ejemplos de llamadas a la API
 

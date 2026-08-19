@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearToken, getToken, setToken } from '../auth/tokenStore'
 import { ApiError, apiDownload, apiRequest } from './client'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -120,5 +121,78 @@ describe('apiDownload', () => {
       expect(apiError.code).toBe('conflict')
       expect(apiError.message).toBe('El artefacto no tiene una versión aprobada.')
     }
+  })
+})
+
+describe('autenticación real (Fase 9, hito 9.2)', () => {
+  const fetchMock = vi.fn()
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+    clearToken()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    clearToken()
+  })
+
+  it('adjunta Authorization: Bearer cuando VITE_AUTH_MODE=real y hay token', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'real')
+    setToken('token-abc')
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+
+    await apiRequest('/api/v1/me')
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.headers['Authorization']).toBe('Bearer token-abc')
+  })
+
+  it('no adjunta Authorization en VITE_AUTH_MODE=fake (por defecto), aunque haya token', async () => {
+    setToken('token-abc')
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+
+    await apiRequest('/api/v1/me')
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.headers['Authorization']).toBeUndefined()
+  })
+
+  it('no adjunta Authorization en VITE_AUTH_MODE=real sin token', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'real')
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+
+    await apiRequest('/api/v1/me')
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.headers['Authorization']).toBeUndefined()
+  })
+
+  it('limpia el token del almacén cuando el backend responde 401', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'real')
+    setToken('token-abc')
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { error: { code: 'unauthenticated', message: 'Token inválido.' } },
+        { status: 401 },
+      ),
+    )
+
+    await expect(apiRequest('/api/v1/me')).rejects.toBeInstanceOf(ApiError)
+
+    expect(getToken()).toBeNull()
+  })
+
+  it('apiDownload también adjunta Authorization: Bearer (misma ruta de autenticación)', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'real')
+    setToken('token-abc')
+    fetchMock.mockResolvedValue(binaryResponse([1]))
+
+    await apiDownload('/x')
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.headers['Authorization']).toBe('Bearer token-abc')
   })
 })

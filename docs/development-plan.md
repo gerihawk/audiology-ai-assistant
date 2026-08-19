@@ -929,9 +929,63 @@ guardarraíl. Verificado además en vivo (contenedor real, no solo tests):
 login con credenciales correctas y con contraseña incorrecta, y con
 `AUTH_MODE=real` el flujo completo `POST /auth/login` → `Authorization:
 Bearer` en `GET /me`, confirmando que `X-Dev-User-Id` queda rechazado en
-ese modo. Suite completa (1203 tests) en verde, ruff/black limpios.
-Hito 9.2 (pantalla de login en el frontend) queda para la siguiente
-ronda, sin empezar.
+ese modo. Suite completa (1204 tests, incluido el arreglo de canal
+lateral de tiempo en `AuthService.login` — `bcrypt.checkpw` se ejecuta
+siempre, exista o no el usuario, comparando contra un hash de relleno
+precomputado cuando no hay `password_hash` real) en verde, ruff/black
+limpios.
+
+**Estado (hito 9.2 — pantalla de login en el frontend, cerrado)**:
+`VITE_AUTH_MODE` (`fake`/`real`, por defecto `fake`) — espejo del
+`AUTH_MODE` del backend, mismo mecanismo ya usado por
+`VITE_API_BASE_URL` (variable de entorno leída por Vite, sin fichero
+`.env.example` propio del frontend). Decisión de diseño central: el JWT
+**no** repite el patrón de `devUserId` (parámetro explícito en cada
+función de `shared/api/*.ts`, consumido por ~40 ficheros de
+`features/*`) — se adjunta automáticamente en `client.ts` desde un
+almacén de módulo fuera de React
+(`shared/auth/tokenStore.ts`, variable de módulo + `sessionStorage` con
+clave propia, nunca `localStorage`), así que el diff de este hito no
+toca ningún fichero de `features/*` ni cambia la firma de ninguna
+función existente de `shared/api/*.ts` — solo `client.ts` (adjunta
+`Authorization: Bearer` en `apiRequest`/`apiDownload` cuando
+`VITE_AUTH_MODE=real` y hay token; en un `401` limpia el token antes de
+relanzar el error) y el `auth.ts` nuevo (`login(email, password)`, sin
+`devUserId`). `shared/auth/AuthContext.tsx` (`AuthProvider`/`useAuth`,
+estado de React: usuario actual, `status`) lee del mismo almacén y
+resuelve `/api/v1/me` sin `devUserId` (adjuntado por `client.ts`, no por
+`shared/api/devUsers.ts`, cuya firma no se toca). `shared/auth/
+LoginForm.tsx`: formulario email+contraseña, mismo `ApiError` que ya
+maneja el resto del frontend para mostrar el error del backend.
+`App.tsx`: `VITE_AUTH_MODE=fake` (por defecto) es
+`FakeAuthApp`/`DevUserProvider`, comportamiento idéntico al de antes de
+esta fase; `VITE_AUTH_MODE=real` es `RealAuthApp`/`AuthProvider` —
+`LoginForm` sin sesión válida, o el mismo contenido de siempre más un
+botón "Cerrar sesión" donde antes vivía `DevUserSwitcher`. `AppRoutes`/
+`AppNav`/`AppHeader` extraídos como componentes compartidos entre los
+dos modos para que la lista de rutas sea literalmente la misma, no una
+copia que pudiera divergir. Tests: `client.test.ts` ampliado (adjunta
+Bearer con token en modo real, no lo adjunta en modo fake ni sin token,
+limpia el token en `401`, mismo comportamiento en `apiDownload`);
+`LoginForm.test.tsx` (nuevo — éxito, con una sonda de `AuthContext` que
+confirma que el estado de React realmente pasa a `authenticated`;
+credenciales incorrectas, mismo `ApiError` mostrado). Verificado además
+en vivo (contenedor Vite real, no solo tests): la sustitución de
+`import.meta.env.VITE_AUTH_MODE` llega correctamente al módulo servido
+tanto en `fake` como en `real`, sin errores de arranque en ninguno de
+los dos. Suite de frontend completa (223 tests) con una única falla
+preexistente y no relacionada
+(`apiDownload > ... Content-Disposition`, reproducida también contra el
+código sin modificar — variación de fidelidad del polyfill Blob/Response
+de jsdom, no un regresión de este hito); ESLint sin errores (mismo aviso
+`react-refresh/only-export-components` que ya tenía `DevUserContext.tsx`,
+por el mismo patrón de exportar componente + hook); Prettier limpio;
+`tsc -b` sin errores.
+
+**Fase 9 completa (9.1 + 9.2).** La API y el frontend tienen ya un modo
+de funcionamiento de autenticación real, opcional vía `AUTH_MODE`/
+`VITE_AUTH_MODE` — el comportamiento de desarrollo (`X-Dev-User-Id`)
+sigue siendo el valor por defecto y no cambia.
 
 ## Fuera de las fases del MVP
 

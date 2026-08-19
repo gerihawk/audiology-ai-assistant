@@ -337,6 +337,12 @@ export interface IntegrationConfigListResponse {
   items: IntegrationConfig[]
 }
 
+/** `LoginResponse` (`app/auth/api/schemas.py`, Fase 9, hito 9.1). */
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string

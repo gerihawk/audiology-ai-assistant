@@ -1,6 +1,24 @@
+import { clearToken, getToken } from '../auth/tokenStore'
 import type { ApiErrorBody, ApiErrorDetail } from './types'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+
+/** Leída en cada llamada (no cacheada a nivel de módulo) para que los
+ * tests puedan controlarla con `vi.stubEnv` sin depender del orden de
+ * import — ver docs/development-plan.md §Fase 9, hito 9.2. */
+function isRealAuthMode(): boolean {
+  return import.meta.env.VITE_AUTH_MODE === 'real'
+}
+
+/** Adjunta `Authorization: Bearer <token>` cuando `VITE_AUTH_MODE=real`
+ * y hay un token en el almacén (`shared/auth/tokenStore.ts`) — nunca un
+ * parámetro por función, a diferencia de `devUserId`: ningún call site de
+ * `shared/api/*.ts` necesita saber nada de esto. */
+function authHeaders(): Record<string, string> {
+  if (!isRealAuthMode()) return {}
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 export class ApiError extends Error {
   status: number
@@ -37,7 +55,7 @@ async function parseErrorBody(response: Response): Promise<ApiErrorBody | undefi
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
+  const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders() }
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json'
   }
@@ -57,6 +75,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
+    // El token ya no sirve (expirado, revocado, o nunca fue válido) —
+    // limpiarlo aquí (no solo en `AuthContext`) cubre también las
+    // llamadas hechas fuera de React (p. ej. `apiDownload`). `AuthProvider`
+    // reacciona a esto releyendo `getToken()` en su siguiente comprobación.
+    if (response.status === 401) {
+      clearToken()
+    }
     throw new ApiError(response.status, await parseErrorBody(response))
   }
 
@@ -96,7 +121,7 @@ export async function apiDownload(
   path: string,
   options: DownloadOptions = {},
 ): Promise<DownloadResult> {
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...authHeaders() }
   if (options.devUserId) {
     headers['X-Dev-User-Id'] = options.devUserId
   }
@@ -108,6 +133,9 @@ export async function apiDownload(
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearToken()
+    }
     throw new ApiError(response.status, await parseErrorBody(response))
   }
 
