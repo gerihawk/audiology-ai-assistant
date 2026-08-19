@@ -216,12 +216,39 @@ ya existen.
 - **Audio**: puede eliminarse **físicamente** una vez superado el periodo
   de retención, a través de la interfaz `RetentionCleanupService`
   (`find_expired_audio`, `purge`) — ver [architecture.md](architecture.md)
-  §4. En el MVP la ejecución es **manual** (endpoint de administración,
-  ver [api-specification.md](api-specification.md) §Retention); no existe
-  scheduler/cron todavía, eso queda para la Fase 8 del
-  [plan de desarrollo](development-plan.md). El borrado físico invalida
-  `storage_reference` pero conserva la fila de `audio_recordings`
-  (`status = deleted`) para trazabilidad.
+  §4. `RetentionCleanupService.purge()` no cambia entre ejecución manual y
+  automatizada: sigue exigiendo un `CurrentUser` admin y operando por
+  clínica. Dos formas de invocarla:
+  - **Manual**: endpoint de administración (ver
+    [api-specification.md](api-specification.md) §Retention), un admin
+    autenticado purga su propia clínica bajo demanda.
+  - **Automatizada (Fase 8, hito 8.2)**: comando de gestión
+    `app/retention/cli.py` (`make retention-purge`), pensado para que un
+    **cron externo** (host o sidecar de docker-compose) lo invoque
+    periódicamente — deliberadamente **sin scheduler en proceso**
+    (ni APScheduler ni hilos de fondo), una sola ejecución por invocación,
+    mismo patrón que `app.seed` pero sí permitido en
+    `ENVIRONMENT=production`. Ejemplo de entrada de crontab (purga diaria a
+    las 3:00, log append en el host):
+
+    ```
+    0 3 * * * docker compose run --rm backend python -m app.retention.cli >> /var/log/retention-purge.log 2>&1
+    ```
+
+    Como no hay petición HTTP de la que resolver un `CurrentUser`, el
+    comando recorre todos los usuarios, agrupa por `clinic_id` y purga
+    cada clínica actuando como su primer admin activo (orden determinista
+    por `created_at`); una clínica sin ningún admin activo se omite y se
+    registra en stdout, sin abortar la purga de las demás. Decisión de
+    diseño: se deriva el conjunto de clínicas a procesar directamente de
+    los `clinic_id` presentes entre los admins activos (`UserRepository.
+    list_all()`), no de una tabla `clinics` completa — funciona igual con
+    la única clínica de hoy que con varias en el futuro, sin tocar
+    `app/seed.py` ni añadir configuración nueva por clínica.
+
+  El borrado físico invalida `storage_reference` pero conserva la fila de
+  `audio_recordings` (`status = deleted`) para trazabilidad, en ambos
+  casos.
 - **Artefactos de IA** (`ai_artifacts`/`ai_artifact_versions`): **nunca**
   se eliminan físicamente, ni siquiera pasado el periodo de retención.
   Solo admiten **borrado lógico** (`deleted_by`, `deleted_at` en

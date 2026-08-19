@@ -752,6 +752,69 @@ retención, hardening) queda como siguiente ronda, sin empezar.
 punto contra el estado real del código, con desviaciones documentadas
 explícitamente si las hay.
 
+**Estado (hito 8.1 — auditoría RBAC, cerrado)**: los diez enums de
+`core/authorization.py` (`PatientAction`, `ClinicalSessionAction`,
+`AudioRecordingAction`, `AIPipelineAction`, `AIArtifactAction`,
+`ClinicalDocumentAction`, `ClinicalRecordAction`, `ConsentAction`,
+`RetentionAction`, `IntegrationConfigAction`) auditados endpoint por
+endpoint contra los nueve routers reales y sus repositorios SQLAlchemy —
+detalle completo, con los cuatro invariantes verificados, en
+[privacy-and-security.md](privacy-and-security.md) §13 (nueva). Único
+hallazgo estructural: `ClinicalSessionService.create()` comprobaba
+propiedad del profesional asignado con un `if current_user.role ==
+Role.AUDIOLOGIST` manual en vez de vía `authorize_clinical_session_action()`
+— única excepción en todo el backend al invariante "todo pasa por
+`authorize_*`"; comportamiento observable ya correcto (no era una fuga),
+pero autorización descentralizada. Corregido centralizando la comprobación
+en `authorize_clinical_session_action()` (`CREATE` añadido a
+`_OWNERSHIP_REQUIRED_ACTIONS`, mismo mecanismo que `CHANGE_PROFESSIONAL`),
+con test dedicado nuevo
+(`tests/test_clinical_session_authorization.py`, 4 casos). Suite completa
+(1186 tests) en verde, lint/format limpios. Deuda consciente documentada
+sin corregir: `AIPipelineAction.READ` declarado pero sin ningún endpoint
+que lo invoque (permiso vestigial, sin riesgo); la excepción de
+aislamiento por clínica de `integration_configs` (Fase 7.3) confirmada
+como la única existente. Matriz `AIArtifactAction`/`AIPipelineAction` de
+la Fase 4 (la más antigua) verificada coherente con
+`ai_pipeline/api/router.py`: los cinco/dos miembros de cada enum se usan
+todos salvo el `READ` de `AIPipelineAction` ya señalado. Hitos 8.3
+(`AI_PROCESSING_CONSENT_ENFORCED`) y 8.4 (hardening general) quedan para
+rondas separadas, sin empezar.
+
+**Estado (hito 8.2 — automatización de `RetentionCleanupService`,
+cerrado)**: comando de gestión `app/retention/cli.py`
+(`python -m app.retention.cli`, target `make retention-purge`) — mismo
+patrón de bootstrap que `app.seed` (`app.core.orm_registry`,
+`get_session_factory()`), pero sin el guard que bloquea `app.seed` en
+`ENVIRONMENT=production`: este comando debe poder ejecutarse justo ahí.
+Deliberadamente **sin scheduler en proceso** (nada de APScheduler ni
+hilos de fondo) — es una invocación única por ejecución, pensada para que
+un cron externo (host o sidecar de docker-compose) la programe
+periódicamente; `RetentionCleanupService.purge()` no cambia, sigue
+exigiendo un `CurrentUser` admin y opera por clínica. Como no hay
+petición HTTP de la que resolver ese `CurrentUser`, el comando recorre
+todos los usuarios (`UserRepository.list_all()`), agrupa por `clinic_id` y
+purga cada clínica actuando como su primer admin activo, en orden
+determinista por `created_at` — lógica extraída a
+`_resolve_admin_per_clinic()`, función pura testeable sin base de datos.
+Una clínica sin ningún admin activo se omite y se registra en stdout
+(`[omitida] clínica <id>: sin admin activo`), sin abortar la purga de las
+demás — una clínica mal configurada no debe bloquear al resto. Una sesión
+por clínica (nunca se reutiliza la misma sesión entre clínicas), con un
+`request_id` (`uuid4`) nuevo por invocación. Único cambio no funcional
+sobre el diseño original: `main()` acepta un `session_factory` inyectable
+(por defecto `None` → `get_session_factory()` de `app.core.db`,
+idéntico al uso real por cron) para que el test de integración pueda
+apuntarlo a la base de datos de test aislada en vez de a la de
+desarrollo. Tests: unitarios de `_resolve_admin_per_clinic` (primer admin
+activo gana, clínica sin admin se omite) + uno de integración end-to-end
+en `tests/test_retention_cli.py` que crea una clínica con admin y un
+audio expirado, invoca `main()` de verdad y comprueba tanto el borrado
+físico (`status=deleted`) como la entrada de auditoría
+`retention.purge_executed` con el `audio_recording_id` correspondiente —
+mismo patrón de aserciones que `test_retention_api.py` (hito 7.2). Suite
+completa (1189 tests) en verde, ruff/black limpios.
+
 ## Fuera de las fases del MVP
 
 Cualquier integración real (Noah, calendario, o cualquier proveedor de

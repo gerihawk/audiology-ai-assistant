@@ -1,4 +1,4 @@
-.PHONY: up down build logs migrate seed test test-frontend lint format
+.PHONY: up down build logs migrate seed retention-purge test test-frontend lint format
 
 up:
 	docker compose up --build
@@ -17,6 +17,9 @@ migrate:
 
 seed:
 	docker compose run --rm backend python -m app.seed
+
+retention-purge:
+	docker compose run --rm backend python -m app.retention.cli
 
 test:
 	docker compose run --rm backend pytest
