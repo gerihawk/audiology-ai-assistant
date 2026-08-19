@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import bcrypt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audio.domain.entities import AudioRecording
@@ -48,6 +49,12 @@ async def create_clinic(
     return clinic
 
 
+def hash_password(password: str) -> str:
+    """Mismo algoritmo que `app.seed`/`AuthService` — helper de test para
+    no repetir `bcrypt.hashpw(...).decode(...)` en cada test de Fase 9."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
 async def create_user(
     session: AsyncSession,
     clinic_id: uuid.UUID,
@@ -56,6 +63,7 @@ async def create_user(
     email: str | None = None,
     display_name: str | None = None,
     is_active: bool = True,
+    password: str | None = None,
 ) -> User:
     user = User(
         id=uuid.uuid4(),
@@ -66,6 +74,7 @@ async def create_user(
         is_active=is_active,
         created_at=_now(),
         updated_at=_now(),
+        password_hash=hash_password(password) if password is not None else None,
     )
     await SqlAlchemyUserRepository().add(session, user)
     await session.commit()

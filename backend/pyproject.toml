@@ -27,6 +27,11 @@ dependencies = [
   # para PdfDocumentExporter — Fase 6.6.3. Solo fuentes base14 (Helvetica),
   # sin binarios externos ni assets de fuente embebidos.
   "reportlab>=4.0,<6.0",
+  # PyJWT: firma/verificación del JWT Bearer de autenticación real
+  # (Fase 9, hito 9.1). bcrypt (directo, sin passlib): hash de contraseña
+  # de `users.password_hash`.
+  "PyJWT>=2.10,<3.0",
+  "bcrypt>=4.2,<6.0",
 ]
 
 [project.optional-dependencies]

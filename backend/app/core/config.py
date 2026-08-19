@@ -61,6 +61,20 @@ class Settings(BaseSettings):
     # simulado se rechaza antes de leer este valor).
     dev_default_user_id: str | None = None
 
+    # --- Autenticación (Fase 9, hito 9.1) ---
+    # "fake" (por defecto) no cambia nada del comportamiento actual: sigue
+    # resolviendo `get_current_user_provider()` a `FakeCurrentUserProvider`
+    # (X-Dev-User-Id). "real" lo resuelve a `RealCurrentUserProvider` (JWT
+    # Bearer, ver core/current_user.py) — obligatorio en production, ver
+    # `_validate_production_safety`.
+    auth_mode: Literal["fake", "real"] = "fake"
+    # Clave de firma HS256 del JWT emitido por `AuthService.login`
+    # (app/auth/service.py) y verificado por `RealCurrentUserProvider`.
+    # Requerida siempre (igual que `postgres_password`): sin ella no
+    # arranca ni siquiera en development/test — ver
+    # tests/conftest.py para el valor de test.
+    jwt_secret_key: str
+
     pagination_default_limit: int = 20
     pagination_max_limit: int = 100
 
@@ -252,6 +266,19 @@ class Settings(BaseSettings):
             )
         if self.postgres_password in _INSECURE_DEFAULT_PASSWORDS:
             raise ValueError("POSTGRES_PASSWORD insegura para un entorno de production.")
+        if self.jwt_secret_key in _INSECURE_DEFAULT_PASSWORDS:
+            raise ValueError("JWT_SECRET_KEY insegura para un entorno de production.")
+        if self.auth_mode != "real":
+            # Fase 9, hito 9.1: `FakeCurrentUserProvider` (X-Dev-User-Id)
+            # ya se rechaza por su cuenta en production (ver
+            # core/current_user.py), pero ese fallo solo ocurre en el
+            # primer uso de `get_current_user_provider()`. Este chequeo
+            # falla más pronto, en el arranque, igual que el resto de
+            # guardarraíles de production de este método.
+            raise ValueError(
+                "AUTH_MODE debe ser 'real' en production: FakeCurrentUserProvider "
+                "(X-Dev-User-Id) no es un mecanismo de autenticación válido."
+            )
 
         active_vendors = {
             getattr(self, field) for field in _LLM_ROUTING_FIELDS if getattr(self, field) != "mock"

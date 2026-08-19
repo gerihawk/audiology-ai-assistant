@@ -855,6 +855,84 @@ externo, decisión revisada de mantener
 de la revisión de seguridad general hasta que exista un objetivo de
 despliegue real. Sin fases adicionales planificadas más allá de esta.
 
+## Fase 9 — Autenticación real
+
+Scope nuevo, fuera del MVP original (rama `feature/phase-9-real-auth`,
+creada desde `main` ya con las Fases 7 y 8 mergeadas). Motivo: hoy
+`FakeCurrentUserProvider` es la única implementación de
+`CurrentUserProvider` y se rechaza estructuralmente en
+`ENVIRONMENT=production` (ver
+[privacy-and-security.md](privacy-and-security.md) §12) — la API no
+tenía, hasta esta fase, un modo de funcionamiento válido en producción.
+
+Alcance decidido:
+
+- JWT Bearer en cabecera `Authorization` (no cookies de sesión) — mismo
+  hueco que ocupaba `X-Dev-User-Id`.
+- Alcance mínimo: login + un único token JWT de vida media (8h), sin
+  refresh tokens ni blacklist de revocación. Logout es solo del lado
+  cliente. Reseteo de contraseña, MFA y rate limiting del endpoint de
+  login quedan fuera de esta ronda — el rate limiting conecta con la
+  deuda ya documentada en el hito 8.4.
+- `PyJWT` (firma/verificación) y `bcrypt` directo, sin `passlib` (hash de
+  contraseña).
+- Sin frontend (pantalla de login, etc.) — eso es el hito 9.2, ronda
+  separada.
+
+**Criterio de aceptación**: `POST /auth/login` con credenciales válidas
+devuelve un JWT Bearer que `RealCurrentUserProvider` acepta en el resto
+de endpoints; `AUTH_MODE=fake` (por defecto) no cambia nada del
+comportamiento actual de `X-Dev-User-Id`.
+
+**Estado (hito 9.1 — backend de autenticación real, cerrado)**:
+`Settings` gana `auth_mode: Literal["fake", "real"] = "fake"` y
+`jwt_secret_key: str` (obligatorio, sin default de Python — mismo
+criterio que `postgres_password`); `_validate_production_safety` exige
+`auth_mode == "real"` y rechaza `jwt_secret_key` en
+`_INSECURE_DEFAULT_PASSWORDS` cuando `is_production`, mismo patrón que
+el resto de guardarraíles de ese validador. `core/deps.py::
+get_current_user_provider()` deja de estar hardcodeado a
+`FakeCurrentUserProvider`: resuelve según `settings.auth_mode` — "fake"
+sin cambios de comportamiento, "real" resuelve `RealCurrentUserProvider`
+(nuevo, en `core/current_user.py`, mismo fichero que
+`FakeCurrentUserProvider` — implementan el mismo `Protocol`
+`CurrentUserProvider` y comparten `JWT_ALGORITHM`), que decodifica y
+valida el JWT Bearer del header `Authorization`, resuelve el usuario y
+exige que exista y esté activo — mismo criterio que
+`FakeCurrentUserProvider`. `User` (dominio) gana `password_hash: str |
+None = None`; migración Alembic `7c2e4f5a8b31` añade la columna
+nullable a `users`. Nuevo módulo `app/auth/` (`service.py` + `api/`, sin
+domain/infraestructura propios — mismo patrón ligero que
+`RetentionCleanupService`): `AuthService.login(email, password) -> str`
+busca el usuario por email, verifica el hash con `bcrypt`, verifica
+`is_active`, firma un JWT (`sub=user.id`, 8h) — **mismo mensaje de error
+genérico** (`UnauthenticatedError`, 401) para email inexistente,
+contraseña incorrecta, usuario inactivo o sin `password_hash` asignado,
+para no permitir enumerar usuarios por email. `POST /auth/login`
+(`app/auth/api/`) sin autorización previa — es el propio punto de
+entrada. `backend/app/seed.py` actualizado: los tres usuarios ficticios
+reciben la misma contraseña de desarrollo (`DEV_USER_PASSWORD`,
+documentada en el propio fichero y en `README.md`); backfillea
+`password_hash` también en usuarios ya existentes de una ejecución
+anterior del seed (nuevo `UserRepository.set_password_hash`), sigue
+siendo idempotente. Tests nuevos: `test_auth_service.py` (credenciales
+correctas, contraseña incorrecta y email inexistente comparten mensaje,
+usuario inactivo, usuario sin `password_hash`), `test_current_user.py`
+ampliado con `RealCurrentUserProvider` (token válido, expirado, firma
+inválida, usuario inactivo/inexistente), `test_auth_api.py`
+(`POST /auth/login` end-to-end) y dos casos nuevos en `test_config.py`
+(`AUTH_MODE`/`JWT_SECRET_KEY` rechazados en production) — la baseline de
+production válida de `test_config.py`/`test_current_user.py` se amplió
+con `auth_mode="real"`/`jwt_secret_key=...` para que los tests
+"production válida" existentes sigan siendo válidos con el nuevo
+guardarraíl. Verificado además en vivo (contenedor real, no solo tests):
+login con credenciales correctas y con contraseña incorrecta, y con
+`AUTH_MODE=real` el flujo completo `POST /auth/login` → `Authorization:
+Bearer` en `GET /me`, confirmando que `X-Dev-User-Id` queda rechazado en
+ese modo. Suite completa (1203 tests) en verde, ruff/black limpios.
+Hito 9.2 (pantalla de login en el frontend) queda para la siguiente
+ronda, sin empezar.
+
 ## Fuera de las fases del MVP
 
 Cualquier integración real (Noah, calendario, o cualquier proveedor de

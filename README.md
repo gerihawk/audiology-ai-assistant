@@ -133,6 +133,11 @@ El comando imprime los UUID de los tres usuarios al final, útiles para
 probar la API directamente con `curl`. El seed se niega a ejecutarse si
 `ENVIRONMENT=production`.
 
+Los tres usuarios comparten la misma contraseña ficticia de desarrollo
+(constante `DEV_USER_PASSWORD` en `backend/app/seed.py`) — solo hace
+falta con `AUTH_MODE=real` (Fase 9, ver más abajo); con `AUTH_MODE=fake`
+(por defecto) no se usa para nada.
+
 ### Selección del usuario ficticio (sin autenticación real)
 
 La Fase 2 no implementa login. La identidad se resuelve mediante la
@@ -148,6 +153,24 @@ se confía en el UUID a ciegas) y queda **bloqueada por completo si
   creados por el seed; la elección se recuerda en `localStorage`.
 - **API directa**: añade la cabecera a mano, usando uno de los UUID que
   imprime `make seed` (o consultando `GET /api/v1/dev/users`).
+
+### Autenticación real (Fase 9, opcional)
+
+Con `AUTH_MODE=real` en `.env`, `X-Dev-User-Id` deja de resolver la
+identidad: hace falta `POST /api/v1/auth/login` (email + contraseña de
+uno de los usuarios del seed, ver arriba) para obtener un JWT Bearer de
+8h, que se envía como `Authorization: Bearer <token>` en el resto de
+llamadas. `AUTH_MODE=fake` (por defecto) no cambia nada de lo descrito
+arriba. Sin pantalla de login en el frontend todavía (Fase 9.2,
+pendiente) — solo backend.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@dev.local","password":"<DEV_USER_PASSWORD>"}'
+
+curl http://localhost:8000/api/v1/me -H "Authorization: Bearer <access_token>"
+```
 
 ### Ejemplos de llamadas a la API
 

@@ -302,13 +302,23 @@ momento, solo confirmar que la variable de entorno está puesta.
 
 ## 10. Gestión de secretos
 
-- Todo secreto (credenciales de base de datos, futuras claves de API o de
-  autenticación) se lee exclusivamente de variables de entorno.
+- Todo secreto (credenciales de base de datos, claves de API, clave de
+  firma de autenticación) se lee exclusivamente de variables de entorno.
 - Se mantiene un `.env.example` versionado con las claves necesarias y
   valores de ejemplo no funcionales; `.env` real nunca se versiona
   (incluido en `.gitignore` desde el primer commit del esqueleto de
   proyecto).
-- Nunca se registran secretos en logs ni en `audit_logs.metadata`.
+- `JWT_SECRET_KEY` (Fase 9, hito 9.1): clave de firma HS256 del JWT de
+  autenticación (`app/auth/service.py`, `core/current_user.py`), leída
+  exclusivamente de `Settings.jwt_secret_key` — nunca hardcodeada.
+  Obligatoria en todos los entornos (sin default de Python, mismo
+  criterio que `POSTGRES_PASSWORD`); `_validate_production_safety`
+  rechaza el arranque en production si coincide con el placeholder de
+  `.env.example` (`CHANGE_ME_LOCAL_ONLY`, mismo mecanismo que ya protegía
+  `POSTGRES_PASSWORD`).
+- Nunca se registran secretos en logs ni en `audit_logs.metadata` — esto
+  incluye contraseñas en claro (nunca se persisten, solo su hash
+  `bcrypt`) y JWT emitidos.
 - Revisión obligatoria antes de cualquier commit: que no se haya
   incrustado ninguna clave, token o contraseña en código o configuración.
 
@@ -337,10 +347,13 @@ momento, solo confirmar que la variable de entorno está puesta.
 | Envío de datos clínicos reales a un proveedor de IA de pago sin acuerdo de tratamiento de datos | Bloqueo estructural mientras tanto (solo `Mock*` disponibles); activar un proveedor real es una decisión de producto/legal explícita y posterior, fuera de esta fase |
 | Ausencia de cabeceras de seguridad HTTP, rate limiting y límites de subida sin revisar (Fase 8, hito 8.4) | **Deuda consciente, aplazada, no un descuido**: `app/main.py` monta hoy exactamente tres middlewares (`CORSMiddleware`, `RequestIdMiddleware`, `log_requests`) — ningún middleware de cabeceras (`X-Content-Type-Options`, `X-Frame-Options`, etc.) ni de rate limiting. El propio plan marcaba este punto como opcional ("si el tiempo lo permite", ver [development-plan.md](development-plan.md) §Fase 8). Se aplaza porque no existe todavía ningún objetivo de despliegue real ni datos reales (§1) — endurecer cabeceras/rate limiting/límites de subida tiene sentido frente a un entorno de producción real concreto, no en abstracto. Se retoma cuando exista ese objetivo de despliegue. |
 
-## 12. `CurrentUserProvider`: alcance y limitaciones (Fase 2)
+## 12. `CurrentUserProvider`: alcance y limitaciones (Fase 2, actualizado Fase 9)
 
-`FakeCurrentUserProvider` es una herramienta de desarrollo, **no** un
-mecanismo de autenticación:
+Dos implementaciones de `CurrentUserProvider`, seleccionadas por
+`settings.auth_mode` (`core/deps.py::get_current_user_provider()`):
+
+**`FakeCurrentUserProvider`** (`auth_mode=fake`, por defecto) es una
+herramienta de desarrollo, **no** un mecanismo de autenticación:
 
 - No verifica contraseña, posesión de dispositivo ni ningún factor real —
   solo confirma que el `id` recibido corresponde a un usuario existente y
@@ -350,13 +363,36 @@ mecanismo de autenticación:
   es aceptable únicamente porque no hay datos reales ni exposición
   pública durante el MVP.
 - Se rechaza estructuralmente en `ENVIRONMENT=production` (la aplicación
-  falla al arrancar si es la única implementación disponible, ver
-  [architecture.md](architecture.md) §9): **la API no tiene, todavía, un
-  modo de funcionamiento válido en producción**. Esa es una limitación
-  conocida y deliberada de la Fase 2, no un descuido — implementar
-  autenticación real es trabajo de una fase futura no planificada aún.
+  falla al arrancar si es la implementación resuelta, ver
+  [architecture.md](architecture.md) §9).
 - El endpoint de apoyo `/dev/users` (que lista usuarios para poblar el
   selector del frontend) tampoco existe cuando `ENVIRONMENT=production`.
+
+**`RealCurrentUserProvider`** (`auth_mode=real`, Fase 9, hito 9.1) sí es
+un mecanismo de autenticación válido para producción — cierra la
+limitación que esta misma sección documentaba hasta la Fase 8 ("la API
+no tiene, todavía, un modo de funcionamiento válido en producción"):
+
+- Decodifica y valida un JWT Bearer del header `Authorization: Bearer
+  <token>`, firmado por `AuthService.login`
+  (`POST /api/v1/auth/login`, `app/auth/`) — email + contraseña
+  verificada con `bcrypt` contra `users.password_hash`.
+- Token de vida media (8h), sin refresh tokens ni blacklist de
+  revocación en esta ronda — logout es solo del lado cliente (descarta
+  el token). Reseteo de contraseña, MFA y rate limiting del endpoint de
+  login quedan fuera de esta ronda; el rate limiting conecta con la
+  deuda ya documentada en el hito 8.4.
+- Mismo criterio de validación de usuario que `FakeCurrentUserProvider`:
+  el usuario referenciado por el token debe existir y estar activo — un
+  JWT válido pero de un usuario desactivado después de emitirlo se
+  rechaza igualmente.
+- `_validate_production_safety` (`core/config.py`) exige `auth_mode ==
+  "real"` en `ENVIRONMENT=production` — production con
+  `FakeCurrentUserProvider` ya no es posible ni siquiera por omisión de
+  configuración.
+- Sin pantalla de login en el frontend todavía (hito 9.2, pendiente) —
+  esta ronda es solo backend, verificable con `curl` (ver
+  [README.md](../README.md) §Autenticación real).
 
 ## 13. Auditoría RBAC (Fase 8, hito 8.1)
 

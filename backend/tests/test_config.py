@@ -12,6 +12,11 @@ def _base_kwargs(**overrides: str) -> dict:
         "postgres_db": "db",
         "postgres_host": "localhost",
         "backend_cors_origins": "https://app.example.com",
+        # Fase 9, hito 9.1: baseline válida de production también para
+        # AUTH_MODE/JWT_SECRET_KEY — cada test "rejects" de más abajo
+        # sobreescribe únicamente el campo que está probando.
+        "auth_mode": "real",
+        "jwt_secret_key": "s3cret-enough-for-jwt-at-least-32-bytes",
     }
     kwargs.update(overrides)
     return kwargs
@@ -45,6 +50,22 @@ def test_production_rejects_insecure_default_password() -> None:
                 **_base_kwargs(),
                 "postgres_password": "CHANGE_ME_LOCAL_ONLY",
             },
+        )
+
+
+def test_production_rejects_fake_auth_mode() -> None:
+    with pytest.raises(ValueError, match="AUTH_MODE"):
+        Settings(
+            environment="production",
+            **{**_base_kwargs(), "auth_mode": "fake"},
+        )
+
+
+def test_production_rejects_insecure_default_jwt_secret() -> None:
+    with pytest.raises(ValueError, match="JWT_SECRET_KEY"):
+        Settings(
+            environment="production",
+            **{**_base_kwargs(), "jwt_secret_key": "CHANGE_ME_LOCAL_ONLY"},
         )
 
 

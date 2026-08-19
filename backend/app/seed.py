@@ -5,6 +5,12 @@ se duplican. Se niega a ejecutarse si ENVIRONMENT=production.
 
 Uso:
     docker compose run --rm backend python -m app.seed
+
+Contraseña de desarrollo (Fase 9, hito 9.1): los tres usuarios ficticios
+comparten la misma contraseña, `DEV_USER_PASSWORD` — ver esa constante
+más abajo. Sirve solo para `POST /api/v1/auth/login` con
+`AUTH_MODE=real`; con `AUTH_MODE=fake` (por defecto) sigue sin usarse,
+la identidad se resuelve por `X-Dev-User-Id` igual que siempre.
 """
 
 from __future__ import annotations
@@ -13,6 +19,8 @@ import asyncio
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
+
+import bcrypt
 
 from app.clinical_sessions.domain.entities import (
     ClinicalSession,
@@ -34,6 +42,11 @@ from app.users.infrastructure.repository import SqlAlchemyUserRepository
 
 DEV_CLINIC_CODE = "DEV-CLINIC"
 DEV_CLINIC_NAME = "Clínica de Desarrollo (ficticia)"
+
+# Contraseña ficticia compartida por los tres usuarios de desarrollo — ver
+# docstring del módulo y README.md §Datos de desarrollo (seed). Nunca una
+# contraseña real, solo para probar POST /api/v1/auth/login localmente.
+DEV_USER_PASSWORD = "dev-ficticio-2026"
 
 DEV_USERS = (
     {"email": "admin@dev.local", "display_name": "Admin Ficticio", "role": Role.ADMIN},
@@ -191,6 +204,10 @@ async def run_seed() -> None:
         else:
             print(f"[existente]  clínica {DEV_CLINIC_CODE} ({clinic.id})")
 
+        dev_password_hash = bcrypt.hashpw(
+            DEV_USER_PASSWORD.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
+
         user_ids_by_role: dict[Role, uuid.UUID] = {}
         for spec in DEV_USERS:
             existing_user = await user_repository.get_by_email(session, spec["email"])
@@ -204,6 +221,7 @@ async def run_seed() -> None:
                     is_active=True,
                     created_at=_now(),
                     updated_at=_now(),
+                    password_hash=dev_password_hash,
                 )
                 await user_repository.add(session, user)
                 await session.commit()
@@ -211,6 +229,14 @@ async def run_seed() -> None:
                 print(f"[creado]     usuario {spec['email']} ({spec['role'].value}) — {user.id}")
             else:
                 user_ids_by_role[spec["role"]] = existing_user.id
+                if existing_user.password_hash is None:
+                    # Backfill: usuario creado por una ejecución del seed
+                    # anterior a la Fase 9, hito 9.1 — sin esto se quedaría
+                    # sin poder autenticarse nunca con AUTH_MODE=real.
+                    await user_repository.set_password_hash(
+                        session, existing_user.id, dev_password_hash
+                    )
+                    await session.commit()
                 print(
                     f"[existente]  usuario {spec['email']} "
                     f"({existing_user.role.value}) — {existing_user.id}"
@@ -296,6 +322,10 @@ async def run_seed() -> None:
     print("\nSeed completado. Cabecera de desarrollo para probar la API:")
     for role, user_id in user_ids_by_role.items():
         print(f"  X-Dev-User-Id: {user_id}   ({role.value})")
+    print(
+        f"\nCon AUTH_MODE=real (Fase 9): POST /api/v1/auth/login con cualquiera de los "
+        f"emails de arriba y la contraseña '{DEV_USER_PASSWORD}'."
+    )
 
 
 if __name__ == "__main__":

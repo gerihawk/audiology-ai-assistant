@@ -6,6 +6,11 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_HOST", "localhost")
 os.environ.setdefault("BACKEND_CORS_ORIGINS", "http://localhost:5173")
+# Fase 9, hito 9.1: JWT_SECRET_KEY es obligatorio (sin default de Python,
+# mismo criterio que POSTGRES_PASSWORD) — este valor solo cubre pytest
+# ejecutado fuera de Docker; `docker compose run backend pytest` ya recibe
+# el JWT_SECRET_KEY real de docker-compose.yml/.env si está definido.
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-not-for-production")
 
 # Aislamiento de la suite frente a variables de entorno "ambiente" del
 # contenedor (Fase 6.3, corrección del punto 11): `docker compose run`

@@ -9,12 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_pipeline.service import AIPipelineService
 from app.audio.service import AudioRecordingService
+from app.auth.service import AuthService
 from app.clinical_record.service import ClinicalRecordService
 from app.clinical_sessions.service import ClinicalSessionService
 from app.consents.service import ConsentService
 from app.core.config import get_settings
 from app.core.context import get_request_id
-from app.core.current_user import CurrentUser, CurrentUserProvider, FakeCurrentUserProvider
+from app.core.current_user import (
+    CurrentUser,
+    CurrentUserProvider,
+    FakeCurrentUserProvider,
+    RealCurrentUserProvider,
+)
 from app.core.db import get_db_session
 from app.export.service import ExportService
 from app.integrations.domain.transcription_provider import TranscriptionProvider
@@ -38,15 +44,23 @@ __all__ = [
     "get_consent_service",
     "get_retention_cleanup_service",
     "get_integration_config_service",
+    "get_auth_service",
 ]
 
 
 @lru_cache
 def get_current_user_provider() -> CurrentUserProvider:
-    """Se cachea: la validación de producción de FakeCurrentUserProvider
-    ocurre una única vez, en la primera invocación (idealmente en el
-    arranque de la app, ver app.main lifespan)."""
-    return FakeCurrentUserProvider(get_settings())
+    """Según `settings.auth_mode` (Fase 9, hito 9.1): "fake" (por
+    defecto, sin cambios) resuelve `FakeCurrentUserProvider`
+    (X-Dev-User-Id); "real" resuelve `RealCurrentUserProvider` (JWT
+    Bearer). Se cachea: la validación de producción de
+    FakeCurrentUserProvider ocurre una única vez, en la primera
+    invocación (idealmente en el arranque de la app, ver app.main
+    lifespan)."""
+    settings = get_settings()
+    if settings.auth_mode == "real":
+        return RealCurrentUserProvider(settings)
+    return FakeCurrentUserProvider(settings)
 
 
 @lru_cache
@@ -123,3 +137,9 @@ async def get_integration_config_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> IntegrationConfigService:
     return IntegrationConfigService(session)
+
+
+async def get_auth_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> AuthService:
+    return AuthService(session)

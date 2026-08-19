@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from app.ai_pipeline.api.router import router as ai_pipeline_router
 from app.api.schemas import CurrentUserResponse
 from app.audio.api.router import router as audio_router
+from app.auth.api.router import router as auth_router
 from app.clinical_record.api.router import router as clinical_record_router
 from app.clinical_sessions.api.router import router as clinical_sessions_router
 from app.consents.api.router import router as consents_router
@@ -19,6 +20,7 @@ from app.patients.api.router import router as patients_router
 from app.retention.api.router import router as retention_router
 
 v1_router = APIRouter(prefix="/api/v1")
+v1_router.include_router(auth_router)
 v1_router.include_router(patients_router)
 v1_router.include_router(clinical_sessions_router)
 v1_router.include_router(audio_router)

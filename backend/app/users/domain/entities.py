@@ -24,3 +24,8 @@ class User:
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    # Hash bcrypt (Fase 9, hito 9.1). `None` = "sin contraseña asignada
+    # todavía" (los usuarios de seed anteriores a esta fase, hasta que se
+    # actualicen) — un usuario sin `password_hash` nunca autentica con
+    # éxito, ver `AuthService.login`.
+    password_hash: str | None = None

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.users.domain.entities import Role, User
@@ -25,6 +25,7 @@ def _to_domain(row: UserORM) -> User:
         is_active=row.is_active,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        password_hash=row.password_hash,
     )
 
 
@@ -62,5 +63,17 @@ class SqlAlchemyUserRepository:
                 display_name=user.display_name,
                 role=user.role.value,
                 is_active=user.is_active,
+                password_hash=user.password_hash,
             )
+        )
+
+    async def set_password_hash(
+        self, session: AsyncSession, user_id: uuid.UUID, password_hash: str
+    ) -> None:
+        """Usado por `app.seed` para asignar/backfillear la contraseña
+        ficticia de desarrollo (Fase 9, hito 9.1) a usuarios ya
+        existentes de una ejecución anterior del seed, sin duplicar la
+        lógica de creación de `add()`."""
+        await session.execute(
+            update(UserORM).where(UserORM.id == user_id).values(password_hash=password_hash)
         )
