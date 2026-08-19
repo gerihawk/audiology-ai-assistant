@@ -311,3 +311,32 @@ def authorize_clinical_record_action(
             f"El rol '{current_user.role.value}' no tiene permiso para "
             f"'{action.value}' sobre la historia clínica longitudinal."
         )
+
+
+class ConsentAction(StrEnum):
+    READ = "read"
+    CREATE = "create"
+
+
+#: Fase 7.1 (docs/development-plan.md). Deliberadamente distinta del
+#: patrón "admin sin restricción" del resto de matrices: registrar un
+#: consentimiento es un acto asistencial ante el paciente, no una tarea
+#: administrativa — solo `audiologist` puede crear; `admin` puede leer el
+#: histórico (supervisión) pero no registrar en nombre del profesional.
+#: `viewer` no tiene ninguna acción. Sin ownership por `professional_id`:
+#: el consentimiento es del paciente, no de "mis sesiones".
+CONSENT_PERMISSIONS: dict[Role, frozenset[ConsentAction]] = {
+    Role.ADMIN: frozenset({ConsentAction.READ}),
+    Role.AUDIOLOGIST: frozenset(ConsentAction),
+    Role.VIEWER: frozenset(),
+}
+
+
+def authorize_consent_action(current_user: CurrentUser, action: ConsentAction) -> None:
+    if action not in CONSENT_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre consentimientos."
+        )
+
+

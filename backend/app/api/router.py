@@ -9,6 +9,7 @@ from app.api.schemas import CurrentUserResponse
 from app.audio.api.router import router as audio_router
 from app.clinical_record.api.router import router as clinical_record_router
 from app.clinical_sessions.api.router import router as clinical_sessions_router
+from app.consents.api.router import router as consents_router
 from app.core.config import Settings, get_settings
 from app.core.current_user import CurrentUser
 from app.core.deps import get_current_user
@@ -22,6 +23,7 @@ v1_router.include_router(audio_router)
 v1_router.include_router(ai_pipeline_router)
 v1_router.include_router(export_router)
 v1_router.include_router(clinical_record_router)
+v1_router.include_router(consents_router)
 
 
 @v1_router.get("/me", response_model=CurrentUserResponse, tags=["dev-tools"])

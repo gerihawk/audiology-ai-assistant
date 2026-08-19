@@ -4,6 +4,7 @@ import { archivePatient, restorePatient } from '../../shared/api/patients'
 import type { DevUser, Patient, Role } from '../../shared/api/types'
 import { canReadClinicalRecord } from '../../shared/clinicalDocumentPermissions'
 import { PatientClinicalSessionsSection } from '../clinicalSessions/PatientClinicalSessionsSection'
+import { PatientConsentsSection } from '../consents/PatientConsentsSection'
 import { canArchivePatient, canRestorePatient, canUpdatePatient } from './permissions'
 
 interface PatientDetailProps {
@@ -102,6 +103,13 @@ export function PatientDetail({
         role={role}
         currentUserId={currentUserId}
         patient={patient}
+        professionalOptions={professionalOptions}
+      />
+
+      <PatientConsentsSection
+        devUserId={devUserId}
+        role={role}
+        patientId={patient.id}
         professionalOptions={professionalOptions}
       />
 

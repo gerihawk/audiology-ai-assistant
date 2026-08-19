@@ -625,6 +625,28 @@ configurable a nivel de aplicación, sin que exista código que llame a un
 servicio externo real. Se puede registrar consentimiento para un paciente
 y purgar manualmente audio que supere la retención configurada.
 
+**Estado (hito 7.1 — consentimiento, cerrado)**: `ConsentService` +
+`consents/api/` (`POST`/`GET /patients/{patient_id}/consents`)
+implementados sobre el dominio/infraestructura ya existentes desde el
+hito 6.0 — el único hueco de ese módulo era conceder consentimiento, y
+queda cerrado. `ConsentAction` (`READ`/`CREATE`) en
+`core/authorization.py`: solo `audiologist` registra; `admin` lee sin
+poder registrar; `viewer` sin acceso — deliberadamente distinto del
+patrón "admin sin restricción" del resto de matrices, porque registrar
+consentimiento es un acto asistencial ante el paciente. `consent_version`
+la fija siempre el servidor (`settings.ai_processing_consent_version`
+para `procesamiento_ia`; `null` para los otros dos tipos, sin política
+versionada todavía); un envío del cliente se rechaza con `422`, mismo
+criterio que `reviewed_by`/`reviewed_at` en `clinical_sessions`.
+`clinical_session_id` queda fuera de esta ronda (siempre `null`, el
+dominio ya soporta el campo). Paciente archivado → `409`; otra clínica →
+`404`. Histórico append-only (`ConsentRepository.list_by_patient`, nuevo)
+sin índice adicional — `ix_consents_patient_type` ya cubre el filtro por
+`patient_id` y el volumen por paciente no justifica un índice dedicado
+para el `ORDER BY recorded_at`. Frontend: sección mínima en la ficha de
+paciente (`PatientConsentsSection`), no en la de sesión — listado +
+formulario de alta, visible solo para `audiologist`. `docs/api-specification.md`
+corregido (`clinician` → `audiologist`, rol inexistente en el código).
 ## Fase 8 — RBAC más fino, scheduler de retención, hardening
 
 - Revisión de permisos por endpoint según

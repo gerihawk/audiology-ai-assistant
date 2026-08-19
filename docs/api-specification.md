@@ -398,8 +398,8 @@ señal ya generada.
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/clinical-sessions/{session_id}/clinical-flags` | clinician/admin | Lista de señales sugeridas/confirmadas/descartadas, generadas por el `ClinicalFlagsGenerator` activo (`ruleset_name` en cada ítem, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1); respuesta incluye aviso de checklist no validado clínicamente |
-| PATCH | `/clinical-flags/{flag_id}` | clinician | Cambia estado (`confirmada_por_profesional` / `descartada`) |
+| GET | `/clinical-sessions/{session_id}/clinical-flags` | audiologist/admin | Lista de señales sugeridas/confirmadas/descartadas, generadas por el `ClinicalFlagsGenerator` activo (`ruleset_name` en cada ítem, ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1); respuesta incluye aviso de checklist no validado clínicamente |
+| PATCH | `/clinical-flags/{flag_id}` | audiologist | Cambia estado (`confirmada_por_profesional` / `descartada`) |
 
 ## Export
 
@@ -469,8 +469,8 @@ devuelve `422` nativo.
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/patients/{patient_id}/consents` | clinician/admin | Lista consentimientos registrados |
-| POST | `/patients/{patient_id}/consents` | clinician | Registra un consentimiento (tipo, otorgado sí/no) |
+| GET | `/patients/{patient_id}/consents` | audiologist/admin | Lista consentimientos registrados |
+| POST | `/patients/{patient_id}/consents` | audiologist | Registra un consentimiento (tipo, otorgado sí/no) |
 
 ## Audit log
 

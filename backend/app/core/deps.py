@@ -11,6 +11,7 @@ from app.ai_pipeline.service import AIPipelineService
 from app.audio.service import AudioRecordingService
 from app.clinical_record.service import ClinicalRecordService
 from app.clinical_sessions.service import ClinicalSessionService
+from app.consents.service import ConsentService
 from app.core.config import get_settings
 from app.core.context import get_request_id
 from app.core.current_user import CurrentUser, CurrentUserProvider, FakeCurrentUserProvider
@@ -32,6 +33,7 @@ __all__ = [
     "get_configured_transcription_provider",
     "get_export_service",
     "get_clinical_record_service",
+    "get_consent_service",
 ]
 
 
@@ -99,3 +101,10 @@ async def get_clinical_record_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> ClinicalRecordService:
     return ClinicalRecordService(session)
+
+
+async def get_consent_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ConsentService:
+    return ConsentService(session)
+

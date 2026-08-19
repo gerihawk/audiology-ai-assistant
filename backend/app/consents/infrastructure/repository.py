@@ -62,3 +62,21 @@ class SqlAlchemyConsentRepository:
         )
         row = result.scalar_one_or_none()
         return _to_domain(row) if row is not None else None
+
+    async def list_by_patient(
+        self, session: AsyncSession, clinic_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> list[Consent]:
+        # `ix_consents_patient_type` (patient_id, consent_type) ya cubre el
+        # filtro por `patient_id` como prefijo izquierdo — suficiente aquí:
+        # no se añade un índice nuevo por `recorded_at`. El volumen por
+        # paciente es del orden de unidades/decenas de registros (un
+        # consentimiento se registra por evento, no por sesión ni de forma
+        # masiva), así que el `ORDER BY` sin índice dedicado ordena en
+        # memoria un conjunto trivial — el coste de mantenimiento de un
+        # índice adicional no se justifica con este volumen.
+        result = await session.execute(
+            select(ConsentORM)
+            .where(ConsentORM.clinic_id == clinic_id, ConsentORM.patient_id == patient_id)
+            .order_by(ConsentORM.recorded_at.desc())
+        )
+        return [_to_domain(row) for row in result.scalars()]

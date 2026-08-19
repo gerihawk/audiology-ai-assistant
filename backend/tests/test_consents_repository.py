@@ -106,3 +106,73 @@ async def test_get_latest_is_isolated_by_clinic(
     )
 
     assert result is None
+
+
+async def test_list_by_patient_returns_empty_list_when_none_recorded(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
+):
+    repo = SqlAlchemyConsentRepository()
+
+    result = await repo.list_by_patient(db_session, clinic_with_users.clinic.id, patient.id)
+
+    assert result == []
+
+
+async def test_list_by_patient_returns_full_history_most_recent_first(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
+):
+    repo = SqlAlchemyConsentRepository()
+
+    first = await repo.add(
+        db_session,
+        _consent(
+            clinic_id=clinic_with_users.clinic.id,
+            patient_id=patient.id,
+            granted_by=clinic_with_users.admin.id,
+            granted=True,
+            version="1.0",
+        ),
+    )
+    await db_session.commit()
+
+    second = await repo.add(
+        db_session,
+        Consent(
+            id=uuid.uuid4(),
+            clinic_id=clinic_with_users.clinic.id,
+            patient_id=patient.id,
+            clinical_session_id=None,
+            consent_type=ConsentType.GRABACION_AUDIO,
+            granted=True,
+            consent_version=None,
+            granted_by=clinic_with_users.admin.id,
+            recorded_at=None,
+            notes=None,
+        ),
+    )
+    await db_session.commit()
+
+    result = await repo.list_by_patient(db_session, clinic_with_users.clinic.id, patient.id)
+
+    assert [item.id for item in result] == [second.id, first.id]
+
+
+async def test_list_by_patient_is_isolated_by_clinic(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
+):
+    repo = SqlAlchemyConsentRepository()
+    await repo.add(
+        db_session,
+        _consent(
+            clinic_id=clinic_with_users.clinic.id,
+            patient_id=patient.id,
+            granted_by=clinic_with_users.admin.id,
+            granted=True,
+            version="1.0",
+        ),
+    )
+    await db_session.commit()
+
+    result = await repo.list_by_patient(db_session, uuid.uuid4(), patient.id)
+
+    assert result == []

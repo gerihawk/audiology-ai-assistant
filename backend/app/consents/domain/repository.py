@@ -29,3 +29,11 @@ class ConsentRepository(Protocol):
         ninguno. Un `granted=false` posterior revoca uno anterior sin
         borrar el histórico — se comprueba siempre el más reciente."""
         ...
+
+    async def list_by_patient(
+        self, session: AsyncSession, clinic_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> list[Consent]:
+        """Histórico completo (todos los tipos), `recorded_at` descendente
+        — Fase 7.1. Nunca oculta registros revocados: el histórico es
+        append-only (ver `get_latest`)."""
+        ...

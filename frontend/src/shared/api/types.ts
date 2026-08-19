@@ -58,6 +58,31 @@ export interface PatientUpdateInput {
   notes?: string | null
 }
 
+export type ConsentType = 'grabacion_audio' | 'procesamiento_ia' | 'almacenamiento'
+
+export interface Consent {
+  id: string
+  clinic_id: string
+  patient_id: string
+  clinical_session_id: string | null
+  consent_type: ConsentType
+  granted: boolean
+  consent_version: string | null
+  granted_by: string
+  recorded_at: string | null
+  notes: string | null
+}
+
+export interface ConsentListResponse {
+  items: Consent[]
+}
+
+export interface ConsentCreateInput {
+  consent_type: ConsentType
+  granted: boolean
+  notes?: string | null
+}
+
 export type SessionType =
   | 'initial_assessment'
   | 'follow_up'
