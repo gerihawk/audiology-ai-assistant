@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import { apiRequest } from '../api/client'
 import type { CurrentUser } from '../api/types'
-import { clearToken, getToken, setToken } from './tokenStore'
+import { clearToken, getToken, setToken, subscribe } from './tokenStore'
 
 type Status = 'checking' | 'authenticated' | 'unauthenticated'
 
@@ -45,6 +45,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (getToken()) loadCurrentUser()
   }, [loadCurrentUser])
+
+  // `client.ts` limpia el token del almacén (fuera de React) cuando una
+  // petición responde 401 — p. ej. el JWT expira a media sesión. Sin esta
+  // suscripción, el estado de React se quedaría en 'authenticated' hasta
+  // un remontaje (refresh de página) y cada petición nueva volvería a
+  // fallar en 401 sin redirigir a login. Mismo efecto que `signOut`, pero
+  // sin volver a llamar a `clearToken()` — ya está limpio, evita el bucle.
+  useEffect(() => {
+    return subscribe(() => {
+      if (getToken() === null) {
+        setCurrentUser(null)
+        setErrorMessage(null)
+        setStatus('unauthenticated')
+      }
+    })
+  }, [])
 
   const signIn = useCallback(
     (token: string) => {
