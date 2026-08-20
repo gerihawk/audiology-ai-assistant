@@ -217,10 +217,17 @@ class Settings(BaseSettings):
     google_base_url: str = "https://generativelanguage.googleapis.com"
     google_timeout_seconds: float = 120.0
 
-    # --- Retención (Fase 7.2) ---
+    # --- Retención (Fase 7.2 / hito 10.4) ---
     # Umbral global vía entorno, no configurable por clínica (fuera de
     # alcance de esta fase, ver docs/development-plan.md §Fase 7).
     retention_days_default: int = Field(default=30, gt=0)
+    # Autentica al LLAMADOR de POST /api/v1/retention/system-purge (un cron
+    # externo), no a un usuario de una clínica concreta — mismo patrón que
+    # `jwt_secret_key`: obligatorio, sin default, no arranca ni siquiera en
+    # development/test sin él (ver tests/conftest.py). El endpoint la
+    # compara con `secrets.compare_digest`, nunca `==` (ver
+    # app/retention/api/router.py).
+    retention_cron_secret: str
 
     # --- Benchmark de generación LLM (Fase 6.2) — ver docs/generation-benchmark.md ---
     # OpenRouter es EXCLUSIVO de `benchmark/generation/` (RFC v2 §6.1): la
@@ -268,6 +275,8 @@ class Settings(BaseSettings):
             raise ValueError("POSTGRES_PASSWORD insegura para un entorno de production.")
         if self.jwt_secret_key in _INSECURE_DEFAULT_PASSWORDS:
             raise ValueError("JWT_SECRET_KEY insegura para un entorno de production.")
+        if self.retention_cron_secret in _INSECURE_DEFAULT_PASSWORDS:
+            raise ValueError("RETENTION_CRON_SECRET insegura para un entorno de production.")
         if self.auth_mode != "real":
             # Fase 9, hito 9.1: `FakeCurrentUserProvider` (X-Dev-User-Id)
             # ya se rechaza por su cuenta en production (ver

@@ -11,8 +11,13 @@ su primer admin activo (orden determinista por `created_at`). Una clínica
 sin ningún admin activo se omite y se registra en stdout, sin abortar la
 purga de las demás.
 
-Uso:
+Uso local (docker-compose, mismo volumen de almacenamiento que el backend):
     docker compose run --rm backend python -m app.retention.cli
+
+En el entorno de despliegue real (Fase 10.4), un cron externo no tiene
+acceso a ese volumen — dispara en su lugar `POST /api/v1/retention/
+system-purge` (ver app/retention/api/router.py), que llama a `main()` desde
+dentro del propio proceso del backend.
 """
 
 from __future__ import annotations
@@ -45,10 +50,18 @@ def _resolve_admin_per_clinic(users: list[User]) -> dict[uuid.UUID, User]:
     return admin_per_clinic
 
 
-async def main(session_factory: async_sessionmaker[AsyncSession] | None = None) -> None:
-    """`session_factory` es inyectable para que los tests de integración
-    apunten a la base de datos de test aislada en vez de a la resuelta por
-    `get_settings().database_url`; en uso real (cron) siempre es `None`."""
+async def main(
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> dict[str, dict[str, int] | list[str]]:
+    """`session_factory` es inyectable para que los tests de integración (y,
+    desde la Fase 10.4, el endpoint HTTP `POST /system-purge`) apunten a una
+    base de datos distinta de la resuelta por `get_settings().database_url`;
+    en uso real por cron directo siempre es `None`.
+
+    Devuelve `{"purged": {str(clinic_id): <nº audios purgados>, ...},
+    "omitted_clinics": [str(clinic_id), ...]}` además de imprimir por stdout
+    (comportamiento sin cambios) — el mismo resultado que un caller HTTP
+    puede reportar como JSON sin reimplementar este bucle."""
     session_factory = session_factory or get_session_factory()
     user_repository = SqlAlchemyUserRepository()
 
@@ -58,10 +71,14 @@ async def main(session_factory: async_sessionmaker[AsyncSession] | None = None) 
     clinic_ids = {user.clinic_id for user in all_users}
     admin_per_clinic = _resolve_admin_per_clinic(all_users)
 
+    purged: dict[str, int] = {}
+    omitted_clinics: list[str] = []
+
     for clinic_id in sorted(clinic_ids, key=str):
         admin = admin_per_clinic.get(clinic_id)
         if admin is None:
             print(f"[omitida]  clínica {clinic_id}: sin admin activo")
+            omitted_clinics.append(str(clinic_id))
             continue
 
         current_user = CurrentUser(
@@ -73,8 +90,11 @@ async def main(session_factory: async_sessionmaker[AsyncSession] | None = None) 
         )
         request_id = str(uuid.uuid4())
         async with session_factory() as session:
-            purged = await RetentionCleanupService(session).purge(current_user, request_id)
-        print(f"[procesada] clínica {clinic_id}: {len(purged)} audio(s) purgado(s)")
+            purged_items = await RetentionCleanupService(session).purge(current_user, request_id)
+        print(f"[procesada] clínica {clinic_id}: {len(purged_items)} audio(s) purgado(s)")
+        purged[str(clinic_id)] = len(purged_items)
+
+    return {"purged": purged, "omitted_clinics": omitted_clinics}
 
 
 if __name__ == "__main__":

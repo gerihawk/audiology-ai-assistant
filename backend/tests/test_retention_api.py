@@ -1,7 +1,10 @@
 """Tests de integración de /api/v1/retention/expired-audio — Fase 7.2
 (docs/development-plan.md). Permisos (solo admin), idempotencia de la
 purga y auditoría (`audio_recording.deleted` por registro +
-`retention.purge_executed` como resumen)."""
+`retention.purge_executed` como resumen).
+
+Más abajo, tests de /api/v1/retention/system-purge (Fase 10.4): auth por
+secreto de cron (nunca `get_current_user`) y purga cross-clínica real."""
 
 from __future__ import annotations
 
@@ -11,12 +14,14 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.audit_log.infrastructure.orm import AuditLogORM
 from app.clinical_sessions.domain.entities import ClinicalSession
 from app.core.config import get_settings
+from app.core.db import get_session_factory
 from app.core.processing_status import ProcessingStatus
+from app.main import app as fastapi_app
 from app.patients.domain.entities import Patient
 from tests.factories import (
     ClinicWithUsers,
@@ -199,3 +204,59 @@ async def test_purge_writes_per_record_and_summary_audit_entries(
     summary = summary_entries[0]
     assert summary.audit_metadata["purged_count"] == 2
     assert set(summary.audit_metadata["audio_recording_ids"]) == {str(first.id), str(second.id)}
+
+
+# --- /system-purge (Fase 10.4): auth por secreto de cron, purga real -----
+
+
+async def test_system_purge_without_header_is_unauthorized(api_client: AsyncClient):
+    response = await api_client.post("/api/v1/retention/system-purge")
+    assert response.status_code == 401
+
+
+async def test_system_purge_with_wrong_secret_is_unauthorized(api_client: AsyncClient):
+    response = await api_client.post(
+        "/api/v1/retention/system-purge",
+        headers={"X-Retention-Cron-Secret": "secreto-incorrecto"},
+    )
+    assert response.status_code == 401
+
+
+async def test_system_purge_with_correct_secret_purges_expired_audio_cross_clinic(
+    api_client: AsyncClient,
+    test_engine: AsyncEngine,
+    db_session: AsyncSession,
+    clinic_with_users: ClinicWithUsers,
+    clinical_session: ClinicalSession,
+):
+    expired = await create_audio_recording(
+        db_session, clinical_session.id, clinic_with_users.admin.id, uploaded_at=_OLD
+    )
+    await create_audio_recording(
+        db_session, clinical_session.id, clinic_with_users.admin.id, uploaded_at=_RECENT
+    )
+
+    # `main()` (app/retention/cli.py) usa por defecto el session_factory
+    # global de `get_settings().database_url`, distinto de la base de datos
+    # de test aislada que usan `db_session`/`api_client` — se sobreescribe
+    # la dependencia igual que `conftest.api_client` hace con
+    # `get_db_session`, para que el endpoint purgue contra esa misma BD.
+    test_session_factory = async_sessionmaker(bind=test_engine, expire_on_commit=False)
+    fastapi_app.dependency_overrides[get_session_factory] = lambda: test_session_factory
+    try:
+        response = await api_client.post(
+            "/api/v1/retention/system-purge",
+            headers={"X-Retention-Cron-Secret": get_settings().retention_cron_secret},
+        )
+    finally:
+        fastapi_app.dependency_overrides.pop(get_session_factory, None)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["purged"] == {str(clinic_with_users.clinic.id): 1}
+    assert body["omitted_clinics"] == []
+
+    listing = await api_client.get(
+        "/api/v1/retention/expired-audio", headers=dev_headers(clinic_with_users.admin)
+    )
+    assert str(expired.id) not in [item["id"] for item in listing.json()["items"]]
