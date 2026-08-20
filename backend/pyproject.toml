@@ -32,6 +32,12 @@ dependencies = [
   # de `users.password_hash`.
   "PyJWT>=2.10,<3.0",
   "bcrypt>=4.2,<6.0",
+  # slowapi: rate limiting (Fase 10.5). Almacenamiento EN MEMORIA del
+  # proceso (sin Redis) — aceptado explícitamente para una única instancia
+  # en Railway; se resetea en cada redeploy y NO sirve como límite
+  # compartido si en el futuro se despliegan varias réplicas (ver
+  # app/core/rate_limit.py).
+  "slowapi>=0.1.9,<1.0",
 ]
 
 [project.optional-dependencies]

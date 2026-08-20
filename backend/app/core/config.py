@@ -229,6 +229,13 @@ class Settings(BaseSettings):
     # app/retention/api/router.py).
     retention_cron_secret: str
 
+    # --- Hardening HTTP (Fase 10.5) ---
+    # Techo a nivel de aplicación, POR ENCIMA de `audio_max_size_mb` (que
+    # valida específicamente el tamaño de audio subido): rechaza cualquier
+    # cuerpo de request anormalmente grande antes de procesarlo, en
+    # cualquier endpoint — ver app/core/request_size_limit.py.
+    max_request_body_mb: int = Field(default=60, gt=0)
+
     # --- Benchmark de generación LLM (Fase 6.2) — ver docs/generation-benchmark.md ---
     # OpenRouter es EXCLUSIVO de `benchmark/generation/` (RFC v2 §6.1): la
     # app productiva arranca sin `OPENROUTER_API_KEY` configurada — solo

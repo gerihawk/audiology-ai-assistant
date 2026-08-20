@@ -203,6 +203,27 @@ def test_env_ignore_empty_variable_vacia_opcional_se_trata_como_no_definida(
     assert settings.llm_provider_summary == "mock"
 
 
+# --- Gating de /docs, /redoc, /openapi.json en production (Fase 10.5) ----
+
+
+def test_docs_kwargs_deshabilitados_en_production() -> None:
+    from app.main import _docs_kwargs_for
+
+    settings = Settings(environment="production", **_base_kwargs())
+    assert _docs_kwargs_for(settings) == {
+        "docs_url": None,
+        "redoc_url": None,
+        "openapi_url": None,
+    }
+
+
+def test_docs_kwargs_disponibles_en_development() -> None:
+    from app.main import _docs_kwargs_for
+
+    settings = Settings(environment="development", **_base_kwargs())
+    assert _docs_kwargs_for(settings) == {}
+
+
 def test_env_ignore_empty_valor_real_presente_sigue_parseandose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
