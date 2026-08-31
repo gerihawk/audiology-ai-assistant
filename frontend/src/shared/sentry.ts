@@ -62,7 +62,26 @@ export function initSentry(): void {
     release: import.meta.env.VITE_SENTRY_RELEASE,
     sendDefaultPii: false,
     tracesSampleRate: 0,
-    integrations: [Sentry.breadcrumbsIntegration({ console: false })],
+    // Forma FUNCIÓN, nunca array literal, para sustituir una única
+    // integración por defecto (Breadcrumbs) sin arriesgar el resto —
+    // incluida `globalHandlersIntegration` (captura
+    // window.onerror/unhandledrejection). Reportado como incidente real
+    // en producción (Fase 10.6, verificación manual: un throw real no
+    // generó ningún evento con `integrations: [breadcrumbsIntegration(...)]`).
+    // Verificación local contra la versión exacta instalada
+    // (@sentry/react 10.73.0, ver package-lock.json) muestra que esa
+    // versión concreta ya deduplica un array propio contra los defaults
+    // por nombre en vez de descartarlos — no reproduce el síntoma tal
+    // cual aquí — pero la forma array sigue dependiendo de ese mecanismo
+    // interno de deduplicación (no documentado como contrato estable) en
+    // vez del argumento `defaultIntegrations` que el propio SDK expone
+    // para este caso; la forma función es la única sin ambigüedad de
+    // versión y es lo que la documentación oficial de Sentry recomienda
+    // para "reemplazar solo una integración por defecto".
+    integrations: (defaultIntegrations) => [
+      ...defaultIntegrations.filter((integration) => integration.name !== 'Breadcrumbs'),
+      Sentry.breadcrumbsIntegration({ console: false }),
+    ],
     beforeSend,
     beforeBreadcrumb,
   })
