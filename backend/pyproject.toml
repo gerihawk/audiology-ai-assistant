@@ -38,6 +38,10 @@ dependencies = [
   # compartido si en el futuro se despliegan varias réplicas (ver
   # app/core/rate_limit.py).
   "slowapi>=0.1.9,<1.0",
+  # sentry-sdk: error tracking (Fase 10.6) — EXCLUSIVAMENTE captura de
+  # errores. Sin Performance/Tracing (traces_sample_rate=0), sin Session
+  # Replay ni Profiling — ver app/core/sentry.py.
+  "sentry-sdk[fastapi]>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]

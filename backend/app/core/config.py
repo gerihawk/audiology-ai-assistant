@@ -236,6 +236,14 @@ class Settings(BaseSettings):
     # cualquier endpoint — ver app/core/request_size_limit.py.
     max_request_body_mb: int = Field(default=60, gt=0)
 
+    # --- Error tracking (Fase 10.6) — ver app/core/sentry.py ---
+    # Opcional, sin default: si no está configurada, Sentry no se
+    # inicializa en ningún entorno (ni siquiera production) — no forma
+    # parte de `_validate_production_safety`, a diferencia de
+    # `jwt_secret_key`/`retention_cron_secret`, porque su ausencia nunca
+    # compromete la seguridad, solo la observabilidad.
+    sentry_dsn: str | None = None
+
     # --- Benchmark de generación LLM (Fase 6.2) — ver docs/generation-benchmark.md ---
     # OpenRouter es EXCLUSIVO de `benchmark/generation/` (RFC v2 §6.1): la
     # app productiva arranca sin `OPENROUTER_API_KEY` configurada — solo

@@ -2,8 +2,21 @@ FROM node:22-alpine AS build
 
 ARG VITE_API_BASE_URL=http://localhost:8000
 ARG VITE_AUTH_MODE=fake
+# Opcional — sin valor por defecto: si no se pasa, initSentry() no
+# inicializa Sentry en el bundle resultante (Fase 10.6, ver
+# src/shared/sentry.ts).
+ARG VITE_SENTRY_DSN=
+# RAILWAY_GIT_COMMIT_SHA: variable inyectada por Railway (no nuestra),
+# solo poblada en deploys disparados desde GitHub — sin valor por defecto,
+# initSentry() la trata como "sin release" si llega vacía. Si tras un
+# deploy real el campo `release` aparece vacío en Sentry, es señal de que
+# en este proyecto la variable no llega hasta el build de este Dockerfile
+# — revisarlo entonces, no asumir que funciona solo porque compila.
+ARG RAILWAY_GIT_COMMIT_SHA=
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
-    VITE_AUTH_MODE=${VITE_AUTH_MODE}
+    VITE_AUTH_MODE=${VITE_AUTH_MODE} \
+    VITE_SENTRY_DSN=${VITE_SENTRY_DSN} \
+    VITE_SENTRY_RELEASE=${RAILWAY_GIT_COMMIT_SHA}
 
 WORKDIR /app
 

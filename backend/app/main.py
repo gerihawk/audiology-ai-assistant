@@ -24,9 +24,15 @@ from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
 from app.core.request_size_limit import RequestSizeLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
+from app.core.sentry import init_sentry
 
 settings = get_settings()
 configure_logging(settings.log_level)
+# Antes de servir tráfico; no-op si SENTRY_DSN no está configurada (Fase
+# 10.6, ver app/core/sentry.py). No añade middleware propio — la
+# correlación con request_id vive en RequestIdMiddleware/core/context.py —
+# así que no altera el orden de middlewares de la Fase 10.5 de más abajo.
+init_sentry(settings)
 
 request_logger = logging.getLogger("app.requests")
 
