@@ -82,6 +82,31 @@ describe('initSentry', () => {
     expect(options.release).toBe('abc123')
   })
 
+  it('usa VITE_SENTRY_ENVIRONMENT como environment cuando está definida', async () => {
+    // `import.meta.env.MODE` vale "production" tanto en el build de
+    // producción como en el de staging (ambos ejecutan `vite build`) —
+    // sin esta variable, Sentry etiquetaría erróneamente los eventos de
+    // staging como production.
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://public@example.ingest.sentry.io/1')
+    vi.stubEnv('VITE_SENTRY_ENVIRONMENT', 'staging')
+    const { initSentry } = await import('./sentry')
+
+    initSentry()
+
+    const options = initMock.mock.calls[0][0]
+    expect(options.environment).toBe('staging')
+  })
+
+  it('cae a MODE cuando VITE_SENTRY_ENVIRONMENT no está definida', async () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://public@example.ingest.sentry.io/1')
+    const { initSentry } = await import('./sentry')
+
+    initSentry()
+
+    const options = initMock.mock.calls[0][0]
+    expect(options.environment).toBe(import.meta.env.MODE)
+  })
+
   it('regresión: integrations debe ser función — un array sustituiría GlobalHandlers/Dedupe por defecto', async () => {
     // Bug real de producción (Fase 10.6): `integrations: [breadcrumbsIntegration(...)]`
     // (array literal) nunca ve los defaults del SDK real — solo la forma

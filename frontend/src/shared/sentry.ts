@@ -51,7 +51,15 @@ export function initSentry(): void {
   if (!dsn) return
   Sentry.init({
     dsn,
-    environment: import.meta.env.MODE,
+    // `import.meta.env.MODE` (modo de build de Vite) vale "production"
+    // tanto en el build de producción como en el de staging — ambos
+    // ejecutan `vite build` (ver frontend/Dockerfile.prod) — así que por
+    // sí solo etiquetaría los eventos de staging como production en
+    // Sentry. `VITE_SENTRY_ENVIRONMENT` (opcional, inyectada por entorno —
+    // ver frontend/Dockerfile.prod) gana cuando está presente; si no,
+    // cae a `MODE` (development/production), sin romper ningún entorno
+    // que no la defina todavía.
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
     // `VITE_SENTRY_RELEASE` viene de `RAILWAY_GIT_COMMIT_SHA`, una
     // variable de Railway (no nuestra) inyectada en build-time del
     // Dockerfile (ver frontend/Dockerfile.prod) — solo poblada en deploys

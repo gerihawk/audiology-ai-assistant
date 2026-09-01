@@ -6,6 +6,14 @@ ARG VITE_AUTH_MODE=fake
 # inicializa Sentry en el bundle resultante (Fase 10.6, ver
 # src/shared/sentry.ts).
 ARG VITE_SENTRY_DSN=
+# Variable NUESTRA (a diferencia de RAILWAY_GIT_COMMIT_SHA más abajo): la
+# pipeline de despliegue debe pasarla explícitamente por servicio ("staging"
+# para el servicio de Railway de staging, "production" para el de
+# production) — `vite build` siempre produce MODE=production en ambos, así
+# que sin esta variable Sentry etiquetaría erróneamente los eventos de
+# staging como production (ver src/shared/sentry.ts). Sin valor por
+# defecto: si no se pasa, cae a MODE (development/production).
+ARG VITE_SENTRY_ENVIRONMENT=
 # RAILWAY_GIT_COMMIT_SHA: variable inyectada por Railway (no nuestra),
 # solo poblada en deploys disparados desde GitHub — sin valor por defecto,
 # initSentry() la trata como "sin release" si llega vacía. Si tras un
@@ -16,6 +24,7 @@ ARG RAILWAY_GIT_COMMIT_SHA=
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_AUTH_MODE=${VITE_AUTH_MODE} \
     VITE_SENTRY_DSN=${VITE_SENTRY_DSN} \
+    VITE_SENTRY_ENVIRONMENT=${VITE_SENTRY_ENVIRONMENT} \
     VITE_SENTRY_RELEASE=${RAILWAY_GIT_COMMIT_SHA}
 
 WORKDIR /app
