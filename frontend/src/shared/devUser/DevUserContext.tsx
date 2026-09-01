@@ -173,3 +173,16 @@ export function useDevUser(): DevUserContextValue {
     'useDevUser debe usarse dentro de <DevUserProvider> (modo fake) o <AuthProvider> (modo real)',
   )
 }
+
+/** `true` si hay un `<DevUserProvider>` montado (modo fake) — mismo
+ * criterio de "qué está realmente disponible" que usa `useDevUser()` por
+ * dentro, expuesto para consumidores que necesitan decidir QUÉ fuente de
+ * datos usar en lugar de solo leer el resultado ya adaptado (p. ej.
+ * `useProfessionalOptions`, que en modo fake sigue llamando a
+ * `listDevUsers()` y en modo real llama al endpoint real de profesionales
+ * elegibles — dos endpoints distintos, no algo que `useDevUser()` pueda
+ * decidir por él). Nunca releer `VITE_AUTH_MODE` para esto — el árbol
+ * montado es la fuente de verdad. */
+export function useIsDevUserModeActive(): boolean {
+  return useContext(DevUserContext) !== null
+}

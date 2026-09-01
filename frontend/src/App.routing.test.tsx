@@ -501,4 +501,29 @@ describe('Routing de la aplicación — VITE_AUTH_MODE=real', () => {
     expect(await screen.findByText('Audio expirado')).toBeInTheDocument()
     expect(screen.queryByText(/selecciona un usuario de desarrollo/i)).not.toBeInTheDocument()
   })
+
+  it('/clinical-sessions/new puebla "Profesional responsable" desde el endpoint real, no desde /api/v1/dev/users', async () => {
+    // Reproducción del segundo bug encontrado (Fase 9.2, seguimiento):
+    // useProfessionalOptions dependía en exclusiva de listDevUsers()
+    // (GET /api/v1/dev/users), deshabilitado en producción — el
+    // desplegable, campo obligatorio, llegaba siempre vacío.
+    const fetchMock = buildRealAuthFetchMock((path) => {
+      if (path === '/api/v1/clinical-sessions/eligible-professionals') {
+        return jsonResponse([
+          { id: 'u-real-admin', clinic_id: 'c-1', display_name: 'Admin Real', role: 'admin' },
+        ])
+      }
+      if (path === '/api/v1/patients') {
+        return jsonResponse({ items: [makePatient()], total: 1, limit: 100, offset: 0 })
+      }
+      return undefined
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderAppAt('/clinical-sessions/new')
+
+    expect(await screen.findByRole('option', { name: 'Admin Real' })).toBeInTheDocument()
+    const calledPaths = fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)
+    expect(calledPaths).not.toContain('/api/v1/dev/users')
+  })
 })

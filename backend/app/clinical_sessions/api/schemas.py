@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.clinical_sessions.domain.entities import ClinicalSessionStatus, SessionType
 from app.clinical_sessions.domain.normalization import normalize_free_text
+from app.users.domain.entities import Role
 
 _TITLE_MAX_LENGTH = 200
 _NOTES_MAX_LENGTH = 2000
@@ -99,6 +100,19 @@ class ClinicalSessionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class EligibleProfessionalResponse(BaseModel):
+    """Mismo shape que `app.api.schemas.DevUserResponse` (equivalente real
+    de `GET /dev/users`, exclusivo de desarrollo) — el frontend reutiliza
+    el mismo tipo `DevUser` para ambos."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    clinic_id: uuid.UUID
+    display_name: str
+    role: Role
 
 
 def update_payload_from_request(request: ClinicalSessionUpdateRequest) -> dict[str, Any]:
