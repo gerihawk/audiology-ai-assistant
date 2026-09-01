@@ -90,7 +90,9 @@ app.add_middleware(SlowAPIMiddleware)
 # `add_middleware`): así las cabeceras de seguridad también llegan a las
 # respuestas 429/413 generadas por los middlewares anteriores, no solo a
 # las respuestas normales de los endpoints.
-app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.is_production)
+app.add_middleware(
+    SecurityHeadersMiddleware, hsts_enabled=settings.is_production or settings.is_staging
+)
 
 register_exception_handlers(app)
 

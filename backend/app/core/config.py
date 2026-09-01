@@ -45,7 +45,7 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
     )
 
-    environment: Literal["development", "test", "production"] = "development"
+    environment: Literal["development", "test", "production", "staging"] = "development"
     log_level: str = "INFO"
 
     postgres_user: str
@@ -260,6 +260,10 @@ class Settings(BaseSettings):
         return self.environment == "production"
 
     @property
+    def is_staging(self) -> bool:
+        return self.environment == "staging"
+
+    @property
     def audio_allowed_mime_types_list(self) -> list[str]:
         return [v.strip() for v in self.audio_allowed_mime_types.split(",") if v.strip()]
 
@@ -280,7 +284,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_safety(self) -> Settings:
-        if not self.is_production:
+        if not (self.is_production or self.is_staging):
             return self
         if not self.cors_origins or "*" in self.cors_origins:
             raise ValueError(

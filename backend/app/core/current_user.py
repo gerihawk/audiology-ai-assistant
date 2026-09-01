@@ -55,9 +55,10 @@ class FakeCurrentUserProvider:
         settings: Settings,
         user_repository: SqlAlchemyUserRepository | None = None,
     ) -> None:
-        if settings.is_production:
+        if settings.is_production or settings.is_staging:
             raise RuntimeError(
-                "FakeCurrentUserProvider no puede utilizarse con ENVIRONMENT=production."
+                "FakeCurrentUserProvider no puede utilizarse con "
+                "ENVIRONMENT=production ni ENVIRONMENT=staging."
             )
         self._settings = settings
         self._user_repository = user_repository or SqlAlchemyUserRepository()

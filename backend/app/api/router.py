@@ -40,7 +40,7 @@ async def get_me(current_user: CurrentUser = Depends(get_current_user)) -> Curre
 def register_dev_tools(router: APIRouter, settings: Settings | None = None) -> None:
     """Registra rutas exclusivas de desarrollo. No-op en producción."""
     settings = settings or get_settings()
-    if settings.is_production:
+    if settings.is_production or settings.is_staging:
         return
     from app.api.dev_tools import router as dev_tools_router
 
