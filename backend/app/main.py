@@ -126,6 +126,13 @@ async def log_requests(request: Request, call_next):
                 "path": request.url.path,
                 "status_code": response.status_code,
                 "duration_ms": duration_ms,
+                # `getattr` con default: por seguridad ante cualquier
+                # petición que no pase por `RequestIdMiddleware` (p. ej.
+                # un test que monta una app mínima sin él) — en el flujo
+                # real, `RequestIdMiddleware` ya lo fija antes de que este
+                # middleware se ejecute (ver orden de `add_middleware`
+                # más arriba).
+                "request_id": getattr(request.state, "request_id", None),
             }
         },
     )

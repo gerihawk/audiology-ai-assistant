@@ -107,7 +107,12 @@ async def run_provider_step(
             if cost_budget.would_exceed(worst_case_cost):
                 logger.warning(
                     "ai_pipeline.cost_limit_exceeded",
-                    extra={"artifact_type": artifact_type.value, "provider_name": provider_name},
+                    extra={
+                        "context": {
+                            "artifact_type": artifact_type.value,
+                            "provider_name": provider_name,
+                        }
+                    },
                 )
                 return _failed_outcome(
                     artifact_type=artifact_type,
@@ -186,7 +191,8 @@ async def _attempt(
         # inesperado (del mock hoy, de un SDK real mañana) se traduce en un
         # AIGenerationRun `failed` tipado, nunca propaga hasta el orquestador.
         logger.exception(
-            "ai_pipeline.step_unexpected_error", extra={"artifact_type": artifact_type.value}
+            "ai_pipeline.step_unexpected_error",
+            extra={"context": {"artifact_type": artifact_type.value}},
         )
         return _failed_outcome(
             artifact_type=artifact_type,
@@ -212,9 +218,11 @@ async def _attempt(
         logger.info(
             "ai_pipeline.validation_failed",
             extra={
-                "artifact_type": artifact_type.value,
-                "failure_reason": validation.failure_reason.value,
-                "violated_rule_count": len(validation.violated_rule_ids),
+                "context": {
+                    "artifact_type": artifact_type.value,
+                    "failure_reason": validation.failure_reason.value,
+                    "violated_rule_count": len(validation.violated_rule_ids),
+                }
             },
         )
         return _failed_outcome(
