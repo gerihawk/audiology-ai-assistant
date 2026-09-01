@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { ClinicalSession, CurrentUser, DevUser, Patient } from './shared/api/types'
+import { clearToken, setToken } from './shared/auth/tokenStore'
 
 // Estos tests montan el árbol completo (DevUserProvider → varias páginas
 // encadenadas) — más saltos async que un test de componente aislado. Con
@@ -406,5 +407,98 @@ describe('Routing de la aplicación', () => {
     await waitFor(() => {
       expect(screen.getByTestId('current-user-summary')).toHaveTextContent('Vera Viewer')
     })
+  })
+})
+
+// --- VITE_AUTH_MODE=real: `RealAuthApp` no monta <DevUserProvider>, pero
+// las páginas de AppRoutes llaman a useDevUser() sin condiciones — bug
+// real descubierto probando manualmente en staging (pantalla en blanco,
+// "useDevUser debe usarse dentro de <DevUserProvider>" al navegar a
+// /patients tras hacer login). Fix: useDevUser() deriva su valor de
+// useAuth() cuando no hay <DevUserProvider> — ver
+// shared/devUser/DevUserContext.tsx.
+
+const REAL_USER: CurrentUser = {
+  id: 'u-real-admin',
+  clinic_id: 'c-1',
+  email: 'admin@example.test',
+  display_name: 'Admin Real',
+  role: 'admin',
+}
+
+/** Router de fetch mínimo para el modo real: sin `/api/v1/dev/users`
+ * (nunca se llama en modo real) — cada test añade sus propios handlers,
+ * `/health`/`/api/v1/me` siempre se resuelven igual. */
+function buildRealAuthFetchMock(...handlers: Handler[]) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input))
+    const path = url.pathname
+
+    if (path === '/health') return Promise.resolve(jsonResponse({ status: 'ok' }))
+    if (path === '/api/v1/me') return Promise.resolve(jsonResponse(REAL_USER))
+
+    for (const handler of handlers) {
+      const response = handler(path, url, init)
+      if (response) return Promise.resolve(response)
+    }
+
+    return Promise.resolve(notFoundResponse())
+  })
+}
+
+describe('Routing de la aplicación — VITE_AUTH_MODE=real', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.stubEnv('VITE_AUTH_MODE', 'real')
+    setToken('token-real-1')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  it('/patients (reproducción exacta del bug) carga el listado sin crashear', async () => {
+    vi.stubGlobal(
+      'fetch',
+      buildRealAuthFetchMock((path) => {
+        if (path === '/api/v1/patients') {
+          return jsonResponse({ items: [makePatient()], total: 1, limit: 10, offset: 0 })
+        }
+        return undefined
+      }),
+    )
+    renderAppAt('/patients')
+    expect(await screen.findByText('PAT-0001')).toBeInTheDocument()
+  })
+
+  it('/patients/:id (detalle/formulario) carga el paciente correcto', async () => {
+    vi.stubGlobal(
+      'fetch',
+      buildRealAuthFetchMock((path) => {
+        if (path === '/api/v1/patients/p-1') return jsonResponse(makePatient())
+        if (path === '/api/v1/clinical-sessions') {
+          return jsonResponse({ items: [], total: 0, limit: 10, offset: 0 })
+        }
+        return undefined
+      }),
+    )
+    renderAppAt('/patients/p-1')
+    expect(await screen.findByText('Paciente PAT-0001')).toBeInTheDocument()
+  })
+
+  it('/retention (página con gating por rol) renderiza su contenido real, no el mensaje de modo fake', async () => {
+    vi.stubGlobal(
+      'fetch',
+      buildRealAuthFetchMock((path) => {
+        if (path === '/api/v1/retention/expired-audio') return jsonResponse({ items: [] })
+        return undefined
+      }),
+    )
+    renderAppAt('/retention')
+    expect(await screen.findByText('Audio expirado')).toBeInTheDocument()
+    expect(screen.queryByText(/selecciona un usuario de desarrollo/i)).not.toBeInTheDocument()
   })
 })
