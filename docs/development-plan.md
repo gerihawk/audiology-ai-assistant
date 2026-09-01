@@ -987,6 +987,281 @@ de funcionamiento de autenticación real, opcional vía `AUTH_MODE`/
 `VITE_AUTH_MODE` — el comportamiento de desarrollo (`X-Dev-User-Id`)
 sigue siendo el valor por defecto y no cambia.
 
+## Fase 10 — Despliegue a producción (Railway)
+
+Scope nuevo, fuera del MVP original (rama `feature/phase-10-deployment`,
+creada desde `main` con las Fases 0-9 ya mergeadas). Motivo: la
+aplicación tenía ya autenticación real (Fase 9), RBAC y retención (Fase
+7-8), pero nunca se había ejecutado fuera de `docker compose` local — sin
+integración continua, sin imágenes optimizadas para producción, sin
+ningún entorno desplegado, sin observabilidad de errores en producción.
+
+**Estado (hito 10.1 — pipeline de calidad en GitHub Actions, cerrado)**:
+`.github/workflows/ci.yml`, dos jobs independientes (`backend`/
+`frontend`), disparados en `pull_request` contra `main` y en `push` a
+`main` (Fase 10, cierre, ver más abajo, también a `feature/**`). Backend:
+Python 3.12 + Postgres 16 como servicio (health-check propio antes de
+arrancar los tests), `pip install -e ".[dev]"`, `ruff check .`,
+`black --check .`, `pytest`. Frontend: Node 22, `npm ci`, `npm run lint`,
+`npm run format:check`, `npm run test`, `npm run build` — el build de
+Vite como parte del propio CI, no solo los tests, para detectar errores
+de `tsc` que los tests unitarios no cubrirían. Dos fixes que bloqueaban
+el pipeline la primera vez que corrió: `audio_storage_local_dir`
+asumía la ruta absoluta `/app` de Docker (rota fuera de ese contenedor,
+corregida a ruta relativa) y una aserción de `client.test.ts` que
+comparaba un `Blob` construido por `undici`/Node contra el `Blob` global
+de jsdom — mismo dato, dos constructores de distinto realm, `instanceof`
+falla aunque el contenido sea idéntico.
+
+**Estado (hito 10.2 — imágenes Docker de producción, cerrado)**:
+`backend/Dockerfile.prod` (`python:3.12-slim`, `pip install .` sin modo
+editable, `gosu` instalado para el entrypoint) y
+`frontend/Dockerfile.prod` (build multi-stage: `node:22-alpine` compila
+con `vite build`, `nginx:alpine` sirve el resultado — `nginx.conf.template`
+con cabeceras de seguridad, ver hito 10.5). Deliberadamente separadas de
+los `Dockerfile` de desarrollo (sin tocar, sin hot-reload ni bind mounts
+en las de producción). Fix de seguimiento: el volumen de almacenamiento
+de audio montado en Railway pertenece a `root` por defecto — el
+contenedor arrancaba como `root`, corregía los permisos del volumen
+(`chown`) y cedía privilegios al usuario `app` no-root vía `gosu` antes
+de lanzar `uvicorn` (`entrypoint.sh`), en vez de correr la aplicación
+como `root` de forma permanente.
+
+**Estado (hito 10.3 — primer despliegue en Railway, cerrado)**: creación
+de los servicios de Railway (backend, frontend, Postgres) a partir de las
+imágenes del hito 10.2, variables de entorno de producción configuradas
+directamente en el dashboard de Railway — sin diff de código propio en
+este hito (de ahí que no exista un commit dedicado; el primer commit que
+lo da por hecho es el cron de retención del hito 10.4, que ya asume un
+backend desplegado). Un incidente de la propia plataforma Railway obligó
+a forzar un redeploy manual sin cambios de código. Deuda ya identificada
+en este punto y confirmada más tarde por la auditoría de cierre (ver más
+abajo): sin `railway.json` ni ningún otro artefacto de infraestructura
+como código — toda la configuración vive únicamente en el dashboard de
+Railway, sin versionar; y sin dominio propio, la aplicación sigue
+sirviendo desde el subdominio `*.up.railway.app` generado por la
+plataforma, sin certificado TLS propio.
+
+**Estado (hito 10.4 — retención vía cron externo, cerrado)**: Railway no
+permite compartir un volumen entre dos servicios distintos, así que el
+proceso de retención (`RetentionCleanupService`, Fase 7.2) no puede
+ejecutarse como un segundo servicio con acceso directo al volumen de
+audio del backend. Nuevo endpoint `POST /api/v1/retention/system-purge`
+(`app/retention/api/router.py`), autenticado por un secreto compartido
+(`RETENTION_CRON_SECRET`, comparado con `secrets.compare_digest`, nunca
+`==`) en vez de por un usuario de una clínica concreta — el llamador es
+un Cron Job de Railway, no una persona. Servicio auxiliar mínimo
+(`ops/retention-cron/`, `Dockerfile` + script Python) que solo dispara
+esa llamada HTTP contra el backend ya desplegado, sin acceso propio a la
+base de datos ni al volumen. `RETENTION_CRON_SECRET` sigue el mismo
+patrón de guardarraíl que `JWT_SECRET_KEY`: obligatorio, sin default de
+Python, rechazado en `_INSECURE_DEFAULT_PASSWORDS` en production.
+
+**Estado (hito 10.5 — hardening HTTP, cerrado)**: cierra formalmente la
+deuda aplazada en el hito 8.4 (cabeceras de seguridad, rate limiting,
+límites de subida) — ahora sí existe un objetivo de despliegue real,
+condición que el propio hito 8.4 fijaba para retomarlo.
+`SecurityHeadersMiddleware` (`X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, y `Strict-Transport-Security` solo
+fuera de development/test); `slowapi` para rate limiting (`Limiter` en
+memoria del proceso — límite general 120/minute, `POST /auth/login` a
+5/minute, `/health`/`/ready` exentos); `RequestSizeLimitMiddleware`
+(techo configurable, por encima del límite específico de subida de audio
+de la Fase 5); gating de `/docs`/`/redoc`/`/openapi.json` fuera de
+production. Fix de seguimiento verificado en producción real: `slowapi`
+identificaba al cliente por `request.client.host`, que detrás del proxy
+de Railway es la IP del propio proxy (varía en cada petición) — el rate
+limit de login nunca se disparaba en la práctica. Corregido leyendo el
+primer valor de `X-Forwarded-For` cuando está presente, con la asunción
+de confianza explícita de que todo el tráfico público pasa por el proxy
+de Railway y que Railway sanea esa cabecera antes de reenviarla (nunca
+un valor sin sanear que el cliente pudiera falsificar directamente).
+
+**Estado (hito 10.6 — observabilidad: Sentry y logging estructurado,
+cerrado)**: Sentry (`sentry-sdk[fastapi]` backend, `@sentry/react`
+frontend) EXCLUSIVAMENTE como error tracking — sin Performance/Tracing
+(`traces_sample_rate`/`tracesSampleRate` a 0 explícitamente en ambos
+lados), sin Session Replay ni Profiling. Saneamiento agresivo antes de
+enviar cualquier evento: cuerpo de request/response, variables locales de
+traceback, cabeceras fuera de una lista blanca mínima
+(`content-type`/`x-request-id`), parámetros de breadcrumbs SQL (solo la
+sentencia parametrizada, nunca los valores) en el backend; en el
+frontend, `integrations` en forma función (nunca array literal — un
+array sustituye/pierde el mecanismo de fusión de integraciones por
+defecto de forma dependiente de versión del SDK, incluida
+`globalHandlersIntegration`, que captura
+`window.onerror`/`unhandledrejection` — confirmado como incidente real:
+un `throw` de prueba no generó ningún evento con la forma array) y
+`console: false` en `breadcrumbsIntegration` (el resto de breadcrumbs
+`fetch`/`xhr` ya excluyen cuerpo por diseño de la SDK). `scope.user`
+limitado exclusivamente a `id` (UUID opaco) — nunca email ni
+`display_name`, aunque `CurrentUser` los exponga a los dos. `release`
+desde `RAILWAY_GIT_COMMIT_SHA` (variable de la propia plataforma,
+poblada solo en deploys disparados desde GitHub). Activación siempre
+condicionada a que `SENTRY_DSN`/`VITE_SENTRY_DSN` estén configuradas —
+no-op en cualquier entorno sin ellas, backend y frontend. En paralelo,
+`request_id` (ya generado por `RequestIdMiddleware` desde fases previas)
+se añade como tag a cada evento Sentry de la petición en curso, y se
+corrigió que no llegara al logging JSON estructurado en dos puntos que
+lo omitían (`log_requests` en `app/main.py`,
+`handle_unexpected_error` en `app/core/errors.py`) más tres llamadas de
+`app/ai_pipeline/domain/steps/base.py` que pasaban campos sueltos en
+`extra` sin anidarlos bajo `"context"` — `JsonFormatter` (que solo lee
+`record.context`) los descartaba en silencio. Bug de aislamiento entre
+tests descubierto al escribir estos tests de logging: `alembic/env.py`
+llamaba a `logging.config.fileConfig` con su valor por defecto
+(`disable_existing_loggers=True`), que deshabilita permanentemente
+cualquier logger de la aplicación ya creado en el proceso y no listado en
+`alembic.ini` — como los tests de migraciones ejecutan Alembic en el
+mismo proceso que el resto de la suite, tras ese test ningún log de la
+app volvía a propagarse durante el resto de la sesión de `pytest`;
+corregido con `disable_existing_loggers=False`, sin efecto sobre
+`alembic upgrade head` desde CLI (proceso propio, sin loggers previos que
+proteger).
+
+**Estado (auditoría de cierre entre fases, cerrada)**: antes de dar la
+Fase 10 por completa, auditoría explícita del estado real de despliegue
+frente a lo documentado. Hallazgos: (1) el pipeline de CI (hito 10.1)
+solo corría en `pull_request`/`push` a `main` — cualquier problema en una
+rama `feature/**` no se detectaba hasta abrir el PR; corregido añadiendo
+`feature/**` a `push.branches` en `ci.yml`. (2) no existía ningún entorno
+de staging — toda verificación manual se hacía contra producción
+directamente o no se hacía; resuelto en el hito 10.7. (3) sin
+`railway.json` ni ningún otro artefacto de infraestructura como código —
+deuda ya señalada en el hito 10.3, confirmada aquí, no repetida dos veces
+por descuido. (4) sin dominio propio — deuda igualmente ya señalada en el
+hito 10.3. (5) el rate limiting de `POST /auth/login` — que
+[privacy-and-security.md](privacy-and-security.md) §11 documentaba
+todavía como parte de la deuda aplazada del hito 8.4 — llevaba ya
+implementado desde el hito 10.5 (5/minute); la entrada de deuda de ese
+documento había quedado obsoleta sin que nadie la actualizara al cerrar
+el hito 10.5. Ronda con un único cambio de código (el fix de CI); el
+resto son hallazgos documentales, corregidos donde se detectó que la
+documentación ya no reflejaba la realidad.
+
+**Estado (hito 10.7 — entorno de staging, cerrado)**: `Settings.environment`
+gana un cuarto valor literal, `"staging"` (antes
+`Literal["development", "test", "production"]`), y una property
+`is_staging` nueva junto a `is_production`. `_validate_production_safety`
+pasa a evaluarse si `is_production` **o** `is_staging` — las mismas
+validaciones (CORS sin comodín, `POSTGRES_PASSWORD`/`JWT_SECRET_KEY`/
+`RETENTION_CRON_SECRET` fuera de la lista insegura, `AUTH_MODE=real`
+obligatorio, bloque de consentimiento/límite de coste LLM si hay algún
+proveedor LLM real activo) aplican igual en los dos entornos — un entorno
+de staging con las mismas fugas potenciales que production no protege
+nada. Mismo criterio propagado a `FakeCurrentUserProvider` (rechaza
+`is_production` **o** `is_staging`, mensaje de error generalizado a los
+dos), `register_dev_tools` (no-op en los dos) y
+`hsts_enabled=settings.is_production or settings.is_staging` en
+`SecurityHeadersMiddleware`. Deliberadamente sin tocar: `app/seed.py`
+(el seed de usuarios ficticios sigue permitido en staging — necesario
+para poder entrar a probarlo) y `_docs_kwargs_for` en `app/main.py` (los
+docs interactivos siguen visibles fuera de production, staging incluido).
+
+Antes de llegar a esta implementación se intentó activar **"PR
+Environments" de Railway** — entornos efímeros creados automáticamente
+por cada Pull Request, que se habrían destruido solos al cerrarlo. Los
+permisos de la GitHub App de Railway se verificaron correctos y se
+provocó el disparador varias veces (la mayoría sin commit propio, vía
+dashboard), pero el entorno nunca llegó a crearse por una causa no
+identificada tras varias pruebas — **deuda documentada, sin resolver**,
+no investigada más a fondo para no bloquear el resto del cierre de la
+fase. El único commit vacío dedicado a este intento,
+`chore: trigger PR Environment` (`d230329`), queda fechado ya después del
+commit que implementa el staging persistente (`d9cdb9c`) — coherente con
+que fuera el último intento de confirmación y no el primero de la serie,
+aunque el orden exacto de los intentos previos sin commit no quedó
+registrado con precisión. Se optó en su lugar por un entorno de staging
+**persistente**, creado por duplicación manual del servicio de
+production en el dashboard de Railway, con variables propias:
+`JWT_SECRET_KEY` distinto (nunca compartido con production),
+`BACKEND_CORS_ORIGINS`/`VITE_API_BASE_URL` propios del subdominio de
+staging, `ENVIRONMENT=staging`, `VITE_SENTRY_ENVIRONMENT=staging` (ver
+más abajo), cron de retención **desactivado** (datos de staging no
+sujetos a la misma política de retención que production) y el seed de
+usuarios ficticios **sí activo** (a diferencia de production, donde
+`app/seed.py` se rechaza estructuralmente).
+
+Un efecto colateral encontrado al verificar Sentry en staging:
+`import.meta.env.MODE` (modo de build de Vite) vale `"production"` tanto
+en el build de producción como en el de staging — ambos ejecutan
+`vite build` sin distinción — así que Sentry etiquetaba los eventos de
+staging como si fueran de production. Corregido con
+`VITE_SENTRY_ENVIRONMENT` (opcional, sin romper ningún entorno que no la
+defina — cae a `import.meta.env.MODE`), inyectada por servicio en
+`frontend/Dockerfile.prod` igual que `VITE_SENTRY_DSN`.
+
+**Estado (dos bugs reales de producción, descubiertos al verificar
+staging manualmente, cerrados)**: ninguno de los dos lo causó el trabajo
+de esta fase — ya estaban en producción, solo que nunca se habían
+probado con `VITE_AUTH_MODE=real` fuera de los tests automáticos.
+(1) `useDevUser()` (`shared/devUser/DevUserContext.tsx`) se llamaba sin
+condiciones desde once páginas de `AppRoutes` (`PatientsPage`,
+`ClinicalSessionsPage` y el resto), pero `RealAuthApp` nunca monta
+`<DevUserProvider>` — cualquier usuario real que navegara a `/patients`
+(o cualquiera de las otras diez) recibía una pantalla en blanco con
+`"useDevUser debe usarse dentro de <DevUserProvider>"`. Corregido
+haciendo que `useDevUser()` derive el mismo shape del usuario autenticado
+vía un nuevo `useAuthOptional()` (variante de `useAuth()` que no lanza si
+no hay `<AuthProvider>`) cuando no hay `<DevUserProvider>` montado — el
+modo fake queda intacto, las once páginas no se tocaron. (2) no existía
+ningún endpoint real (autenticado) para listar los usuarios elegibles
+como "profesional responsable" de una sesión clínica —
+`useProfessionalOptions` dependía en exclusiva de `GET /api/v1/dev/users`,
+exclusivo de desarrollo y ya deshabilitado en production desde antes de
+esta fase — así que crear cualquier sesión clínica como usuario real
+estaba roto (campo obligatorio, desplegable siempre vacío). Corregido con
+`GET /api/v1/clinical-sessions/eligible-professionals` (misma regla que
+`ClinicalSessionService._validate_professional`: misma clínica, activo,
+rol admin/audiologist), y `useProfessionalOptions` eligiendo entre ese
+endpoint y `GET /dev/users` según qué esté realmente montado en el árbol
+— mismo criterio que el bug anterior, nunca releer `VITE_AUTH_MODE`.
+
+**Estado (verificación manual completa en staging, cerrada)**: login con
+credenciales reales, creación de una sesión clínica completa y subida de
+audio con transcripción real contra Deepgram
+(`https://api.eu.deepgram.com`, endpoint UE, ver
+[transcription-benchmark.md](transcription-benchmark.md)). Esta
+verificación reveló que, hasta este punto, `TRANSCRIPTION_PROVIDER`
+seguía en `mock` en **todos** los entornos, incluida production — las
+variables `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` de Railway seguían con
+el valor placeholder `CHANGE_ME_LOCAL_ONLY` de `.env.example`, pese a que
+ambos proveedores están integrados y disponibles desde la Fase 5/5.3.
+Decisión: activar el proveedor real (Deepgram) **solo en staging**, dejando
+production deliberadamente en `mock` hasta que exista una decisión de
+negocio explícita sobre el lanzamiento — no es un olvido, es una elección
+consciente para no facturar contra una clave real sin haber decidido
+todavía vender el producto. Política acordada para el manejo de esta
+clave real en staging (documentada también en
+[privacy-and-security.md](privacy-and-security.md) §10): (1) heredar
+claves reales de un proveedor está permitido temporalmente en staging;
+(2) ninguna prueba automática (CI, suite de tests) debe poder disparar
+una transcripción real — la suite completa sigue usando exclusivamente
+`MockTranscriptionProvider`; (3) las pruebas manuales contra staging
+deben ser deliberadamente mínimas, nunca una fuente sistemática de
+tráfico; (4) debe quedar documentado que consumen cuota/facturación real
+del proveedor. Se sustituirán por credenciales de sandbox si
+AssemblyAI/Deepgram llegan a ofrecerlas más adelante.
+
+**Fase 10 completa.** CI/CD, imágenes de producción, despliegue real en
+Railway (production + staging), retención vía cron externo, hardening
+HTTP, observabilidad de errores con saneamiento de PHI, y un entorno de
+staging persistente que ya sirvió para encontrar y cerrar dos bugs reales
+de producción antes de que los encontrara un usuario real. **Deuda
+documentada explícitamente, aplazada, no oculta:**
+
+- **PR Environments de Railway sin funcionar** — permisos verificados
+  correctos, disparado varias veces, nunca se crea el entorno; causa no
+  identificada. Se sigue con el staging persistente mientras tanto.
+- **Sin dominio propio ni TLS custom** — la aplicación sirve desde
+  `*.up.railway.app` en production y en staging.
+- **Sin `railway.json` ni infraestructura como código** — toda la
+  configuración de los servicios de Railway vive únicamente en su
+  dashboard, sin versionar ni reproducible desde el repositorio.
+- **Proveedor de transcripción real activo solo en staging** — production
+  sigue en `mock`, pendiente de una decisión de negocio explícita antes
+  de vender el producto (ver más arriba).
+
 ## Fuera de las fases del MVP
 
 Cualquier integración real (Noah, calendario, o cualquier proveedor de
