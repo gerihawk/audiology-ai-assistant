@@ -203,6 +203,100 @@ def test_env_ignore_empty_variable_vacia_opcional_se_trata_como_no_definida(
     assert settings.llm_provider_summary == "mock"
 
 
+# --- Gating de /docs, /redoc, /openapi.json en production (Fase 10.5) ----
+
+
+def test_docs_kwargs_deshabilitados_en_production() -> None:
+    from app.main import _docs_kwargs_for
+
+    settings = Settings(environment="production", **_base_kwargs())
+    assert _docs_kwargs_for(settings) == {
+        "docs_url": None,
+        "redoc_url": None,
+        "openapi_url": None,
+    }
+
+
+def test_docs_kwargs_disponibles_en_development() -> None:
+    from app.main import _docs_kwargs_for
+
+    settings = Settings(environment="development", **_base_kwargs())
+    assert _docs_kwargs_for(settings) == {}
+
+
+# --- "staging" exige las mismas validaciones que "production" (Fase 10.7) -
+#
+# La suite no parametriza por entorno en los tests de production de más
+# arriba (cada caso es su propia función) — aquí sí se parametriza, pero
+# solo dentro de este bloque nuevo, sin retocar los tests existentes.
+
+
+@pytest.mark.parametrize(
+    "overrides, match",
+    [
+        ({"backend_cors_origins": "*"}, "BACKEND_CORS_ORIGINS"),
+        ({"postgres_password": "CHANGE_ME_LOCAL_ONLY"}, "POSTGRES_PASSWORD"),
+        ({"auth_mode": "fake"}, "AUTH_MODE"),
+        ({"jwt_secret_key": "CHANGE_ME_LOCAL_ONLY"}, "JWT_SECRET_KEY"),
+    ],
+)
+def test_staging_rechaza_los_mismos_casos_invalidos_que_production(
+    overrides: dict, match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        Settings(environment="staging", **{**_base_kwargs(), **overrides})
+
+
+def test_staging_accepts_valid_configuration() -> None:
+    settings = Settings(environment="staging", **_base_kwargs())
+    assert settings.is_staging is True
+    assert settings.is_production is False
+    assert settings.cors_origins == ["https://app.example.com"]
+
+
+@pytest.mark.parametrize(
+    "overrides, match",
+    [
+        ({}, "AI_PROCESSING_CONSENT_ENFORCED"),
+        ({"ai_processing_consent_enforced": True}, "LLM_COST_LIMIT_ENFORCED"),
+        (
+            {"ai_processing_consent_enforced": True, "llm_cost_limit_enforced": True},
+            "MAX_LLM_COST_PER_SESSION_USD",
+        ),
+        (
+            {
+                "ai_processing_consent_enforced": True,
+                "llm_cost_limit_enforced": True,
+                "max_llm_cost_per_session_usd": "10.00",
+            },
+            "GOOGLE_API_KEY",
+        ),
+    ],
+)
+def test_staging_con_proveedor_real_rechaza_los_mismos_casos_que_production(
+    overrides: dict, match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        Settings(
+            environment="staging",
+            llm_provider_summary="google",
+            **{**_base_kwargs(), **overrides},
+        )
+
+
+def test_staging_con_proveedor_real_y_configuracion_completa_es_valida() -> None:
+    settings = Settings(
+        environment="staging",
+        llm_provider_summary="google",
+        google_api_key="test-key",
+        ai_processing_consent_enforced=True,
+        llm_cost_limit_enforced=True,
+        max_llm_cost_per_session_usd="10.00",
+        **_base_kwargs(),
+    )
+    assert settings.llm_provider_summary == "google"
+
+
 def test_env_ignore_empty_valor_real_presente_sigue_parseandose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

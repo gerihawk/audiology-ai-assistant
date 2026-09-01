@@ -22,6 +22,7 @@ from app.core.current_user import (
     RealCurrentUserProvider,
 )
 from app.core.db import get_db_session
+from app.core.sentry import tag_current_user
 from app.export.service import ExportService
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.factory import build_transcription_provider
@@ -77,7 +78,11 @@ async def get_current_user(
     session: AsyncSession = Depends(get_db_session),
     provider: CurrentUserProvider = Depends(get_current_user_provider),
 ) -> CurrentUser:
-    return await provider.get_current_user(request, session)
+    current_user = await provider.get_current_user(request, session)
+    # Solo `.id` (UUID opaco) — nunca `.email`/`.display_name`, aunque
+    # `CurrentUser` los exponga a los dos (ver core/current_user.py).
+    tag_current_user(current_user.id)
+    return current_user
 
 
 async def get_patient_service(

@@ -45,7 +45,7 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
     )
 
-    environment: Literal["development", "test", "production"] = "development"
+    environment: Literal["development", "test", "production", "staging"] = "development"
     log_level: str = "INFO"
 
     postgres_user: str
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
 
     # --- Audio (Fase 5) ---
     audio_storage_provider: str = "local"
-    audio_storage_local_dir: str = "/app/storage/audio"
+    audio_storage_local_dir: str = "storage/audio"
     audio_max_size_mb: int = 50
     audio_allowed_mime_types: str = (
         "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/webm,audio/ogg"
@@ -217,10 +217,32 @@ class Settings(BaseSettings):
     google_base_url: str = "https://generativelanguage.googleapis.com"
     google_timeout_seconds: float = 120.0
 
-    # --- Retención (Fase 7.2) ---
+    # --- Retención (Fase 7.2 / hito 10.4) ---
     # Umbral global vía entorno, no configurable por clínica (fuera de
     # alcance de esta fase, ver docs/development-plan.md §Fase 7).
     retention_days_default: int = Field(default=30, gt=0)
+    # Autentica al LLAMADOR de POST /api/v1/retention/system-purge (un cron
+    # externo), no a un usuario de una clínica concreta — mismo patrón que
+    # `jwt_secret_key`: obligatorio, sin default, no arranca ni siquiera en
+    # development/test sin él (ver tests/conftest.py). El endpoint la
+    # compara con `secrets.compare_digest`, nunca `==` (ver
+    # app/retention/api/router.py).
+    retention_cron_secret: str
+
+    # --- Hardening HTTP (Fase 10.5) ---
+    # Techo a nivel de aplicación, POR ENCIMA de `audio_max_size_mb` (que
+    # valida específicamente el tamaño de audio subido): rechaza cualquier
+    # cuerpo de request anormalmente grande antes de procesarlo, en
+    # cualquier endpoint — ver app/core/request_size_limit.py.
+    max_request_body_mb: int = Field(default=60, gt=0)
+
+    # --- Error tracking (Fase 10.6) — ver app/core/sentry.py ---
+    # Opcional, sin default: si no está configurada, Sentry no se
+    # inicializa en ningún entorno (ni siquiera production) — no forma
+    # parte de `_validate_production_safety`, a diferencia de
+    # `jwt_secret_key`/`retention_cron_secret`, porque su ausencia nunca
+    # compromete la seguridad, solo la observabilidad.
+    sentry_dsn: str | None = None
 
     # --- Benchmark de generación LLM (Fase 6.2) — ver docs/generation-benchmark.md ---
     # OpenRouter es EXCLUSIVO de `benchmark/generation/` (RFC v2 §6.1): la
@@ -236,6 +258,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def is_staging(self) -> bool:
+        return self.environment == "staging"
 
     @property
     def audio_allowed_mime_types_list(self) -> list[str]:
@@ -258,7 +284,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_safety(self) -> Settings:
-        if not self.is_production:
+        if not (self.is_production or self.is_staging):
             return self
         if not self.cors_origins or "*" in self.cors_origins:
             raise ValueError(
@@ -268,6 +294,8 @@ class Settings(BaseSettings):
             raise ValueError("POSTGRES_PASSWORD insegura para un entorno de production.")
         if self.jwt_secret_key in _INSECURE_DEFAULT_PASSWORDS:
             raise ValueError("JWT_SECRET_KEY insegura para un entorno de production.")
+        if self.retention_cron_secret in _INSECURE_DEFAULT_PASSWORDS:
+            raise ValueError("RETENTION_CRON_SECRET insegura para un entorno de production.")
         if self.auth_mode != "real":
             # Fase 9, hito 9.1: `FakeCurrentUserProvider` (X-Dev-User-Id)
             # ya se rechaza por su cuenta en production (ver

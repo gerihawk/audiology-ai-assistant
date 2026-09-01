@@ -29,7 +29,7 @@ from app.core.authorization import ClinicalSessionAction, authorize_clinical_ses
 from app.core.current_user import CurrentUser
 from app.core.exceptions import ConflictError, NotFoundError
 from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
-from app.users.domain.entities import Role
+from app.users.domain.entities import Role, User
 from app.users.infrastructure.repository import SqlAlchemyUserRepository
 
 
@@ -167,6 +167,20 @@ class ClinicalSessionService:
             limit=limit,
             offset=offset,
         )
+
+    async def list_eligible_professionals(self, current_user: CurrentUser) -> list[User]:
+        """Usuarios de la clínica de `current_user` que pueden ser
+        `professional_id` de una sesión clínica — misma regla que
+        `_validate_professional` (activo, rol `admin`/`audiologist`),
+        expuesta como lectura para poblar el selector del formulario.
+        `ClinicalSessionAction.READ`, no `CREATE`: a diferencia de crear
+        una sesión, `viewer` sí puede ver este listado (igual que puede
+        ver `list`/`get`) — `CREATE` además exige propiedad
+        (`professional_id == current_user.id` para `audiologist`, ver
+        `authorize_clinical_session_action`), una restricción que no
+        aplica a un simple listado de candidatos."""
+        authorize_clinical_session_action(current_user, ClinicalSessionAction.READ)
+        return await self._users.list_eligible_professionals(self._session, current_user.clinic_id)
 
     # --- Edición de metadatos y profesional -----------------------------
 

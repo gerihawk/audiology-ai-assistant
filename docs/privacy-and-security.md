@@ -286,19 +286,76 @@ momento, solo confirmar que la variable de entorno está puesta.
 
 ## 9. Proveedores externos y envío de datos
 
+**Actualizado en el cierre de la Fase 10 (2026-09-01) — desactualizado
+desde la Fase 5**: esta sección afirmaba que las únicas implementaciones
+disponibles de las ocho interfaces del AI Pipeline eran `Mock*` y que no
+se integraba ningún proveedor real. Eso dejó de ser cierto en la Fase 5
+(transcripción) sin que esta sección se actualizara — se corrige aquí,
+junto con dos proveedores externos nuevos de la Fase 10 (Sentry, Railway)
+que nunca formaron parte del AI Pipeline y por tanto nunca estuvieron
+cubiertos por esta sección.
+
 - Ningún dato (audio, transcripción, texto clínico) sale del entorno
   controlado hacia un proveedor externo sin que (a) exista una integración
   configurada explícitamente distinta de `mock`, y (b) exista consentimiento
   y configuración explícitos para ese tipo de envío.
-- En el MVP esto es estructural: las únicas implementaciones disponibles
-  de las ocho interfaces del AI Pipeline (`TranscriptionProvider`,
+- De las ocho interfaces del AI Pipeline (`TranscriptionProvider`,
   `LanguageModelProvider`, `SummaryGenerator`, `ClinicalFlagsGenerator`,
   `MissingInformationGenerator`, `AnamnesisGenerator`, `CostEstimator`,
   `TokenCounter` — ver
-  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6) son
-  `Mock*`, que no hacen ninguna llamada de red. No se integra ningún
-  proveedor real (OpenAI, Anthropic, Claude API, Gemini, Ollama, Llama,
-  Whisper, Azure, AWS u otra API externa) en esta fase.
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6), las
+  siete relacionadas con generación por modelo de lenguaje siguen siendo
+  exclusivamente `Mock*` en todos los entornos — ningún proveedor de pago
+  (OpenAI, Anthropic, Claude API, Gemini u otro) se ha activado nunca,
+  pese a que `Settings` ya soporta su configuración por `artifact_type`
+  (Fase 6.3) — ver [development-plan.md](development-plan.md) §Fuera de
+  las fases del MVP.
+- **`TranscriptionProvider` es la excepción**, integrada desde la Fase 5
+  (AssemblyAI) y la Fase 5.3 (Deepgram), seleccionable vía
+  `TRANSCRIPTION_PROVIDER=mock|assemblyai|deepgram`:
+  - **AssemblyAI** (`app/integrations/providers/assemblyai_transcription_provider.py`):
+    endpoint configurado por defecto `https://api.assemblyai.com` (EE.UU.
+    salvo indicación contraria). AssemblyAI **sí ofrece** un endpoint de
+    residencia de datos en la UE (`https://api.eu.assemblyai.com`,
+    servido desde AWS eu-west-1/Dublín, verificado en su documentación
+    oficial en el cierre de esta fase) pero **la integración actual no lo
+    usa por defecto** — `Settings.assemblyai_base_url` es configurable, la
+    migración al endpoint UE (variable de entorno, sin cambio de código)
+    queda pendiente de revisión si en el futuro se prefiere AssemblyAI
+    sobre Deepgram (relevante para RGPD).
+  - **Deepgram** (`app/integrations/providers/deepgram_transcription_provider.py`):
+    endpoint UE por defecto y ya en uso, `https://api.eu.deepgram.com`
+    (mismas credenciales que el genérico, sin coste ni activación
+    adicional) — decisión deliberada para un producto sanitario, ver
+    [transcription-benchmark.md](transcription-benchmark.md) §Endpoint EU
+    por defecto.
+  - **Estado real por entorno (Fase 10, hito de verificación manual en
+    staging)**: `TRANSCRIPTION_PROVIDER` permaneció en `mock` en todos los
+    entornos, incluida production, hasta el cierre de la Fase 10 — las
+    variables `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` de Railway seguían
+    con el valor placeholder de `.env.example`. Se activó Deepgram (real)
+    **solo en staging**; production sigue deliberadamente en `mock`
+    pendiente de una decisión de negocio explícita sobre el lanzamiento —
+    ver política de manejo de esa clave real en §10 y
+    [development-plan.md](development-plan.md) §Fase 10.
+- **Sentry** (`app/core/sentry.py` backend, `frontend/src/shared/sentry.ts`),
+  proveedor externo nuevo de la Fase 10.6 — EXCLUSIVAMENTE error
+  tracking, nunca contenido clínico. Antes de que cualquier evento salga
+  hacia Sentry: cuerpo de request/response eliminado, variables locales de
+  traceback eliminadas, cabeceras reducidas a una lista blanca mínima
+  (`content-type`, `x-request-id`), parámetros de breadcrumbs SQL
+  eliminados (solo la sentencia parametrizada), `scope.user` limitado a
+  `id` (UUID opaco, nunca email/nombre), sin Session Replay ni Profiling.
+  Activo únicamente si `SENTRY_DSN`/`VITE_SENTRY_DSN` están configuradas
+  — no-op en cualquier entorno sin ellas (ver §10).
+- **Railway**, proveedor de hosting/infraestructura desde la Fase 10 (no
+  un proveedor de IA): aloja los servicios de backend, frontend y
+  PostgreSQL de production y de staging. Toda la base de datos (identidad
+  de pacientes, contenido clínico, auditoría) reside físicamente en la
+  infraestructura de Railway — no hay opción de despliegue alternativa
+  todavía. Sin acuerdo de tratamiento de datos ni evaluación de
+  residencia geográfica de Railway documentados en esta fase; pendiente
+  antes de manejar datos reales (ver §1).
 
 ## 10. Gestión de secretos
 
@@ -313,9 +370,57 @@ momento, solo confirmar que la variable de entorno está puesta.
   exclusivamente de `Settings.jwt_secret_key` — nunca hardcodeada.
   Obligatoria en todos los entornos (sin default de Python, mismo
   criterio que `POSTGRES_PASSWORD`); `_validate_production_safety`
-  rechaza el arranque en production si coincide con el placeholder de
-  `.env.example` (`CHANGE_ME_LOCAL_ONLY`, mismo mecanismo que ya protegía
-  `POSTGRES_PASSWORD`).
+  rechaza el arranque en production **o staging** (Fase 10.7 —
+  `is_production or is_staging`, ver
+  [development-plan.md](development-plan.md) §Fase 10) si coincide con
+  el placeholder de `.env.example` (`CHANGE_ME_LOCAL_ONLY`, mismo
+  mecanismo que ya protegía `POSTGRES_PASSWORD`). Práctica ya implementada desde el
+  despliegue a Railway (Fase 10.3/10.7): **`JWT_SECRET_KEY` es distinto
+  entre production y staging** — nunca la misma clave de firma
+  compartida entre los dos entornos, para que un token emitido en uno no
+  sea válido en el otro.
+- `RETENTION_CRON_SECRET` (Fase 10.4): autentica al cron externo de
+  Railway que dispara `POST /api/v1/retention/system-purge` — mismo
+  criterio de guardarraíl que `JWT_SECRET_KEY` (obligatorio, sin default,
+  rechazado en production/staging si coincide con el placeholder). El
+  endpoint lo compara con `secrets.compare_digest`, nunca `==`.
+- `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` (Fase 5/5.3, activación real
+  decidida en la Fase 10 — ver §9): opcionales, solo obligatorias si
+  `TRANSCRIPTION_PROVIDER` selecciona ese proveedor.
+  `.env.example` las documenta con el placeholder
+  `CHANGE_ME_LOCAL_ONLY`, igual que el resto de secretos — hasta el
+  cierre de la Fase 10 ambas seguían con ese placeholder en Railway en
+  todos los entornos. Nunca se registran en logs ni en
+  `ai_generation_runs` (que de todos modos nunca captura credenciales,
+  ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.5).
+  **Política de manejo de la clave real activada en staging (acordada
+  2026-09-01, cierre de la Fase 10)**:
+  1. Heredar una clave real de un proveedor de transcripción está
+     permitido **temporalmente** en el entorno de staging — no en
+     production, donde `TRANSCRIPTION_PROVIDER` sigue en `mock`.
+  2. Ninguna prueba automática (CI, suite de tests) debe poder disparar
+     una transcripción real bajo ninguna circunstancia — la suite
+     completa sigue usando exclusivamente `MockTranscriptionProvider`;
+     ningún test se ejecuta contra staging.
+  3. Las pruebas manuales contra staging que ejerciten el proveedor real
+     deben ser deliberadamente mínimas — nunca una fuente sistemática o
+     recurrente de tráfico de prueba.
+  4. Debe quedar documentado (aquí) que esas pruebas manuales consumen
+     cuota/facturación real del proveedor, no una simulación.
+
+     Se sustituirá por credenciales de entorno sandbox si AssemblyAI o
+     Deepgram llegan a ofrecerlas más adelante — ver
+     [development-plan.md](development-plan.md) §Fase 10 para el
+     hallazgo completo (transcripción llevaba en `mock` en todos los
+     entornos, incluida production, hasta este cierre de fase).
+- `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend, inyectada en
+  build-time del `Dockerfile.prod`, ver §9): opcionales, sin valor por
+  defecto — si no están configuradas, Sentry no se inicializa en ningún
+  entorno, ni siquiera production. El DSN de Sentry no es, en sí, un
+  secreto de alto riesgo (es de solo-escritura hacia el proyecto Sentry,
+  pensado para ir embebido en el bundle del frontend), pero se gestiona
+  con el mismo mecanismo que el resto de configuración por entorno —
+  nunca hardcodeado, nunca commiteado con un valor real.
 - Nunca se registran secretos en logs ni en `audit_logs.metadata` — esto
   incluye contraseñas en claro (nunca se persisten, solo su hash
   `bcrypt`) y JWT emitidos.
@@ -345,7 +450,7 @@ momento, solo confirmar que la variable de entorno está puesta.
 | Uso indebido de `confidence` para aprobar artefactos de IA automáticamente | Prohibido estructuralmente: ninguna ruta de código condiciona una transición a `approved` por el valor de `confidence` (Fase 4, diseño) |
 | Generación de artefactos de IA sin consentimiento de `procesamiento_ia` | Campo y punto de extensión ya preparados en `consents`/`AIPipelineService`; no forzado en el MVP con datos ficticios — riesgo aceptado conscientemente (Fase 4, diseño, ver §7) |
 | Envío de datos clínicos reales a un proveedor de IA de pago sin acuerdo de tratamiento de datos | Bloqueo estructural mientras tanto (solo `Mock*` disponibles); activar un proveedor real es una decisión de producto/legal explícita y posterior, fuera de esta fase |
-| Ausencia de cabeceras de seguridad HTTP, rate limiting y límites de subida sin revisar (Fase 8, hito 8.4) | **Deuda consciente, aplazada, no un descuido**: `app/main.py` monta hoy exactamente tres middlewares (`CORSMiddleware`, `RequestIdMiddleware`, `log_requests`) — ningún middleware de cabeceras (`X-Content-Type-Options`, `X-Frame-Options`, etc.) ni de rate limiting. El propio plan marcaba este punto como opcional ("si el tiempo lo permite", ver [development-plan.md](development-plan.md) §Fase 8). Se aplaza porque no existe todavía ningún objetivo de despliegue real ni datos reales (§1) — endurecer cabeceras/rate limiting/límites de subida tiene sentido frente a un entorno de producción real concreto, no en abstracto. Se retoma cuando exista ese objetivo de despliegue. |
+| Ausencia de cabeceras de seguridad HTTP, rate limiting y límites de subida sin revisar (Fase 8, hito 8.4) | **Cerrado en la Fase 10.5** (deuda de la Fase 8.4, aplazada hasta que existiera un objetivo de despliegue real): `SecurityHeadersMiddleware` (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security` en production/staging), rate limiting con `slowapi` (120/minute general, 5/minute en `POST /auth/login`, `/health`/`/ready` exentos, cliente identificado por `X-Forwarded-For` detrás del proxy de Railway) y `RequestSizeLimitMiddleware` — ver [development-plan.md](development-plan.md) §Fase 10, hito 10.5. Limitación conocida y aceptada: el `Limiter` es en memoria del proceso (sin Redis), correcto solo mientras el despliegue sea de una única réplica. |
 
 ## 12. `CurrentUserProvider`: alcance y limitaciones (Fase 2, actualizado Fase 9)
 

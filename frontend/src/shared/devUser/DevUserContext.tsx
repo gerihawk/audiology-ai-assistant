@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { type AuthContextValue, type AuthStatus, useAuthOptional } from '../auth/AuthContext'
 import { getCurrentUser, listDevUsers } from '../api/devUsers'
 import type { CurrentUser, DevUser } from '../api/types'
 
@@ -104,10 +105,84 @@ export function DevUserProvider({ children }: { children: ReactNode }) {
   return <DevUserContext.Provider value={value}>{children}</DevUserContext.Provider>
 }
 
-export function useDevUser(): DevUserContextValue {
-  const context = useContext(DevUserContext)
-  if (!context) {
-    throw new Error('useDevUser debe usarse dentro de <DevUserProvider>')
+/** `AuthContext.status` ('checking'/'authenticated'/'unauthenticated') al
+ * vocabulario de `DevUserContextValue.status` ('loading'/'ready'/'error') —
+ * exhaustivo por construcción: la rama `default` fuerza un error de
+ * compilación (`never`) si `AuthStatus` gana un valor nuevo sin actualizar
+ * este mapeo. */
+function mapAuthStatus(status: AuthStatus): Status {
+  switch (status) {
+    case 'checking':
+      return 'loading'
+    case 'authenticated':
+      return 'ready'
+    case 'unauthenticated':
+      return 'error'
+    default: {
+      const exhaustiveCheck: never = status
+      throw new Error(`AuthStatus sin mapear: ${exhaustiveCheck}`)
+    }
   }
-  return context
+}
+
+/** Deriva el shape de `DevUserContextValue` a partir del usuario real
+ * autenticado (`VITE_AUTH_MODE=real`) — `role`/`id` incluidos, mismo tipo
+ * `CurrentUser` que ya devuelve `GET /api/v1/me` (ver
+ * `app/api/schemas.py::CurrentUserResponse` en el backend), así que el
+ * gating de permisos de páginas como `IntegrationsPage`/`RetentionPage`
+ * (que leen `currentUser?.role`) sigue funcionando sin cambios. `devUsers`
+ * y `selectUser` no tienen equivalente en modo real — nada los consume
+ * fuera de `DevUserSwitcher`, que solo se monta en modo fake. */
+function fromAuthContext(auth: AuthContextValue): DevUserContextValue {
+  return {
+    devUsers: [],
+    currentUser: auth.currentUser,
+    selectedUserId: auth.currentUser?.id ?? null,
+    status: mapAuthStatus(auth.status),
+    errorMessage: auth.errorMessage,
+    selectUser: () => {
+      // No-op: no existe selector de usuario de desarrollo en modo real.
+    },
+  }
+}
+
+/** Funciona en los dos modos de autenticación (Fase 9, hito 9.2):
+ * - Modo fake (`VITE_AUTH_MODE=fake`, por defecto): dentro de
+ *   `<DevUserProvider>` (ver `FakeAuthApp` en App.tsx), devuelve su valor
+ *   sin cambios — comportamiento idéntico al de siempre.
+ * - Modo real (`VITE_AUTH_MODE=real`): `RealAuthApp` no monta
+ *   `<DevUserProvider>` (no tiene sentido elegir un usuario ficticio con
+ *   sesión real), así que se deriva el mismo shape del usuario
+ *   autenticado vía `useAuthOptional()` — ver `fromAuthContext` arriba.
+ *   Esto evita que las páginas de `AppRoutes` (`PatientsPage`,
+ *   `ClinicalSessionsPage`, etc., que llaman a `useDevUser()` sin saber en
+ *   qué modo está la app) crasheen en modo real.
+ *
+ * Sigue lanzando si ni `<DevUserProvider>` ni `<AuthProvider>` están
+ * presentes — el guardarraíl original, ahora cubriendo ambos casos. */
+export function useDevUser(): DevUserContextValue {
+  const devUserContext = useContext(DevUserContext)
+  const authContext = useAuthOptional()
+  if (devUserContext) {
+    return devUserContext
+  }
+  if (authContext) {
+    return fromAuthContext(authContext)
+  }
+  throw new Error(
+    'useDevUser debe usarse dentro de <DevUserProvider> (modo fake) o <AuthProvider> (modo real)',
+  )
+}
+
+/** `true` si hay un `<DevUserProvider>` montado (modo fake) — mismo
+ * criterio de "qué está realmente disponible" que usa `useDevUser()` por
+ * dentro, expuesto para consumidores que necesitan decidir QUÉ fuente de
+ * datos usar en lugar de solo leer el resultado ya adaptado (p. ej.
+ * `useProfessionalOptions`, que en modo fake sigue llamando a
+ * `listDevUsers()` y en modo real llama al endpoint real de profesionales
+ * elegibles — dos endpoints distintos, no algo que `useDevUser()` pueda
+ * decidir por él). Nunca releer `VITE_AUTH_MODE` para esto — el árbol
+ * montado es la fuente de verdad. */
+export function useIsDevUserModeActive(): boolean {
+  return useContext(DevUserContext) !== null
 }

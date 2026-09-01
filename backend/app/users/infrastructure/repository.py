@@ -54,6 +54,26 @@ class SqlAlchemyUserRepository:
         result = await session.execute(select(UserORM).order_by(UserORM.created_at))
         return [_to_domain(row) for row in result.scalars().all()]
 
+    async def list_eligible_professionals(
+        self, session: AsyncSession, clinic_id: uuid.UUID
+    ) -> list[User]:
+        """Usuarios de `clinic_id` que pueden ser `professional_id` de una
+        sesión clínica — misma regla que
+        `ClinicalSessionService._validate_professional`: activo, rol
+        `admin` o `audiologist` (nunca `viewer`). Alfabético por
+        `display_name`: pensado para poblar un desplegable, a diferencia
+        de `list_all` (orden de creación, sin filtrar)."""
+        result = await session.execute(
+            select(UserORM)
+            .where(
+                UserORM.clinic_id == clinic_id,
+                UserORM.is_active.is_(True),
+                UserORM.role.in_([Role.ADMIN.value, Role.AUDIOLOGIST.value]),
+            )
+            .order_by(UserORM.display_name)
+        )
+        return [_to_domain(row) for row in result.scalars().all()]
+
     async def add(self, session: AsyncSession, user: User) -> None:
         session.add(
             UserORM(
