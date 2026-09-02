@@ -78,18 +78,24 @@ def normalize_database_url(url: str) -> str:
 
 def load_config(environ: Mapping[str, str]) -> Config:
     """Lee y valida el entorno. Lanza `KeyError` nombrando las variables
-    obligatorias que falten o estén vacías — nunca aplica un default."""
+    obligatorias que falten o estén vacías — nunca aplica un default.
+
+    `.strip()` en cada valor: Railway ya nos ha colado espacios/saltos de
+    línea invisibles alrededor de una variable de referencia declarada en
+    el dashboard (ver `normalize_database_url`), y con credenciales AWS
+    un solo carácter de más rompe el cálculo de la firma SigV4 con un
+    'SignatureDoesNotMatch' que no delata la causa real."""
     missing = [name for name in _REQUIRED_VARS if not environ.get(name)]
     if missing:
         raise KeyError(f"variables de entorno obligatorias sin definir: {', '.join(missing)}")
     return Config(
         database_url=normalize_database_url(environ["DATABASE_URL"]),
-        age_public_key=environ["POSTGRES_BACKUP_AGE_PUBLIC_KEY"],
-        bucket_endpoint=environ["POSTGRES_BACKUP_BUCKET_ENDPOINT"],
-        bucket_name=environ["POSTGRES_BACKUP_BUCKET_NAME"],
-        access_key_id=environ["POSTGRES_BACKUP_ACCESS_KEY_ID"],
-        secret_access_key=environ["POSTGRES_BACKUP_SECRET_ACCESS_KEY"],
-        bucket_region=environ.get("POSTGRES_BACKUP_BUCKET_REGION") or "auto",
+        age_public_key=environ["POSTGRES_BACKUP_AGE_PUBLIC_KEY"].strip(),
+        bucket_endpoint=environ["POSTGRES_BACKUP_BUCKET_ENDPOINT"].strip(),
+        bucket_name=environ["POSTGRES_BACKUP_BUCKET_NAME"].strip(),
+        access_key_id=environ["POSTGRES_BACKUP_ACCESS_KEY_ID"].strip(),
+        secret_access_key=environ["POSTGRES_BACKUP_SECRET_ACCESS_KEY"].strip(),
+        bucket_region=(environ.get("POSTGRES_BACKUP_BUCKET_REGION") or "auto").strip(),
     )
 
 
