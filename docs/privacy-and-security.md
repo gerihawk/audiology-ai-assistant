@@ -284,6 +284,51 @@ momento, solo confirmar que la variable de entorno está puesta.
   de prueba usando el mismo mecanismo de limpieza manual, no un borrado
   directo en base de datos.
 
+### 8.1 Continuidad y recuperación ante desastres (Fase 11)
+
+Retención (arriba) responde a *"borrar lo que ya no debe conservarse"*.
+Esta subsección responde a lo contrario: *"no perder lo que sí debe
+conservarse"*. **Solo cubre production** — staging es un entorno
+desechable (seed + transcripción mock) y se deja sin backups a propósito.
+
+Tres capas complementarias sobre el Postgres de production de Railway;
+detalle operativo en
+[`ops/postgres-backup-cron/README.md`](../ops/postgres-backup-cron/README.md):
+
+| Capa | Mecanismo | Ventana de recuperación | Cubre / no cubre |
+|------|-----------|-------------------------|------------------|
+| **Volume Backups nativos** (11.1) | Snapshots diarios del volumen, gestionados por Railway | Según retención del plan de Railway | Restaura en el mismo proyecto/servicio: error de despliegue, corrupción accidental. **No** cubre pérdida del proyecto/cuenta. |
+| **Point-in-Time Recovery** (11.2) | pgBackRest: base + WAL continuo a bucket gestionado por Railway | ~4 semanas, **contadas desde la activación** (no retroactiva) | Volver a un instante concreto. Restore a servicio hermano, cutover manual. **No** cubre pérdida de la cuenta. |
+| **`pg_dump` externo cifrado** (11.3) | Cron Job de Railway independiente del backend (`ops/postgres-backup-cron/`): `pg_dump -Fc` → `age` → bucket S3-compatible en la UE | Diaria (granularidad = frecuencia del cron); retención de 30 días por lifecycle rule del bucket | **La única capa que sobrevive a la pérdida total de Railway.** Copia fuera de Railway, bajo control directo de Gerard. |
+
+Puntos de seguridad de la capa 11.3:
+
+- **La clave privada de `age` NUNCA vive en Railway** — ni en variables de
+  entorno, ni en el repo, ni online. La genera Gerard offline
+  (`age-keygen`) y la guarda offline (gestor de contraseñas + copia en
+  frío). Railway solo conoce la **clave pública** (`POSTGRES_BACKUP_AGE_PUBLIC_KEY`),
+  con la que se cifra pero no se descifra. Un atacante con acceso total a
+  Railway (o a Railway comprometido) no puede leer los dumps del bucket.
+- **Acceso al bucket externo**: bucket S3-compatible en región/jurisdicción
+  UE (recomendado Cloudflare R2 con jurisdicción EU). El token que usa el
+  cron tiene permiso de **escritura** sobre el prefijo `production/`; la
+  lectura (restore) usa credenciales aparte, en poder de Gerard. Los
+  objetos del bucket están cifrados en cliente con `age` **además** del
+  cifrado en reposo del proveedor.
+- `POSTGRES_BACKUP_AGE_PUBLIC_KEY` y las credenciales del bucket
+  (`POSTGRES_BACKUP_*`) son **obligatorias, sin default inseguro** — mismo
+  criterio de guardarraíl que `RETENTION_CRON_SECRET`/`JWT_SECRET_KEY`
+  (ver §10); `backup.py` sale con `KeyError` si falta alguna.
+- El dump en claro **nunca se escribe a disco**: `pg_dump | age` por pipe,
+  solo el `.dump.age` ya cifrado toca `/tmp` del contenedor (efímero).
+
+**Un backup no restaurado es un backup no verificado** (criterio de
+Railway). El runbook de restore
+([`README.md`](../ops/postgres-backup-cron/README.md) §Hito 11.4) debe
+ejecutarse de verdad al menos una vez contra un dump real de production,
+con constancia en [development-plan.md](development-plan.md) §Fase 11
+(fecha + resultado).
+
 ## 9. Proveedores externos y envío de datos
 
 **Actualizado en el cierre de la Fase 10 (2026-09-01) — desactualizado
@@ -355,7 +400,16 @@ cubiertos por esta sección.
   infraestructura de Railway — no hay opción de despliegue alternativa
   todavía. Sin acuerdo de tratamiento de datos ni evaluación de
   residencia geográfica de Railway documentados en esta fase; pendiente
-  antes de manejar datos reales (ver §1).
+  antes de manejar datos reales (ver §1). Los Volume Backups y el WAL
+  continuo del PITR (Fase 11, §8.1) también residen en Railway.
+- **Bucket S3-compatible en la UE** (Fase 11.3, recomendado Cloudflare R2
+  con jurisdicción EU): almacena los `pg_dump` completos de production,
+  **cifrados en cliente con `age`** antes de salir del cron. El proveedor
+  del bucket ve únicamente objetos `.dump.age` opacos — no puede
+  descifrarlos (la clave privada de `age` nunca sale de la custodia
+  offline de Gerard). Bucket en región/jurisdicción UE; el mismo acuerdo
+  de tratamiento de datos pendiente que Railway aplica aquí antes de
+  manejar datos reales, atenuado por el cifrado en cliente.
 
 ## 10. Gestión de secretos
 

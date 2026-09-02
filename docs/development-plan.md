@@ -1262,6 +1262,104 @@ documentada explícitamente, aplazada, no oculta:**
   sigue en `mock`, pendiente de una decisión de negocio explícita antes
   de vender el producto (ver más arriba).
 
+## Fase 11 — Backups y recuperación ante desastres (Postgres de production)
+
+Scope nuevo, fuera del MVP original (rama `feature/phase-11-backups`).
+Motivo: production y staging llevan corriendo desde la Fase 10 con
+autenticación real (Fase 9), y no existía **ninguna** estrategia de
+backups para el Postgres de Railway — cero mención en cualquier
+documento, cero configuración. Antes de añadir más funcionalidad, se
+cierra. **Alcance: solo production.** Staging usa datos de seed y
+transcripción mock (salvo pruebas manuales puntuales, riesgo aceptado —
+entorno desechable), así que se deja deliberadamente sin backups.
+
+Tres capas complementarias, las tres recomendadas por la documentación de
+Railway para producción, más un runbook de restore verificado. Detalle
+operativo (pasos de dashboard, generación de la clave `age`, variables,
+procedimiento de restore) en
+[`ops/postgres-backup-cron/README.md`](../ops/postgres-backup-cron/README.md).
+
+**Estado (hito 11.1 — Volume Backups nativos, configuración de
+dashboard)**: snapshots nativos de Railway sobre el volumen del Postgres
+de production, diarios como mínimo. Sin diff de código propio — mismo
+patrón que el hito 10.3 (configuración que vive solo en el dashboard de
+Railway, sin `railway.json`, deuda ya asumida en la Fase 10). Restaura
+**dentro del mismo proyecto/servicio**: cubre un despliegue que corrompió
+datos o un borrado accidental, **no** la pérdida del proyecto o de la
+cuenta de Railway. `[ ] pendiente de activar en el dashboard por Gerard`.
+
+**Estado (hito 11.2 — Point-in-Time Recovery, configuración de
+dashboard/CLI)**: PITR sobre el servicio de Postgres de production
+(pgBackRest, base + WAL continuo a un bucket gestionado por Railway). Sin
+diff de código propio. **La ventana no es retroactiva**: empieza a contar
+desde el momento de activación (~4 semanas de ventana de recuperación
+desde ese punto). Restore manual, nunca automático: Railway provisiona un
+servicio hermano restaurado al instante elegido, se verifica, y el
+cutover a producción (cambiar la `DATABASE_URL` del backend / promover el
+hermano, redeploy) lo hace una persona.
+`[ ] pendiente de activar en el dashboard por Gerard; anotar aquí la fecha
+de activación (inicio real de la ventana)`.
+
+**Estado (hito 11.3 — `pg_dump` externo cifrado, cron independiente de
+Railway, código cerrado)**: servicio mínimo nuevo
+`ops/postgres-backup-cron/` (`Dockerfile` + `backup.py`), mismo patrón
+arquitectónico que `ops/retention-cron/` (Fase 10.4): sin dependencias
+del backend, **no importa `app.core.config`** — lee sus propias variables
+de entorno directamente, igual que `purge.py`. Disparado por un Cron Job
+de Railway independiente del backend. `backup.py`: `pg_dump -Fc` (formato
+custom, no SQL plano) contra `DATABASE_URL` → cifrado con `age` (clave
+pública; la privada **nunca** vive en Railway, la guarda Gerard offline)
+→ subida del `.dump.age` a un bucket S3-compatible en la UE (recomendado
+Cloudflare R2 con jurisdicción EU; cualquier endpoint S3 en región UE
+sirve sin tocar código, vía `POSTGRES_BACKUP_BUCKET_*`). El dump en claro
+**nunca se escribe a disco**: `pg_dump | age` por pipe, solo el fichero
+ya cifrado toca `/tmp`. Sale con código ≠ 0 si `pg_dump`, el cifrado o la
+subida fallan (mismo criterio que `purge.py`, para que Railway marque el
+cron como fallido). `POSTGRES_BACKUP_AGE_PUBLIC_KEY` y las credenciales
+del bucket son **obligatorias, sin default inseguro** — mismo criterio de
+guardarraíl que `RETENTION_CRON_SECRET`/`JWT_SECRET_KEY`, aunque aquí el
+chequeo es un `KeyError` explícito en `load_config()` (el servicio no
+pasa por `Settings`). **Retención: no en código.** Lifecycle rule nativa
+del bucket (R2 y S3 la soportan) que borra los objetos con más de 30 días
+bajo el prefijo `production/` — 30 días por consistencia con
+`RETENTION_DAYS_DEFAULT` del audio, aunque son conceptos distintos.
+Decisión: la retención vive en la infraestructura del bucket, no en
+`backup.py`, así que funciona aunque el cron deje de ejecutarse. Tests
+(`backend/tests/test_postgres_backup_cron.py`, 12): funciones puras
+extraídas (`load_config` rechaza cada variable obligatoria ausente o
+vacía, `normalize_database_url`, `object_key` ordenable como texto,
+`aws_env` mapea `POSTGRES_BACKUP_*` → `AWS_*`), sin Postgres ni bucket
+real — mismo patrón que los tests de `app/retention/cli.py`. El resto del
+flujo (orquestación de `pg_dump | age | aws s3 cp`) se ejerce en el
+restore de prueba del hito 11.4.
+`[ ] pendiente: crear el servicio + Cron Job en Railway y confirmar al
+menos una ejecución exitosa en logs`.
+
+**Estado (hito 11.4 — runbook de restore verificado)**: procedimiento
+paso a paso documentado en
+[`ops/postgres-backup-cron/README.md`](../ops/postgres-backup-cron/README.md)
+§Hito 11.4 (descargar el `.dump.age` del bucket, descifrar con `age -d -i
+<clave privada>`, `pg_restore` contra una base temporal, verificar
+recuento de filas en `users`/`patients`/`clinical_sessions`/
+`ai_artifacts`, limpiar). Criterio explícito de Railway: *"a backup you
+have never restored is unverified"*.
+`[ ] pendiente: ejecutar el runbook UNA VEZ contra un dump real de
+production (restore en local contra la db de docker-compose es
+suficiente) y anotar aquí fecha + resultado`.
+
+**Documentación**: [privacy-and-security.md](privacy-and-security.md) §8
+gana una subsección de continuidad / recuperación ante desastres (qué
+capas existen, dónde vive la clave privada de `age` — nunca en Railway —,
+quién accede al bucket externo, y la ventana real de cada capa).
+
+**Criterio de aceptación (Fase 11 cerrada cuando)**: las tres capas
+activas en production, el cron de `ops/postgres-backup-cron/` con al menos
+una ejecución exitosa verificada en logs de Railway, y un restore de
+prueba efectivamente ejecutado y documentado aquí. El hito 11.3 (código +
+tests) está cerrado; 11.1, 11.2 y 11.4 requieren acciones de dashboard y
+un restore real que solo puede hacer Gerard con acceso a la cuenta de
+Railway y al bucket.
+
 ## Fuera de las fases del MVP
 
 Cualquier integración real (Noah, calendario, o cualquier proveedor de
