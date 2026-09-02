@@ -65,8 +65,15 @@ class Config:
 def normalize_database_url(url: str) -> str:
     """Railway expone `DATABASE_URL` como `postgresql://`; si llega la forma
     SQLAlchemy `postgresql+psycopg://` (copiada del backend por error), la
-    reduce al esquema que entiende `pg_dump`."""
-    return url.replace("postgresql+psycopg://", "postgresql://", 1)
+    reduce al esquema que entiende `pg_dump`.
+
+    `.strip()` además defiende contra espacios/saltos de línea colados al
+    declarar una variable de referencia en el dashboard de Railway (p. ej.
+    un espacio delante de `${{Postgres.DATABASE_URL}}`): un solo carácter
+    de más rompe el `startswith("postgresql://")` que usa libpq para
+    reconocer la URI, y `pg_dump` cae silenciosamente al socket local en
+    vez de fallar con un error claro de formato."""
+    return url.strip().replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def load_config(environ: Mapping[str, str]) -> Config:
