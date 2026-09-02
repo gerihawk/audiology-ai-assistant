@@ -107,11 +107,21 @@ def object_key(now: datetime) -> str:
 
 def aws_env(config: Config) -> dict[str, str]:
     """Traduce las credenciales `POSTGRES_BACKUP_*` a las variables que
-    espera el binario `aws` en el subproceso."""
+    espera el binario `aws` en el subproceso.
+
+    Los dos `AWS_REQUEST_CHECKSUM_CALCULATION`/`AWS_RESPONSE_CHECKSUM_VALIDATION`
+    desactivan el checksum flexible que AWS CLI v2 activa por defecto desde
+    botocore ~1.36 (envía `x-amz-sdk-checksum-algorithm` + trailer en el
+    cuerpo del PutObject). Un proveedor S3-compatible que no sea AWS real
+    (R2 en nuestro caso) no lo soporta y la firma calculada no coincide con
+    la esperada — el síntoma es un `SignatureDoesNotMatch` que no delata
+    que el problema es el checksum y no las credenciales."""
     return {
         "AWS_ACCESS_KEY_ID": config.access_key_id,
         "AWS_SECRET_ACCESS_KEY": config.secret_access_key,
         "AWS_DEFAULT_REGION": config.bucket_region,
+        "AWS_REQUEST_CHECKSUM_CALCULATION": "when_required",
+        "AWS_RESPONSE_CHECKSUM_VALIDATION": "when_required",
     }
 
 
