@@ -152,9 +152,20 @@ def main(environ: Mapping[str, str] | None = None, now: datetime | None = None) 
         print(f"age falló (código {encrypt.returncode})", file=sys.stderr)
         return 1
 
+    # DEBUG TEMPORAL: SignatureDoesNotMatch persiste tras .strip() y tras
+    # desactivar el checksum flexible — capturamos el propio --debug de
+    # aws-cli (canonical request / string-to-sign) para ver la causa real
+    # en vez de seguir adivinando. Nunca imprime el secret access key.
+    print(
+        f"[debug aws] endpoint={config.bucket_endpoint!r} region={config.bucket_region!r} "
+        f"bucket={config.bucket_name!r} access_key_id_len={len(config.access_key_id)} "
+        f"access_key_id_prefix={config.access_key_id[:4]!r} secret_len={len(config.secret_access_key)}",
+        file=sys.stderr,
+    )
     upload = subprocess.run(
         [
             "aws",
+            "--debug",
             "s3",
             "cp",
             encrypted_path,
@@ -163,10 +174,15 @@ def main(environ: Mapping[str, str] | None = None, now: datetime | None = None) 
             config.bucket_endpoint,
         ],
         env={**os.environ, **aws_env(config)},
+        capture_output=True,
+        text=True,
     )
     if upload.returncode != 0:
         print(f"subida a S3 falló (código {upload.returncode})", file=sys.stderr)
+        tail = "\n".join(upload.stderr.strip().splitlines()[-120:])
+        print("[debug aws] cola de --debug:\n" + tail, file=sys.stderr)
         return 1
+    print(upload.stdout, end="")
 
     print(f"backup subido: s3://{config.bucket_name}/{key}")
     return 0
