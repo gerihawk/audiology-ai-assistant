@@ -104,6 +104,11 @@ def aws_env(config: Config) -> dict[str, str]:
 
 def main(environ: Mapping[str, str] | None = None, now: datetime | None = None) -> int:
     config = load_config(os.environ if environ is None else environ)
+    # DEBUG TEMPORAL (quitar tras diagnosticar Railway) — nunca imprime credenciales
+    _url = config.database_url
+    _scheme_ok = _url.startswith(("postgresql://", "postgres://"))
+    _tail = _url.split("@", 1)[-1] if "@" in _url else "<sin '@' en la URL>"
+    print(f"[debug backup] len={len(_url)} scheme_ok={_scheme_ok} host_part={_tail!r}", file=sys.stderr)
     now = now or datetime.now(UTC)
     key = object_key(now)
     encrypted_path = f"/tmp/{now.strftime('%Y-%m-%dT%H-%M-%SZ')}.dump.age"
