@@ -1321,11 +1321,40 @@ documentada explícitamente, aplazada, no oculta:**
 - **PR Environments de Railway sin funcionar** — permisos verificados
   correctos, disparado varias veces, nunca se crea el entorno; causa no
   identificada. Se sigue con el staging persistente mientras tanto.
-- **Sin dominio propio ni TLS custom** — la aplicación sirve desde
-  `*.up.railway.app` en production y en staging.
-- **Sin `railway.json` ni infraestructura como código** — toda la
-  configuración de los servicios de Railway vive únicamente en su
-  dashboard, sin versionar ni reproducible desde el repositorio.
+- ~~Sin dominio propio ni TLS custom~~ — **resuelto el 2026-09-14**:
+  dominio `audiology-assistant.dev` registrado (Cloudflare Registrar, a
+  precio de coste). `app.audiology-assistant.dev` (frontend) y
+  `api.audiology-assistant.dev` (backend) en production, TLS automático
+  de Railway, CNAME + TXT de verificación vía el Domain Connect de
+  Cloudflare. `BACKEND_CORS_ORIGINS`/`VITE_API_BASE_URL` de production
+  actualizados y redeploy verificado en el navegador (`app.` carga,
+  `Backend: conectado`, sin errores de CORS en consola). Staging se
+  queda deliberadamente en `*.up.railway.app`, mismo criterio "solo
+  production" que la Fase 11.
+- ~~Sin `railway.json` ni infraestructura como código~~ — **resuelto el
+  2026-09-14**: `railway.json` (Config as Code) está deprecado por
+  Railway desde este mismo hito — soporte solo hasta 2026-12-01 para
+  servicios ya existentes, sin disponibilidad para servicios nuevos —
+  así que se adoptó directamente su reemplazo, `.railway/railway.ts`
+  (Infrastructure as Code, TypeScript, alcance de todo el proyecto).
+  Generado con `railway config pull` desde el estado real del dashboard
+  (no escrito a mano, para no duplicar los cinco servicios ya creados en
+  los hitos 10.3/11.3), con los dos dominios y las dos variables de
+  arriba gestionados desde el fichero — el resto de variables se deja
+  deliberadamente en `preserve()` (siguen cifradas en Railway, nunca en
+  claro en el repositorio). El Cron Schedule de `postgres-backup-cron` y
+  `retention-cron` también quedó capturado (`deploy.cronSchedule`), algo
+  que la documentación de Railway no anuncia pero el propio
+  `config pull` confirma. **Límite real descubierto en el proceso**:
+  un dominio nuevo no se puede *crear* vía IaC (`railway config apply`
+  lo rechaza explícitamente) — solo se puede *reflejar* uno ya creado a
+  mano en el dashboard, vía `railway config pull` posterior. Deuda
+  nueva, menor, encontrada de paso: el servicio `giving-nourishment`
+  (frontend) tiene en su entorno variables del backend que no usa
+  (`POSTGRES_PASSWORD`, `JWT_SECRET_KEY` entre otras) — ninguna con
+  prefijo `VITE_`, así que no llegan al bundle del navegador, pero es
+  superficie innecesaria en el contenedor. Pendiente de limpiar en el
+  dashboard, fuera del alcance de este hito.
 - ~~Proveedor de transcripción real activo solo en staging~~ — **resuelto
   el 2026-09-14**: Deepgram activado también en production (ver más
   arriba), decisión de negocio explícita ya tomada.
