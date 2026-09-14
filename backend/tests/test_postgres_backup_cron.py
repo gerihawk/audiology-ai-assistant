@@ -82,4 +82,9 @@ def test_aws_env_maps_backup_credentials() -> None:
         "AWS_ACCESS_KEY_ID": "AKIAEXAMPLE",
         "AWS_SECRET_ACCESS_KEY": "secret-example",
         "AWS_DEFAULT_REGION": "eu-west-1",
+        # Workaround para el checksum flexible que AWS CLI v2 activa por
+        # defecto desde botocore ~1.36 y que R2 no soporta (ver docstring
+        # de `aws_env` en backup.py) — sin esto, `SignatureDoesNotMatch`.
+        "AWS_REQUEST_CHECKSUM_CALCULATION": "when_required",
+        "AWS_RESPONSE_CHECKSUM_VALIDATION": "when_required",
     }
