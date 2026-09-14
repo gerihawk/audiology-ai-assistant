@@ -830,6 +830,12 @@ y cerrada, no una omisión. Ronda puramente documental: sin cambios de
 código, sin cambios de tests, suite completa sigue en el mismo estado
 verde del hito 8.2.
 
+**Revisión disparada (2026-09-14)**: `summary`/`patient_summary`/
+`missing_information` activados con proveedor LLM real en production
+(ver Fase 10 más abajo, decisión de negocio del mismo día).
+`AI_PROCESSING_CONSENT_ENFORCED=true` activado en consecuencia — ya no
+es una condición pendiente, es el estado real de production desde hoy.
+
 **Estado (hito 8.4 — revisión de seguridad general, cerrado, aplazado)**:
 evaluado el punto 3 de esta fase (cabeceras HTTP, rate limiting básico,
 revisión de límites de subida). **Decisión: se aplaza por completo**,
@@ -1259,6 +1265,51 @@ sobre el menor error de texto** — motivo de negocio, no técnico.
 redeploy sano del backend. La política de manejo de claves reales de
 [privacy-and-security.md](privacy-and-security.md) §10 se amplía en
 consecuencia — ya no aplica solo a staging.
+
+**Decisión de negocio (2026-09-14): proveedor LLM real activado en
+production, por `artifact_type`.** La auditoría posterior al cierre de
+la Fase 11 encontró un benchmark completo de generación
+([generation-benchmark.md](generation-benchmark.md), 4 modelos —
+`anthropic/claude-sonnet-5`, `anthropic/claude-opus-5`,
+`google/gemini-3.6-flash`, `openai/gpt-5.2` — contra `summary`,
+`patient_summary` y `missing_information`) que este documento nunca
+había referenciado, con resultados del 12 de agosto **generados contra
+una versión de los prompts anterior a su primer commit real** (mismo día,
+horas más tarde) — resultados descartados por no fiables, no usados para
+decidir nada. Se relanzó el benchmark completo el 2026-09-14 contra los
+prompts actuales: a diferencia de la ronda de agosto (que tenía fallos de
+la gate de alucinación en `missing_information` para `claude-sonnet-5` y
+`gpt-5.2`), **ningún modelo falla ninguna gate** con los prompts
+vigentes. Veredicto sin ganador global único (`global_winner: null`):
+`claude-opus-5` gana `summary` por hallazgos (1 minor vs 2 de
+`sonnet-5`), pero a ~3.5× el coste por una diferencia de calidad menor
+(términos omitidos/sustituidos, ninguno grave); `gpt-5.2` gana tanto
+`patient_summary` (0 hallazgos, más barato) como `missing_information`
+(empatado en hallazgos major con `opus-5`, notablemente más barato).
+**Decisión explícita: `sonnet-5` en `summary` (coste sobre el margen
+mínimo de calidad de `opus-5`), `gpt-5.2` en `patient_summary` y
+`missing_information`** — el sistema ya soporta proveedor/modelo
+independiente por `artifact_type`
+(`LLM_PROVIDER_SUMMARY`/`LLM_MODEL_SUMMARY`, etc.), así que no hace falta
+un único modelo para los tres. Activado en production:
+`LLM_PROVIDER_SUMMARY=anthropic`/`LLM_MODEL_SUMMARY=claude-sonnet-5`,
+`LLM_PROVIDER_PATIENT_SUMMARY=openai`/`LLM_MODEL_PATIENT_SUMMARY=gpt-5.2`,
+`LLM_PROVIDER_MISSING_INFORMATION=openai`/`LLM_MODEL_MISSING_INFORMATION=gpt-5.2`,
+con `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` propias de production (distintas
+de cualquier clave de desarrollo/benchmark). Activar cualquier
+`artifact_type` con proveedor real en production exige además, por
+`Settings._validate_production_safety()` (hito 6.3, encargo §7):
+`AI_PROCESSING_CONSENT_ENFORCED=true` (bloquea con `409` cualquier
+paciente sin consentimiento de procesamiento IA válido — sin efecto
+inmediato porque production no tiene pacientes reales todavía, ver Fase
+11), `LLM_COST_LIMIT_ENFORCED=true` y `MAX_LLM_COST_PER_SESSION_USD=1.00`
+(margen sobre el ~$0.03/sesión observado en el benchmark). Las tres
+activadas junto con los proveedores — nunca por separado, el arranque
+falla si falta cualquiera con un proveedor real activo. Redeploy del
+backend verificado sano. `ANAMNESIS`/`SESSION_NOTES`/`CLINICAL_FLAGS`
+siguen sin routing real (sin benchmark propio todavía, ver Fase 6, hito
+6.4.3 y hito 8.3 — la revisión de `AI_PROCESSING_CONSENT_ENFORCED` que
+esa nota daba por pendiente ya no lo está, disparada por esta activación).
 
 **Fase 10 completa.** CI/CD, imágenes de producción, despliegue real en
 Railway (production + staging), retención vía cron externo, hardening

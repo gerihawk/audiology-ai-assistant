@@ -230,6 +230,21 @@ hacerlo —, momento en el que el propio validador ya obliga a tener el
 flag en `true`, así que no haría falta ningún cambio de código en ese
 momento, solo confirmar que la variable de entorno está puesta.
 
+**Activado (2026-09-14)**: `summary` → `anthropic`/`claude-sonnet-5`,
+`patient_summary` y `missing_information` → `openai`/`gpt-5.2` (decisión
+de negocio completa en [development-plan.md](development-plan.md) §Fase
+10). `AI_PROCESSING_CONSENT_ENFORCED=true` en production desde hoy, tal
+como preveía esta sección — sin cambio de código, solo la variable de
+entorno, confirmado. `LLM_COST_LIMIT_ENFORCED=true` y
+`MAX_LLM_COST_PER_SESSION_USD=1.00` activados junto con los proveedores
+(el validador exige los tres a la vez si hay algún `artifact_type` no
+`mock`). Efecto real: cualquier paciente sin consentimiento de
+`procesamiento_ia` registrado y vigente recibe `409` al intentar generar
+— sin impacto inmediato porque production no tiene pacientes reales
+todavía (ver [development-plan.md](development-plan.md) §Fase 11).
+`ANAMNESIS`/`SESSION_NOTES`/`CLINICAL_FLAGS` siguen en `mock`, sin
+benchmark propio todavía.
+
 ## 8. Retención y eliminación
 
 - **Retención por defecto: 30 días**, configurable mediante
@@ -478,6 +493,17 @@ cubiertos por esta sección.
      hallazgo completo (transcripción llevaba en `mock` en todos los
      entornos, incluida production, hasta el cierre de la Fase 10) y la
      decisión de activación en production del 2026-09-14.
+- `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` (proveedor LLM real, activación
+  decidida el 2026-09-14 — ver §7 y
+  [development-plan.md](development-plan.md) §Fase 10): mismo criterio
+  que `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` — obligatorias solo si el
+  `artifact_type` correspondiente (`LLM_PROVIDER_SUMMARY`/
+  `LLM_PROVIDER_PATIENT_SUMMARY`/`LLM_PROVIDER_MISSING_INFORMATION`)
+  selecciona ese proveedor, `.env.example` con placeholder
+  `CHANGE_ME_LOCAL_ONLY`, claves de production propias y distintas de
+  cualquier clave de desarrollo o de benchmark (`benchmark/generation`
+  usa `OPENROUTER_API_KEY`, una clave y una cuenta completamente
+  distintas). Nunca se registran en logs ni en `ai_generation_runs`.
 - `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend, inyectada en
   build-time del `Dockerfile.prod`, ver §9): opcionales, sin valor por
   defecto — si no están configuradas, Sentry no se inicializa en ningún
