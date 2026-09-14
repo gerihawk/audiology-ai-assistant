@@ -1243,6 +1243,23 @@ tráfico; (4) debe quedar documentado que consumen cuota/facturación real
 del proveedor. Se sustituirán por credenciales de sandbox si
 AssemblyAI/Deepgram llegan a ofrecerlas más adelante.
 
+**Decisión de negocio (2026-09-14): Deepgram activado también en
+production.** Tras la auditoría posterior al cierre de la Fase 11, se
+revisó el trade-off real entre proveedores con los datos ya disponibles
+del benchmark (Fase 5.2/5.3): AssemblyAI tiene mejor WER (2.6% vs 4.9%) y
+mejor precisión terminológica (100% vs 90.9%), pero sigue fusionando
+~83% del diálogo en un único speaker incluso en su perfil optimizado
+(diarización no resuelta); Deepgram separa correctamente a los hablantes
+y ya estaba validado en staging con llamadas reales desde la Fase 10.
+**Decisión explícita: prioriza la separación correcta de quién habla
+sobre el menor error de texto** — motivo de negocio, no técnico.
+`TRANSCRIPTION_PROVIDER=deepgram` activado en production con una
+`DEEPGRAM_API_KEY` **propia de production**, distinta de la de staging
+(aislamiento de cuota/facturación entre entornos), verificado con
+redeploy sano del backend. La política de manejo de claves reales de
+[privacy-and-security.md](privacy-and-security.md) §10 se amplía en
+consecuencia — ya no aplica solo a staging.
+
 **Fase 10 completa.** CI/CD, imágenes de producción, despliegue real en
 Railway (production + staging), retención vía cron externo, hardening
 HTTP, observabilidad de errores con saneamiento de PHI, y un entorno de
@@ -1258,9 +1275,9 @@ documentada explícitamente, aplazada, no oculta:**
 - **Sin `railway.json` ni infraestructura como código** — toda la
   configuración de los servicios de Railway vive únicamente en su
   dashboard, sin versionar ni reproducible desde el repositorio.
-- **Proveedor de transcripción real activo solo en staging** — production
-  sigue en `mock`, pendiente de una decisión de negocio explícita antes
-  de vender el producto (ver más arriba).
+- ~~Proveedor de transcripción real activo solo en staging~~ — **resuelto
+  el 2026-09-14**: Deepgram activado también en production (ver más
+  arriba), decisión de negocio explícita ya tomada.
 
 ## Fase 11 — Backups y recuperación ante desastres (Postgres de production) (completada)
 

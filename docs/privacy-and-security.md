@@ -448,25 +448,36 @@ cubiertos por esta sección.
   `ai_generation_runs` (que de todos modos nunca captura credenciales,
   ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.5).
   **Política de manejo de la clave real activada en staging (acordada
-  2026-09-01, cierre de la Fase 10)**:
+  2026-09-01, cierre de la Fase 10; ampliada a production el
+  2026-09-14)**:
   1. Heredar una clave real de un proveedor de transcripción está
-     permitido **temporalmente** en el entorno de staging — no en
-     production, donde `TRANSCRIPTION_PROVIDER` sigue en `mock`.
+     permitido en staging **y, desde el 2026-09-14, en production**
+     (`TRANSCRIPTION_PROVIDER=deepgram`, decisión de negocio documentada
+     en [development-plan.md](development-plan.md) §Fase 10 — prioriza
+     la separación correcta de hablantes sobre el menor WER de
+     AssemblyAI). **Claves distintas por entorno**: la `DEEPGRAM_API_KEY`
+     de production es propia, nunca la misma que la de staging, para
+     aislar cuota y facturación entre los dos.
   2. Ninguna prueba automática (CI, suite de tests) debe poder disparar
-     una transcripción real bajo ninguna circunstancia — la suite
-     completa sigue usando exclusivamente `MockTranscriptionProvider`;
-     ningún test se ejecuta contra staging.
+     una transcripción real bajo ninguna circunstancia, en ningún
+     entorno — la suite completa sigue usando exclusivamente
+     `MockTranscriptionProvider`; ningún test se ejecuta contra staging
+     ni production.
   3. Las pruebas manuales contra staging que ejerciten el proveedor real
      deben ser deliberadamente mínimas — nunca una fuente sistemática o
-     recurrente de tráfico de prueba.
-  4. Debe quedar documentado (aquí) que esas pruebas manuales consumen
-     cuota/facturación real del proveedor, no una simulación.
+     recurrente de tráfico de prueba. **En production, el tráfico real
+     es tráfico de uso real del producto, no de prueba** — no aplica
+     esta restricción de minimizar, pero sí el resto de puntos.
+  4. Debe quedar documentado (aquí) que tanto las pruebas manuales en
+     staging como el uso en production consumen cuota/facturación real
+     del proveedor, no una simulación.
 
      Se sustituirá por credenciales de entorno sandbox si AssemblyAI o
      Deepgram llegan a ofrecerlas más adelante — ver
      [development-plan.md](development-plan.md) §Fase 10 para el
      hallazgo completo (transcripción llevaba en `mock` en todos los
-     entornos, incluida production, hasta este cierre de fase).
+     entornos, incluida production, hasta el cierre de la Fase 10) y la
+     decisión de activación en production del 2026-09-14.
 - `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend, inyectada en
   build-time del `Dockerfile.prod`, ver §9): opcionales, sin valor por
   defecto — si no están configuradas, Sentry no se inicializa en ningún
