@@ -1262,7 +1262,7 @@ documentada explícitamente, aplazada, no oculta:**
   sigue en `mock`, pendiente de una decisión de negocio explícita antes
   de vender el producto (ver más arriba).
 
-## Fase 11 — Backups y recuperación ante desastres (Postgres de production)
+## Fase 11 — Backups y recuperación ante desastres (Postgres de production) (completada)
 
 Scope nuevo, fuera del MVP original (rama `feature/phase-11-backups`).
 Motivo: production y staging llevan corriendo desde la Fase 10 con
@@ -1286,7 +1286,10 @@ patrón que el hito 10.3 (configuración que vive solo en el dashboard de
 Railway, sin `railway.json`, deuda ya asumida en la Fase 10). Restaura
 **dentro del mismo proyecto/servicio**: cubre un despliegue que corrompió
 datos o un borrado accidental, **no** la pérdida del proyecto o de la
-cuenta de Railway. `[ ] pendiente de activar en el dashboard por Gerard`.
+cuenta de Railway. **Activo**: programación Daily confirmada en el
+dashboard (pestaña Backups del servicio Postgres de production), con
+ejecuciones reales ya registradas (último backup verificado el
+2026-09-14, 203 MB).
 
 **Estado (hito 11.2 — Point-in-Time Recovery, configuración de
 dashboard/CLI)**: PITR sobre el servicio de Postgres de production
@@ -1297,8 +1300,10 @@ desde ese punto). Restore manual, nunca automático: Railway provisiona un
 servicio hermano restaurado al instante elegido, se verifica, y el
 cutover a producción (cambiar la `DATABASE_URL` del backend / promover el
 hermano, redeploy) lo hace una persona.
-`[ ] pendiente de activar en el dashboard por Gerard; anotar aquí la fecha
-de activación (inicio real de la ventana)`.
+**Activo desde el 2026-08-31 19:39** (fecha/hora real de activación,
+confirmada por Gerard; inicio real de la ventana de recuperación —
+verificado en el dashboard el 2026-09-14, timeline de restauración
+disponible desde ese momento hasta el presente).
 
 **Estado (hito 11.3 — `pg_dump` externo cifrado, cron independiente de
 Railway, código cerrado)**: servicio mínimo nuevo
@@ -1343,22 +1348,52 @@ paso a paso documentado en
 recuento de filas en `users`/`patients`/`clinical_sessions`/
 `ai_artifacts`, limpiar). Criterio explícito de Railway: *"a backup you
 have never restored is unverified"*.
-`[ ] pendiente: ejecutar el runbook UNA VEZ contra un dump real de
-production (restore en local contra la db de docker-compose es
-suficiente) y anotar aquí fecha + resultado`.
 
-**Documentación**: [privacy-and-security.md](privacy-and-security.md) §8
-gana una subsección de continuidad / recuperación ante desastres (qué
+**Ejecutado (2026-09-14)**: dump del cron diario de production (objeto
+del bucket con fecha 14 Sep 2026 05:03:07 CEST) descargado, descifrado y
+restaurado inicialmente con `pg_restore` contra un Postgres 18 desechable
+en local (`docker run postgres:18-alpine` aparte, puerto 5555), porque en
+ese momento el `db` de `docker-compose` no arrancaba
+(`Restarting`/`unhealthy` en bucle). **Causa raíz identificada y
+corregida el mismo día**: no era un problema de datos ni exigía decidir
+entre migrar o recrear el volumen — el volumen estaba realmente vacío
+(comprobado inspeccionándolo directamente). El fallo era el punto de
+montaje: `docker-compose.yml` montaba `postgres_data` en
+`/var/lib/postgresql/data` (layout antiguo), y la imagen `postgres:18-*`
+exige un único mount en `/var/lib/postgresql` (organiza los datos en una
+subcarpeta por versión mayor, estilo `pg_ctlcluster`) — falla igual
+monte lo que monte, esté vacío o no. Corregido a
+`postgres_data:/var/lib/postgresql` en `docker-compose.yml`; con eso
+`docker compose up -d db` arranca sano, `make migrate` y `make seed`
+funcionan con normalidad. El `db` de `docker-compose` vuelve a ser
+utilizable para el entorno local. Verificado:
+las 14 tablas del esquema presentes y `alembic_version` en
+`7c2e4f5a8b31`, que es el HEAD real de la cadena de migraciones. Recuento
+de filas en `users`/`patients`/`clinical_sessions`/`ai_artifacts`: **0 en
+las cuatro**, y coincide exactamente con el recuento en production mismo
+(comprobado en directo vía `railway connect Postgres` sobre la base
+real) — no es un restore vacío por fallo del pipeline, sino que
+production todavía no tiene ningún usuario ni paciente real dado de alta
+(pre-lanzamiento comercial, ver nota de Fase 10 sobre el proveedor de
+transcripción real solo en staging). El pipeline backup→restore queda
+verificado de punta a punta con los datos que hay hoy en production.
+**Pendiente de repetir esta verificación cuando production tenga datos
+reales**, para confirmar también la integridad del contenido restaurado
+y no solo la estructura.
+
+**Documentación**: [privacy-and-security.md](privacy-and-security.md) §8.1
+ya incluye la subsección de continuidad / recuperación ante desastres (qué
 capas existen, dónde vive la clave privada de `age` — nunca en Railway —,
 quién accede al bucket externo, y la ventana real de cada capa).
 
 **Criterio de aceptación (Fase 11 cerrada cuando)**: las tres capas
 activas en production, el cron de `ops/postgres-backup-cron/` con al menos
 una ejecución exitosa verificada en logs de Railway, y un restore de
-prueba efectivamente ejecutado y documentado aquí. El hito 11.3 (código +
-tests) está cerrado; 11.1, 11.2 y 11.4 requieren acciones de dashboard y
-un restore real que solo puede hacer Gerard con acceso a la cuenta de
-Railway y al bucket.
+prueba efectivamente ejecutado y documentado aquí. **Los cuatro hitos
+están cerrados**: 11.1 (Volume Backups, Daily activo, verificado en el
+dashboard el 2026-09-14), 11.2 (PITR activo desde el 2026-08-31 19:39,
+verificado en el dashboard el 2026-09-14), 11.3 (código + tests) y 11.4
+(restore verificado el 2026-09-14, ver arriba). **Fase 11 cerrada.**
 
 ## Fuera de las fases del MVP
 
