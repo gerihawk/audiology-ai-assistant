@@ -16,10 +16,12 @@ import { PatientEditPage } from './features/patients/PatientEditPage'
 import { PatientClinicalRecordPage } from './features/patients/PatientClinicalRecordPage'
 import { RetentionPage } from './features/retention/RetentionPage'
 import { IntegrationsPage } from './features/integrations/IntegrationsPage'
+import { InvitationsPage } from './features/invitations/InvitationsPage'
 import { SignupPage } from './features/onboarding/SignupPage'
 import { VerifyEmailPage } from './features/onboarding/VerifyEmailPage'
 import { PasswordResetRequestPage } from './features/onboarding/PasswordResetRequestPage'
 import { PasswordResetConfirmPage } from './features/onboarding/PasswordResetConfirmPage'
+import { AcceptInvitationPage } from './features/onboarding/AcceptInvitationPage'
 
 /** Cabecera compartida por los dos modos de autenticación (Fase 9, hito
  * 9.2) — extraída para que fake/real no puedan divergir accidentalmente. */
@@ -44,6 +46,7 @@ function AppNav() {
       <NavLink to="/clinical-sessions">Sesiones clínicas</NavLink>
       <NavLink to="/retention">Retención</NavLink>
       <NavLink to="/integrations">Integraciones</NavLink>
+      <NavLink to="/invitations">Invitaciones</NavLink>
     </nav>
   )
 }
@@ -88,6 +91,7 @@ function AppRoutes() {
 
       <Route path="/retention" element={<RetentionPage />} />
       <Route path="/integrations" element={<IntegrationsPage />} />
+      <Route path="/invitations" element={<InvitationsPage />} />
 
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
@@ -167,6 +171,7 @@ function App() {
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/forgot-password" element={<PasswordResetRequestPage />} />
       <Route path="/reset-password" element={<PasswordResetConfirmPage />} />
+      <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
       <Route
         path="*"
         element={

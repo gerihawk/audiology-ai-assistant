@@ -337,6 +337,43 @@ export interface IntegrationConfigListResponse {
   items: IntegrationConfig[]
 }
 
+/** `InvitableRoleLiteral` (`app/onboarding/api/invitation_schemas.py`, Fase
+ * 12, hito 12.3) — subconjunto de `Role` que un admin puede invitar
+ * (nunca `admin`, ver `INVITABLE_ROLES` en el backend). */
+export type InvitableRole = 'audiologist' | 'viewer'
+
+/** `InvitationCreateRequest` (`app/onboarding/api/invitation_schemas.py`). */
+export interface InvitationCreateInput {
+  email: string
+  role: InvitableRole
+}
+
+/** `InvitationSummaryResponse` (`app/onboarding/api/invitation_schemas.py`).
+ * Solo invitaciones pendientes (`GET /clinics/{clinic_id}/invitations`
+ * ya filtra por `accepted_at IS NULL` — ver
+ * `InvitationRepository.list_pending_for_clinic`); `is_expired` se
+ * calcula en el backend en el momento de la respuesta. */
+export interface InvitationSummary {
+  id: string
+  email: string
+  role: InvitableRole
+  expires_at: string
+  created_at: string
+  is_expired: boolean
+}
+
+export interface InvitationListResponse {
+  items: InvitationSummary[]
+}
+
+/** `InvitationAcceptRequest` (`app/onboarding/api/invitation_schemas.py`)
+ * — el token no es un campo del cuerpo, va en la URL
+ * (`POST /invitations/{token}/accept`). */
+export interface InvitationAcceptInput {
+  new_password: string
+  display_name: string
+}
+
 /** `LoginResponse` (`app/auth/api/schemas.py`, Fase 9, hito 9.1). */
 export interface LoginResponse {
   access_token: string

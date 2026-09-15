@@ -1555,8 +1555,39 @@ clínica quedan aplazados.
   NOT NULL); (2) `invitation_token_ttl_days` (por defecto 7, ver
   `app/core/config.py`). Pendiente de ejecutar la migración y la suite de
   tests en el entorno real de Gerard antes de dar el hito por cerrado.
-- **12.3-12.4** — Sin empezar (frontend de invitaciones y gestión de
-  usuarios de la clínica, anti-abuso y limpieza de clínicas no
+- **12.2 (ampliación)** — Implementado el 2026-09-15, a petición explícita
+  para cubrir "revocación" (parte del alcance pedido para 12.3, no
+  contemplada en el RFC original): `GET /clinics/{clinic_id}/invitations`
+  (lista invitaciones pendientes, solo `admin`, misma comprobación de
+  propiedad de clínica) y `DELETE /clinics/{clinic_id}/invitations/{invitation_id}`
+  (revoca una pendiente). `InvitationAction.READ`/`REVOKE` añadidos a la
+  misma matriz de 12.2 (`authorize_invitation_action`, compartida por las
+  tres acciones). `InvitationRepository.list_pending_for_clinic` (filtra
+  `accepted_at IS NULL`) y `.revoke` (mecánicamente igual a
+  `mark_accepted` — mismo `accepted_at=now()` — nombrado aparte por
+  intención). Esquemas `InvitationSummaryResponse`/`InvitationListResponse`
+  (`is_expired` calculado en el momento de la respuesta, nunca
+  persistido). Deliberadamente fuera de alcance: gestión de usuarios ya
+  activos (cambio de rol, desactivación) — Gerard no lo pidió, no se
+  scope-creep. Suite ampliada (`test_invitation_service.py`/
+  `test_invitation_api.py`), 1307 tests backend en verde tras verificación
+  de Gerard.
+- **12.3** — Implementado el 2026-09-15: frontend de invitaciones.
+  `AcceptInvitationPage` (pública, `/accept-invitation?token=...`, mismo
+  patrón que `PasswordResetConfirmPage`: nombre + contraseña, llama a
+  `POST /invitations/{token}/accept`). Página de administración
+  `/invitations` (`InvitationsPage`, solo `admin` — mismo patrón de
+  gating que `IntegrationsPage`): formulario de invitar (`InvitationForm`,
+  email + rol, sin distinguir en el mensaje de éxito si el email ya tenía
+  cuenta — no-enumeración, igual que el backend) y lista de pendientes con
+  botón de revocar (`InvitationsList`, mismo patrón de carga que
+  `IntegrationsList`). Cliente API nuevo `shared/api/invitations.ts`.
+  Aislamiento entre clínicas y permisos ya cubiertos por el backend (12.2
+  + su ampliación); el frontend no añade comprobaciones propias. Tests:
+  `AcceptInvitationPage.test.tsx`, `InvitationForm.test.tsx`,
+  `InvitationsList.test.tsx`. Suite completa del frontend en verde (263
+  tests), `tsc -b`/`eslint .`/`vite build`/`prettier --check` limpios.
+- **12.4** — Sin empezar (anti-abuso y limpieza de clínicas no
   verificadas).
 
 ## Fuera de las fases del MVP
