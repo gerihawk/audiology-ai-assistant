@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearToken } from './tokenStore'
 import { AuthProvider, useAuth } from './AuthContext'
@@ -62,10 +63,12 @@ describe('LoginForm', () => {
     const user = userEvent.setup()
 
     render(
-      <AuthProvider>
-        <AuthStatusProbe />
-        <LoginForm />
-      </AuthProvider>,
+      <MemoryRouter>
+        <AuthProvider>
+          <AuthStatusProbe />
+          <LoginForm />
+        </AuthProvider>
+      </MemoryRouter>,
     )
 
     await user.type(screen.getByLabelText(/email/i), 'admin@dev.local')
@@ -93,9 +96,11 @@ describe('LoginForm', () => {
     const user = userEvent.setup()
 
     render(
-      <AuthProvider>
-        <LoginForm />
-      </AuthProvider>,
+      <MemoryRouter>
+        <AuthProvider>
+          <LoginForm />
+        </AuthProvider>
+      </MemoryRouter>,
     )
 
     await user.type(screen.getByLabelText(/email/i), 'admin@dev.local')

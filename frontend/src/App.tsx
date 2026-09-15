@@ -16,6 +16,10 @@ import { PatientEditPage } from './features/patients/PatientEditPage'
 import { PatientClinicalRecordPage } from './features/patients/PatientClinicalRecordPage'
 import { RetentionPage } from './features/retention/RetentionPage'
 import { IntegrationsPage } from './features/integrations/IntegrationsPage'
+import { SignupPage } from './features/onboarding/SignupPage'
+import { VerifyEmailPage } from './features/onboarding/VerifyEmailPage'
+import { PasswordResetRequestPage } from './features/onboarding/PasswordResetRequestPage'
+import { PasswordResetConfirmPage } from './features/onboarding/PasswordResetConfirmPage'
 
 /** Cabecera compartida por los dos modos de autenticación (Fase 9, hito
  * 9.2) — extraída para que fake/real no puedan divergir accidentalmente. */
@@ -146,17 +150,37 @@ function RealAuthApp() {
   )
 }
 
+/** Fase 12, hito 12.1: superficie pública de onboarding — accesible sin
+ * autenticación y con independencia de `VITE_AUTH_MODE`, a diferencia de
+ * todo lo que cuelga de `<AppRoutes />` (dentro de `FakeAuthApp`/
+ * `RealAuthApp`, más abajo). Un `<Routes>` propio, separado del de
+ * `AppRoutes` — cada uno hace su propio matching contra la URL actual, así
+ * que anidar uno dentro del `element` de una `<Route path="*">` del otro
+ * no afecta a cómo `AppRoutes` resuelve sus propias rutas (p. ej.
+ * `/patients`). */
 function App() {
   const isRealAuthMode = import.meta.env.VITE_AUTH_MODE === 'real'
 
-  if (isRealAuthMode) {
-    return (
-      <AuthProvider>
-        <RealAuthApp />
-      </AuthProvider>
-    )
-  }
-  return <FakeAuthApp />
+  return (
+    <Routes>
+      <Route path="/signup" element={<SignupPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/forgot-password" element={<PasswordResetRequestPage />} />
+      <Route path="/reset-password" element={<PasswordResetConfirmPage />} />
+      <Route
+        path="*"
+        element={
+          isRealAuthMode ? (
+            <AuthProvider>
+              <RealAuthApp />
+            </AuthProvider>
+          ) : (
+            <FakeAuthApp />
+          )
+        }
+      />
+    </Routes>
+  )
 }
 
 export default App
