@@ -1492,6 +1492,25 @@ dashboard el 2026-09-14), 11.2 (PITR activo desde el 2026-08-31 19:39,
 verificado en el dashboard el 2026-09-14), 11.3 (código + tests) y 11.4
 (restore verificado el 2026-09-14, ver arriba). **Fase 11 cerrada.**
 
+## Fase 12 — Onboarding self-service multi-clínica (alcance en definición)
+
+**Ampliación explícita de alcance** (mismo patrón que Fase 6 y Fase 5.3):
+supera lo que "Fuera de las fases del MVP" (más abajo) decía sobre
+multi-tenant, formalizada en [fase-12-rfc.md](fase-12-rfc.md), documento
+normativo para toda la Fase 12 a partir de aquí. Auditoría entre fases
+(2026-09-15) confirmó que el modelo de datos ya es multi-tenant desde la
+Fase 2 (`clinic_id` en todas las entidades de negocio), pero no existe
+ninguna vía de alta de clínica/usuario fuera de `app/seed.py` (bloqueado
+en production). El RFC cubre además una implicación legal que Gerard debe
+resolver antes de dar de alta una clínica externa real: pasa de Controller
+a Processor frente a sus clientes, y necesita su propio DPA/Términos de
+Servicio — ver [fase-12-rfc.md](fase-12-rfc.md) §2.
+
+**Estado**: RFC redactado el 2026-09-15, pendiente de cierre (§9 del RFC:
+proveedor de email transaccional + qué cuestiones del §8 entran en el
+primer incremento). Sin código todavía — ningún hito de implementación
+(12.0-12.4) ha empezado.
+
 ## Fuera de las fases del MVP
 
 Cualquier integración real (Noah, calendario, o cualquier proveedor de
