@@ -290,6 +290,28 @@ class Settings(BaseSettings):
     brevo_base_url: str = "https://api.brevo.com"
     brevo_timeout_seconds: float = 30.0
 
+    # --- Limpieza de clínicas no verificadas (Fase 12, hito 12.4) ---
+    # Una clínica es "fantasma" si ninguno de sus usuarios está activo
+    # (nunca verificó su email tras `POST /clinics/signup`, ver
+    # `UnverifiedClinicCleanupService`) y fue creada hace más de este
+    # número de días — decidido con Gerard el 2026-09-15: suficiente
+    # margen para reintentar la verificación (el enlace en sí caduca a las
+    # `email_verification_token_ttl_hours`, mucho antes) sin acumular
+    # basura mucho tiempo.
+    unverified_clinic_ttl_days: int = Field(default=7, gt=0)
+    # Autentica al LLAMADOR de POST /api/v1/onboarding/system-cleanup (un
+    # cron externo), no a un usuario de una clínica concreta — mismo
+    # patrón que `retention_cron_secret`: obligatorio, sin default, no
+    # arranca ni siquiera en development/test sin él (ver
+    # tests/conftest.py). Secreto propio, no reutiliza
+    # `retention_cron_secret`: son dos trabajos de sistema independientes,
+    # cada uno con su propio cron en el entorno de despliegue real (ver
+    # ops/onboarding-cleanup-cron/), y compartir secreto acoplaría su
+    # rotación sin necesidad. El endpoint la compara con
+    # `secrets.compare_digest`, nunca `==` (ver
+    # app/onboarding/api/router.py).
+    onboarding_cleanup_cron_secret: str
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
@@ -331,6 +353,10 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY insegura para un entorno de production.")
         if self.retention_cron_secret in _INSECURE_DEFAULT_PASSWORDS:
             raise ValueError("RETENTION_CRON_SECRET insegura para un entorno de production.")
+        if self.onboarding_cleanup_cron_secret in _INSECURE_DEFAULT_PASSWORDS:
+            raise ValueError(
+                "ONBOARDING_CLEANUP_CRON_SECRET insegura para un entorno de production."
+            )
         if self.auth_mode != "real":
             # Fase 9, hito 9.1: `FakeCurrentUserProvider` (X-Dev-User-Id)
             # ya se rechaza por su cuenta en production (ver

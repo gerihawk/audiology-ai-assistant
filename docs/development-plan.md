@@ -1531,9 +1531,10 @@ clínica quedan aplazados.
   [fase-12-rfc.md](fase-12-rfc.md)) — decisión tomada con Gerard el
   2026-09-15. Pendiente de ejecutar la migración y la suite de tests en
   el entorno real de Gerard antes de dar el hito por cerrado.
-  [docs/api-specification.md](api-specification.md) no se ha actualizado
-  en este pase (ya era documentación de diseño desactualizada respecto a
-  la autenticación real, deuda ya conocida de una fase anterior).
+  [docs/api-specification.md](api-specification.md) no se actualizó en
+  este pase (ya era documentación de diseño desactualizada respecto a la
+  autenticación real, deuda ya conocida de una fase anterior) —
+  **saldada el 2026-09-15** (ver más abajo, después del hito 12.4).
 - **12.2** — Implementado el 2026-09-15: invitar a un compañero de la
   misma clínica. `POST /clinics/{clinic_id}/invitations` (solo `admin`,
   solo sobre su propia clínica — `InvitationAction`/
@@ -1587,8 +1588,59 @@ clínica quedan aplazados.
   `AcceptInvitationPage.test.tsx`, `InvitationForm.test.tsx`,
   `InvitationsList.test.tsx`. Suite completa del frontend en verde (263
   tests), `tsc -b`/`eslint .`/`vite build`/`prettier --check` limpios.
-- **12.4** — Sin empezar (anti-abuso y limpieza de clínicas no
-  verificadas).
+- **12.4** — Limpieza de clínicas no verificadas ("fantasma"): implementada
+  y verificada — suite completa del backend en verde vía
+  `docker compose run --rm backend pytest` (1331 tests, incluidos los
+  nuevos de este hito) el 2026-09-15. Pendiente solo el despliegue del
+  nuevo servicio cron en Railway. Anti-abuso (CAPTCHA, dominios
+  desechables) aplazado explícitamente — decisión del 2026-09-15, no
+  forma parte de este hito.
+  `unverified_clinic_ttl_days` (7 días por defecto,
+  `UNVERIFIED_CLINIC_TTL_DAYS`) es el plazo de gracia desde el alta
+  (`POST /clinics/signup`) antes de considerar fantasma una clínica sin
+  ningún usuario activo (`ClinicRepository.list_unverified_older_than`,
+  `NOT EXISTS` sobre `users.is_active`). Mismo patrón que la Fase 10.4
+  (retención) — decisión explícita del 2026-09-15 tras descubrir que ese
+  precedente no es solo un CLI, sino CLI + endpoint HTTP + secreto +
+  cron dedicado de Railway, y replicarlo entero:
+  `UnverifiedClinicCleanupService.purge()` (`app/onboarding/cleanup_service.py`)
+  borra físicamente clínica + usuarios + `account_tokens` asociados, en
+  ese orden (sin `ondelete=CASCADE` en el esquema) y con un `commit` por
+  clínica, no atómico (misma decisión deliberada que
+  `RetentionCleanupService.purge()`, Fase 7.2: una purga fallida no
+  bloquea las siguientes). Sin entrada en `audit_log`: esa tabla exige
+  `clinic_id`/`actor_user_id` NOT NULL, y ninguno de los dos existe ya al
+  terminar la operación (la clínica se borra a sí misma y nunca tuvo un
+  usuario activo que pudiera ser el actor) — el detalle se imprime por
+  stdout, igual que las clínicas omitidas de `app/retention/cli.py`.
+  Invocable vía `python -m app.onboarding.cleanup_cli` (uso local) o
+  `POST /api/v1/onboarding/system-cleanup` (cron externo, cabecera
+  `X-Onboarding-Cleanup-Cron-Secret`, `Settings.onboarding_cleanup_cron_secret`
+  obligatorio y sujeto al mismo guardarraíl de `_validate_production_safety`
+  que `retention_cron_secret`/`jwt_secret_key`). `ops/onboarding-cleanup-cron/`
+  (mismo patrón que `ops/retention-cron/`: script HTTP standalone +
+  `Dockerfile`) queda listo para un nuevo servicio cron dedicado en
+  `.railway/railway.ts` (`onboarding-cleanup-cron`, ya añadido al IaC junto
+  con `ONBOARDING_CLEANUP_CRON_SECRET`/`UNVERIFIED_CLINIC_TTL_DAYS` en el
+  servicio principal — aplicar/desplegar crea un recurso Railway nuevo,
+  pendiente de que Gerard lo confirme y lo despliegue). Tests nuevos:
+  `test_unverified_clinic_cleanup_service.py` (criterio de selección +
+  cascada de borrado), `test_onboarding_cleanup_cli.py` (integración
+  end-to-end de `main()`), `test_onboarding_cleanup_api.py` (401 sin
+  cabecera/con secreto incorrecto, 200 con purga real cross-clínica —
+  mismo patrón que `test_retention_api.py`).
+- **Deuda documental de `docs/api-specification.md` — saldada el
+  2026-09-15**: la introducción del documento afirmaba "sin autenticación
+  real todavía" (desactualizada desde la Fase 9, hito 9.1) y no existía
+  ninguna sección para `/auth/login`, el onboarding self-service (hito
+  12.1) ni las invitaciones (hitos 12.2/12.3). Corregida la introducción
+  (describe ahora los dos `auth_mode`) y añadidas las secciones **Auth**,
+  **Onboarding (self-service)** e **Invitations**. También se corrigió la
+  nota "Estado de implementación", que seguía fijada en el estado de la
+  Fase 2 — en vez de repetir el estado de cada fase (fuente de la
+  divergencia original), ahora remite explícitamente a este documento
+  como única fuente de verdad sobre progreso, dejando
+  `api-specification.md` limitado a describir contratos.
 
 ## Fuera de las fases del MVP
 

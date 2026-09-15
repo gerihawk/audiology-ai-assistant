@@ -78,3 +78,15 @@ class PasswordResetConfirmRequest(BaseModel):
     @classmethod
     def _check_new_password(cls, value: str) -> str:
         return validate_password_length(value)
+
+
+class SystemCleanupResponse(BaseModel):
+    """Resultado de `POST /onboarding/system-cleanup` (Fase 12, hito
+    12.4) — clínicas fantasma purgadas, mismo par que devuelve
+    `app.onboarding.cleanup_cli.main()`. Sin equivalente a
+    `omitted_clinics` (`SystemPurgeResponse` de retención): aquí no hay
+    ningún caso "omitida por falta de admin" — lo que
+    `UnverifiedClinicCleanupService.find_unverified()` encuentra, se
+    purga siempre."""
+
+    purged_clinics: list[str]

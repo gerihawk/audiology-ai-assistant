@@ -18,6 +18,7 @@ from app.clinical_sessions.domain.entities import (
 )
 from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSessionRepository
 from app.clinics.domain.entities import Clinic
+from app.clinics.infrastructure.orm import ClinicORM
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core.current_user import CurrentUser
 from app.core.processing_status import ProcessingStatus
@@ -34,17 +35,40 @@ def _now() -> datetime:
 
 
 async def create_clinic(
-    session: AsyncSession, *, code: str | None = None, name: str = "Clínica de test"
+    session: AsyncSession,
+    *,
+    code: str | None = None,
+    name: str = "Clínica de test",
+    created_at: datetime | None = None,
 ) -> Clinic:
+    """`created_at` explícito (mismo motivo que `uploaded_at` en
+    `create_audio_recording`) para poder simular clínicas dadas de alta
+    hace tiempo en los tests de `UnverifiedClinicCleanupService` (Fase 12,
+    hito 12.4) — `SqlAlchemyClinicRepository.add` nunca lo acepta (siempre
+    `server_default=func.now()`), así que un `created_at` explícito
+    inserta el `ClinicORM` directamente en vez de pasar por el
+    repositorio."""
+    resolved_created_at = created_at or _now()
     clinic = Clinic(
         id=uuid.uuid4(),
         name=name,
         code=code or f"TEST-{uuid.uuid4().hex[:8]}",
         is_active=True,
-        created_at=_now(),
+        created_at=resolved_created_at,
         updated_at=_now(),
     )
-    await SqlAlchemyClinicRepository().add(session, clinic)
+    if created_at is None:
+        await SqlAlchemyClinicRepository().add(session, clinic)
+    else:
+        session.add(
+            ClinicORM(
+                id=clinic.id,
+                name=clinic.name,
+                code=clinic.code,
+                is_active=clinic.is_active,
+                created_at=resolved_created_at,
+            )
+        )
     await session.commit()
     return clinic
 

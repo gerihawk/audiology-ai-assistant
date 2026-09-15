@@ -15,6 +15,12 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-not-for-production"
 # JWT_SECRET_KEY de arriba) — autentica al cron externo de
 # POST /api/v1/retention/system-purge, no cubierto por dev_headers().
 os.environ.setdefault("RETENTION_CRON_SECRET", "test-retention-cron-secret-not-for-production")
+# Fase 12, hito 12.4: ONBOARDING_CLEANUP_CRON_SECRET es obligatorio (mismo
+# criterio que RETENTION_CRON_SECRET de arriba) — autentica al cron externo
+# de POST /api/v1/onboarding/system-cleanup, no cubierto por dev_headers().
+os.environ.setdefault(
+    "ONBOARDING_CLEANUP_CRON_SECRET", "test-onboarding-cleanup-cron-secret-not-for-production"
+)
 
 # Aislamiento de la suite frente a variables de entorno "ambiente" del
 # contenedor (Fase 6.3, corrección del punto 11): `docker compose run`

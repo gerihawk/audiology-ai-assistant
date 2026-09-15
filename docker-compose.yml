@@ -65,6 +65,8 @@ services:
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Audiology AI Assistant}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
       BREVO_BASE_URL: ${BREVO_BASE_URL:-https://api.brevo.com}
+      UNVERIFIED_CLINIC_TTL_DAYS: ${UNVERIFIED_CLINIC_TTL_DAYS:-7}
+      ONBOARDING_CLEANUP_CRON_SECRET: ${ONBOARDING_CLEANUP_CRON_SECRET}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

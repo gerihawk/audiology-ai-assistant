@@ -511,6 +511,15 @@ desde la creación de la cuenta, sin firma independiente. Copia en
   criterio de guardarraíl que `JWT_SECRET_KEY` (obligatorio, sin default,
   rechazado en production/staging si coincide con el placeholder). El
   endpoint lo compara con `secrets.compare_digest`, nunca `==`.
+- `ONBOARDING_CLEANUP_CRON_SECRET` (Fase 12, hito 12.4): mismo patrón que
+  `RETENTION_CRON_SECRET` de arriba, pero para el cron externo de Railway
+  que dispara `POST /api/v1/onboarding/system-cleanup` (purga de clínicas
+  fantasma nunca verificadas, ver
+  [development-plan.md](development-plan.md) §Fase 12) — obligatorio, sin
+  default, rechazado en production/staging si coincide con el
+  placeholder, comparado con `secrets.compare_digest`. Secreto propio y
+  distinto de `RETENTION_CRON_SECRET`, no reutilizado entre ambos crons,
+  para que revocar/rotar uno no afecte al otro.
 - `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` (Fase 5/5.3, activación real
   decidida en la Fase 10 — ver §9): opcionales, solo obligatorias si
   `TRANSCRIPTION_PROVIDER` selecciona ese proveedor.

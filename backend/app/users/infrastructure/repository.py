@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.users.domain.entities import Role, User
@@ -110,3 +110,19 @@ class SqlAlchemyUserRepository:
         await session.execute(
             update(UserORM).where(UserORM.id == user_id).values(is_active=is_active)
         )
+
+    async def list_by_clinic(self, session: AsyncSession, clinic_id: uuid.UUID) -> list[User]:
+        """Todos los usuarios de una clínica, activos o no — a diferencia
+        de `list_eligible_professionals`, sin filtrar por rol ni actividad.
+        Usado por `UnverifiedClinicCleanupService` (Fase 12, hito 12.4)
+        para resolver qué `user_id` borrar (y, con ellos, sus
+        `account_tokens`) antes de poder borrar la propia clínica."""
+        result = await session.execute(select(UserORM).where(UserORM.clinic_id == clinic_id))
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def delete_by_clinic(self, session: AsyncSession, clinic_id: uuid.UUID) -> None:
+        """Borrado físico de todos los usuarios de una clínica — mismo
+        llamador y mismo criterio que `ClinicRepository.delete` (ver su
+        docstring): el que borra es responsable del orden (tokens antes
+        que usuarios, usuarios antes que la clínica)."""
+        await session.execute(delete(UserORM).where(UserORM.clinic_id == clinic_id))

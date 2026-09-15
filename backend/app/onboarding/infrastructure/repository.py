@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.onboarding.domain.entities import AccountToken, AccountTokenPurpose, Invitation
@@ -78,6 +78,18 @@ class SqlAlchemyAccountTokenRepository:
             .values(used_at=datetime.now(UTC))
         )
 
+    async def delete_for_user_ids(self, session: AsyncSession, user_ids: list[uuid.UUID]) -> None:
+        """Borrado físico — usado por `UnverifiedClinicCleanupService`
+        (Fase 12, hito 12.4) antes de poder borrar los propios `users`
+        (FK `account_tokens.user_id -> users.id`). Lista vacía es un no-op
+        explícito: un `IN ()` sin filas es válido en SQL, pero evitarlo
+        deja claro que "sin usuarios que limpiar" nunca ejecuta la
+        sentencia."""
+        if not user_ids:
+            return
+        await session.execute(delete(AccountTokenORM).where(AccountTokenORM.user_id.in_(user_ids)))
+
+
 
 def _invitation_to_domain(row: InvitationORM) -> Invitation:
     return Invitation(
@@ -123,7 +135,45 @@ class SqlAlchemyInvitationRepository:
         row = result.scalar_one_or_none()
         return _invitation_to_domain(row) if row is not None else None
 
+    async def get_by_id(self, session: AsyncSession, invitation_id: uuid.UUID) -> Invitation | None:
+        """Para `revoke_invitation` (Fase 12, hito 12.3): el admin actúa
+        sobre un id visible en la lista de pendientes, no sobre un token en
+        claro — a diferencia de `get_by_hash`, que resuelve el enlace que
+        recibe el invitado."""
+        result = await session.execute(
+            select(InvitationORM).where(InvitationORM.id == invitation_id)
+        )
+        row = result.scalar_one_or_none()
+        return _invitation_to_domain(row) if row is not None else None
+
+    async def list_pending_for_clinic(
+        self, session: AsyncSession, clinic_id: uuid.UUID
+    ) -> list[Invitation]:
+        """Invitaciones todavía pendientes (`accepted_at IS NULL`) de una
+        clínica, incluidas las ya caducadas (el admin puede querer verlas
+        para reinvitar) — excluye las aceptadas y las revocadas, que
+        comparten el mismo mecanismo de `accepted_at` (ver
+        `Invitation.is_usable`)."""
+        result = await session.execute(
+            select(InvitationORM)
+            .where(InvitationORM.clinic_id == clinic_id, InvitationORM.accepted_at.is_(None))
+            .order_by(InvitationORM.created_at.desc())
+        )
+        return [_invitation_to_domain(row) for row in result.scalars().all()]
+
     async def mark_accepted(self, session: AsyncSession, invitation_id: uuid.UUID) -> None:
+        await session.execute(
+            update(InvitationORM)
+            .where(InvitationORM.id == invitation_id)
+            .values(accepted_at=datetime.now(UTC))
+        )
+
+    async def revoke(self, session: AsyncSession, invitation_id: uuid.UUID) -> None:
+        """Fase 12, hito 12.3. Mecánicamente idéntico a `mark_accepted`
+        (mismo campo `accepted_at` como "ya no pendiente", ver
+        `Invitation.is_usable`) pero con nombre propio: `InvitationService`
+        distingue la intención (el invitado aceptó vs. el admin canceló)
+        aunque el resultado en la fila sea el mismo."""
         await session.execute(
             update(InvitationORM)
             .where(InvitationORM.id == invitation_id)
