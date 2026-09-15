@@ -1506,10 +1506,13 @@ resolver antes de dar de alta una clínica externa real: pasa de Controller
 a Processor frente a sus clientes, y necesita su propio DPA/Términos de
 Servicio — ver [fase-12-rfc.md](fase-12-rfc.md) §2.
 
-**Estado**: RFC redactado el 2026-09-15, pendiente de cierre (§9 del RFC:
-proveedor de email transaccional + qué cuestiones del §8 entran en el
-primer incremento). Sin código todavía — ningún hito de implementación
-(12.0-12.4) ha empezado.
+**Estado**: RFC cerrado el 2026-09-15 (§9): proveedor de email
+transaccional = Brevo (empresa europea, hosting en Francia/Alemania), y
+recuperación de contraseña entra en el hito 12.1 (comparte
+infraestructura con la verificación de email); panel global y baja de
+clínica quedan aplazados. Sin código todavía — ningún hito de
+implementación (12.0-12.4) ha empezado; 12.0 exige primero crear la
+cuenta de Brevo y confirmar su DPA.
 
 ## Fuera de las fases del MVP
 

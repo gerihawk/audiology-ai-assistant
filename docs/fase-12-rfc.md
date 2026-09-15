@@ -151,13 +151,25 @@ señalar aparte en cuanto apareciera.
 - Generación del `code` de clínica: slug a partir del nombre + sufijo
   aleatorio si colisiona — nunca elegido libremente por el usuario, para
   evitar enumeración/typosquatting entre clínicas.
-- **Proveedor de email transaccional**: el proyecto no tiene hoy ninguno
-  configurado — es una dependencia externa nueva, y por tanto un DPA
-  nuevo que revisar antes de producción real (mismo checklist que
-  Anthropic/OpenAI/Deepgram/Railway/Cloudflare, ver
-  [privacy-and-security.md](privacy-and-security.md) §9). Candidatos
-  típicos con DPA de autoservicio: Resend, Postmark. A decidir junto con
-  Gerard antes del hito 12.0 (ver §7).
+- **Proveedor de email transaccional: decidido el 2026-09-15 — Brevo**
+  (antes Sendinblue). Comparado contra Resend y Postmark (ver tabla
+  abajo); se elige Brevo por ser empresa europea con hosting de datos en
+  Francia/Alemania — mejor discurso frente a clínicas clientes europeas,
+  aunque los emails de este ciclo son de personal (nombre/email de quien
+  se registra o es invitado), nunca datos de pacientes. DPA autoservicio
+  (Anexo 2 de sus Términos de Servicio, se acepta junto con la cuenta,
+  mismo patrón que Anthropic/OpenAI) — **acción pendiente cuando se
+  implemente 12.1**: crear la cuenta de Brevo y confirmar/archivar el DPA
+  igual que se hizo con Railway/Deepgram, luego añadir la entrada
+  correspondiente en
+  [privacy-and-security.md](privacy-and-security.md) §9.
+
+  | Proveedor | Sede / hosting | DPA | Precio orientativo | Motivo de descarte |
+  |---|---|---|---|---|
+  | **Brevo (elegido)** | Francia — servidores UE (Francia/Alemania) | Autoservicio (Anexo 2 ToS) | ~$9/mes por 5.000 emails, plan gratis 300/día | — |
+  | Resend | EE. UU., sin residencia UE (SCCs) | Autoservicio, se acepta al crear cuenta | Gratis hasta 3.000/mes, $20/mes por 50.000 | Mejor DX y precio, pero sin historia de residencia UE de cara a clientes |
+  | Postmark | EE. UU. (AWS + Deft), sin residencia UE (SCCs) | Autoservicio desde dic. 2024 | $15-18/mes por 10.000 | Mejor entregabilidad transaccional pura, pero mismo punto débil que Resend en residencia UE |
+  | Amazon SES | Multi-región, EU disponible (`eu-west-1`) | Automático, incorporado al AWS Customer Agreement | Desde $0,10/1.000 (el más barato a escala) | Descartado: exige más operación propia (verificación de dominio, salir de sandbox, gestión de bounces/quejas vía SNS) para un volumen bajo (solo verificación + invitaciones) — sobra complejidad para este incremento |
 - Rate limiting propio en `/clinics/signup` y `/invitations/*/accept`
   (mismo patrón que `/auth/login`, 5/minute) — es superficie no
   autenticada, mismo riesgo de fuerza bruta/abuso.
@@ -185,34 +197,38 @@ señalar aparte en cuanto apareciera.
 
 ## 7. Roadmap de implementación propuesto (hitos, nada implementado todavía)
 
-- **12.0** — Alineación documental (este RFC) + decisión del proveedor de
-  email transaccional + su DPA firmado.
+- **12.0** — Alineación documental (este RFC, cerrado el 2026-09-15) +
+  cuenta de Brevo creada y DPA confirmado/archivado.
 - **12.1** — Dominio `Invitation` + `POST /clinics/signup` + verificación
-  de email.
+  de email **+ recuperación de contraseña** ("olvidé mi contraseña",
+  decidido el 2026-09-15: entra en este hito por compartir la misma
+  infraestructura de email/token que la verificación, evitando que un
+  admin bloqueado dependa de una intervención manual de Gerard en la
+  base de datos).
 - **12.2** — `POST /clinics/{id}/invitations` + `POST /invitations/
   {token}/accept`.
 - **12.3** — Frontend: pantalla de signup, pantalla de aceptar invitación,
-  pantalla de gestión de usuarios de la clínica (vista admin).
+  pantalla de "olvidé mi contraseña", pantalla de gestión de usuarios de
+  la clínica (vista admin).
 - **12.4** — Rate limiting + anti-abuso + limpieza de clínicas no
   verificadas.
 
-## 8. Cuestiones futuras, no bloqueantes
+## 8. Cuestiones futuras, no bloqueantes (aplazadas explícitamente el 2026-09-15)
 
 - Facturación/Stripe — explícitamente fuera de este ciclo (§0.2).
-- Panel global de Gerard sobre todas las clínicas dadas de alta.
-- **Recuperación de contraseña** ("olvidé mi contraseña"): hoy tampoco
-  existe para el usuario actual de producción. Comparte la misma
-  infraestructura de email transaccional que la verificación de email de
-  este RFC (§5) — candidato natural a resolverse en el mismo hito 12.1,
-  pero Gerard debe decidir si entra ya o se aplaza.
+- Panel global de Gerard sobre todas las clínicas dadas de alta — no
+  necesario mientras el número de clínicas piloto sea manejable a mano.
 - Baja de una clínica / exportación-portabilidad de sus datos si deja de
   usar el servicio — relevante para el derecho de portabilidad del propio
-  Controller-cliente frente a Gerard como Processor.
+  Controller-cliente frente a Gerard como Processor, pero gestionable de
+  forma manual (los endpoints de exportación de `clinical_record` ya
+  existen, acotados por clínica) mientras el volumen sea bajo.
 
-## 9. Criterio de cierre de este RFC
+## 9. Cierre de este RFC
 
-Este documento queda cerrado como base normativa de la Fase 12 cuando
-Gerard confirme: (a) el proveedor de email transaccional (§5) y su DPA, y
-(b) qué cuestiones del §8 entran en el primer incremento (12.1) y cuáles
-se aplazan. A partir de ahí puede empezar a implementarse el hito 12.1 —
-ningún código de este ciclo se ha escrito todavía, por diseño.
+**Cerrado el 2026-09-15.** Decisiones tomadas: (a) proveedor de email
+transaccional = Brevo, DPA autoservicio pendiente de confirmar al crear
+la cuenta (§5); (b) recuperación de contraseña entra en el primer
+incremento (12.1), el resto de §8 queda aplazado. A partir de aquí puede
+empezar a implementarse el hito 12.1 — ningún código de este ciclo se ha
+escrito todavía, por diseño.
