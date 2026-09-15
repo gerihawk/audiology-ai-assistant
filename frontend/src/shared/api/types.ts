@@ -343,6 +343,15 @@ export interface LoginResponse {
   token_type: string
 }
 
+/** `ClinicSignupRequest` (`app/onboarding/api/schemas.py`, Fase 12, hito
+ * 12.1). */
+export interface ClinicSignupInput {
+  clinic_name: string
+  admin_email: string
+  admin_display_name: string
+  admin_password: string
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string

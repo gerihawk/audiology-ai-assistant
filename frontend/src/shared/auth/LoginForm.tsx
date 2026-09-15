@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useAuth } from './AuthContext'
 
@@ -53,6 +54,14 @@ export function LoginForm() {
       <button type="submit" disabled={submitting}>
         {submitting ? 'Entrando…' : 'Entrar'}
       </button>
+      {/* Fase 12, hito 12.1: onboarding self-service — ver App.tsx para
+       * las rutas públicas correspondientes. */}
+      <p>
+        <Link to="/forgot-password">¿Has olvidado tu contraseña?</Link>
+      </p>
+      <p>
+        ¿No tienes cuenta? <Link to="/signup">Crea una clínica</Link>
+      </p>
     </form>
   )
 }
