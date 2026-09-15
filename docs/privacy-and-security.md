@@ -389,15 +389,17 @@ cubiertos por esta sección.
     adicional) — decisión deliberada para un producto sanitario, ver
     [transcription-benchmark.md](transcription-benchmark.md) §Endpoint EU
     por defecto.
-  - **Estado real por entorno (Fase 10, hito de verificación manual en
-    staging)**: `TRANSCRIPTION_PROVIDER` permaneció en `mock` en todos los
-    entornos, incluida production, hasta el cierre de la Fase 10 — las
-    variables `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` de Railway seguían
-    con el valor placeholder de `.env.example`. Se activó Deepgram (real)
-    **solo en staging**; production sigue deliberadamente en `mock`
-    pendiente de una decisión de negocio explícita sobre el lanzamiento —
-    ver política de manejo de esa clave real en §10 y
-    [development-plan.md](development-plan.md) §Fase 10.
+  - **Estado real por entorno**: `TRANSCRIPTION_PROVIDER` permaneció en
+    `mock` en todos los entornos, incluida production, hasta el cierre de
+    la Fase 10 — las variables `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` de
+    Railway seguían con el valor placeholder de `.env.example`. Se activó
+    Deepgram (real) primero solo en staging; **actualizado el
+    2026-09-14**: decisión de negocio explícita ya tomada, Deepgram
+    (real) activado también en production, con `DEEPGRAM_API_KEY` propia
+    de production (aislada de la de staging) — ver
+    [development-plan.md](development-plan.md) §Fase 10 y §Fase 11 (nota
+    de decisión de negocio). Ver más abajo el estado de los DPA de cada
+    proveedor de IA real, ahora que hay tráfico de pago en production.
 - **Sentry** (`app/core/sentry.py` backend, `frontend/src/shared/sentry.ts`),
   proveedor externo nuevo de la Fase 10.6 — EXCLUSIVAMENTE error
   tracking, nunca contenido clínico. Antes de que cualquier evento salga
@@ -413,18 +415,56 @@ cubiertos por esta sección.
   PostgreSQL de production y de staging. Toda la base de datos (identidad
   de pacientes, contenido clínico, auditoría) reside físicamente en la
   infraestructura de Railway — no hay opción de despliegue alternativa
-  todavía. Sin acuerdo de tratamiento de datos ni evaluación de
-  residencia geográfica de Railway documentados en esta fase; pendiente
-  antes de manejar datos reales (ver §1). Los Volume Backups y el WAL
-  continuo del PITR (Fase 11, §8.1) también residen en Railway.
+  todavía. Región `ams` (`europe-west4-drams3a`, Amsterdam) — confirmado
+  en UE. Los Volume Backups y el WAL continuo del PITR (Fase 11, §8.1)
+  también residen en Railway.
 - **Bucket S3-compatible en la UE** (Fase 11.3, recomendado Cloudflare R2
   con jurisdicción EU): almacena los `pg_dump` completos de production,
   **cifrados en cliente con `age`** antes de salir del cron. El proveedor
   del bucket ve únicamente objetos `.dump.age` opacos — no puede
   descifrarlos (la clave privada de `age` nunca sale de la custodia
-  offline de Gerard). Bucket en región/jurisdicción UE; el mismo acuerdo
-  de tratamiento de datos pendiente que Railway aplica aquí antes de
-  manejar datos reales, atenuado por el cifrado en cliente.
+  offline de Gerard).
+
+**Acuerdos de tratamiento de datos (DPA) — investigado el 2026-09-14, sin
+firmar ninguno todavía.** Bloqueo estructural de §9 (arriba): ninguno de
+los proveedores de pago con acceso a datos clínicos reales debe recibir
+tráfico real de paciente hasta que esto se resuelva. Estado por
+proveedor, verificado contra la documentación legal pública de cada uno:
+
+- **Anthropic** (`ANTHROPIC_API_KEY`, `LLM_PROVIDER_SUMMARY=anthropic` en
+  production): el DPA está incorporado automáticamente en los Commercial
+  Terms of Service — se acepta al mismo tiempo que esos términos, sin
+  firma aparte. Sin acción pendiente, salvo confirmar que la cuenta de
+  Gerard está bajo esos Commercial Terms (cuenta de API/Console estándar,
+  no un plan personal/gratuito). Texto: <https://www.anthropic.com/legal/data-processing-addendum>.
+- **OpenAI** (`OPENAI_API_KEY`, `LLM_PROVIDER_PATIENT_SUMMARY`/
+  `LLM_PROVIDER_MISSING_INFORMATION=openai` en production): mismo patrón
+  — el DPA se incorpora automáticamente al usar la API/aceptar el OpenAI
+  Services Agreement. Existe además un botón "Execute Data Processing
+  Agreement" para obtener una copia firmada aparte — recomendado hacerlo
+  para el propio archivo de cumplimiento, aunque no sea legalmente
+  necesario. <https://openai.com/policies/data-processing-addendum/>.
+- **Deepgram** (`DEEPGRAM_API_KEY`, activo en production desde hoy): **no
+  es automático** — su documentación pública no ofrece un DPA de
+  autoservicio, hay que solicitarlo directamente a Deepgram (incluye
+  Standard Contractual Clauses), vía `success@deepgram.com`.
+  **Acción pendiente de Gerard**: enviar la petición y esperar
+  confirmación antes de que circule cualquier dato de un paciente real.
+- **Railway**: **resuelto, firmado el 2026-09-15** — DPA vía DocuSign
+  (autoservicio, <https://railway.com/legal/dpa>), incluye EU SCCs y UK
+  Addendum. Copia firmada en `docs/legal/railway-dpa-signed-2026-09-15.pdf`
+  (fuera de git, ver `docs/legal/README.md`).
+- **Cloudflare** (bucket R2 de backups): **resuelto, sin acción** —
+  confirmado en su FAQ pública de GDPR que el DPA estándar "se incorpora
+  por referencia" automáticamente al Self-Serve Subscription Agreement de
+  cualquier cuenta de autoservicio (solo las cuentas enterprise lo
+  gestionan aparte con su Customer Success Manager) — la cuenta de
+  Cloudflare de Gerard (dominio + R2) ya lo tiene en vigor.
+
+De los cinco, solo Deepgram queda con acción pendiente de Gerard (no
+bloquea hoy una infracción activa: production sigue sin pacientes
+reales, ver Fase 11) — pero es la condición explícita de §9 antes de dar
+de alta el primer paciente real.
 
 ## 10. Gestión de secretos
 
