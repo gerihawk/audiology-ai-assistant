@@ -21,3 +21,11 @@ compartirlos (auditoría, due diligence de venta), se envían aparte.
   de Deepgram. Incluye Annex I (Scope of Processing) y Annex II (Technical
   and Organizational Measures) con Standard Contractual Clauses y UK
   Addendum referenciados.
+- `brevo-dpa-2026-09-15.pdf` — Anexo 2 (Data Protection Agreement) de los
+  Términos de Servicio de Brevo (Sendinblue SAS, entidad contratante para
+  clientes de España), vigente automáticamente desde la creación de la
+  cuenta el 2026-09-15 — sin firma independiente, se incorpora por
+  referencia a las Condiciones Generales. Proveedor de email transaccional
+  elegido en [fase-12-rfc.md](../fase-12-rfc.md) §5 (Fase 12, onboarding
+  self-service multi-clínica) — solo procesa datos de contacto del
+  personal de clínica (registro/invitaciones), nunca datos de pacientes.

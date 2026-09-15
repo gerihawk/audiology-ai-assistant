@@ -463,13 +463,26 @@ proveedor, verificado contra la documentación legal pública de cada uno:
   gestionan aparte con su Customer Success Manager) — la cuenta de
   Cloudflare de Gerard (dominio + R2) ya lo tiene en vigor.
 
-**Actualizado el 2026-09-15: los cinco DPA están resueltos** (Anthropic y
-OpenAI automáticos, Cloudflare automático, Railway y Deepgram firmados vía
-DocuSign). Queda satisfecha la condición explícita de §9 para dar de alta
-el primer paciente real, en lo que respecta a este bloqueo — sin perjuicio
-de cualquier otro requisito legal/regulatorio que surja por separado (ver
+**Actualizado el 2026-09-15: los cinco DPA de proveedores con acceso a
+datos clínicos reales están resueltos** (Anthropic y OpenAI automáticos,
+Cloudflare automático, Railway y Deepgram firmados vía DocuSign). Queda
+satisfecha la condición explícita de §9 para dar de alta el primer
+paciente real, en lo que respecta a este bloqueo — sin perjuicio de
+cualquier otro requisito legal/regulatorio que surja por separado (ver
 [development-plan.md](development-plan.md) para el resto de deuda técnica
 de Fase 10/11).
+
+**Sexto proveedor, añadido el 2026-09-15 — Brevo** (email transaccional,
+aún no activo en production: dependencia nueva de la Fase 12, onboarding
+self-service multi-clínica, ver [fase-12-rfc.md](fase-12-rfc.md) §5). A
+diferencia de los cinco anteriores, Brevo **nunca procesa datos de
+pacientes** — solo datos de contacto del personal de clínica (nombre,
+email de quien se registra o es invitado). **Resuelto, sin acción** — el
+DPA (Anexo 2 de los Términos de Servicio de Brevo, entidad Sendinblue SAS
+para clientes de España) se incorpora por referencia automáticamente
+desde la creación de la cuenta, sin firma independiente. Copia en
+`docs/legal/brevo-dpa-2026-09-15.pdf` (fuera de git, ver
+`docs/legal/README.md`).
 
 ## 10. Gestión de secretos
 
