@@ -386,11 +386,8 @@ superado `expires_at`. Emitir un token nuevo del mismo `user_id`+`purpose`
 invalida (`used_at`) cualquier token pendiente anterior — solo el último
 enlace enviado por email sigue siendo válido.
 
-La Fase 12, hito 12.2 (invitar a un compañero de una clínica) necesitará
-un token análogo para un email que todavía no tiene `User` — se decidirá
-entonces si reutiliza esta misma tabla (`user_id` nullable) o una tabla
-`invitations` propia; no se amplía aquí por adelantado (mismo criterio
-que [fase-12-rfc.md](fase-12-rfc.md) §1.2, "no objetivos").
+Decisión tomada en el hito 12.2: **no** se reutiliza esta tabla para
+invitar a un compañero — ver `invitations` más abajo, tabla propia.
 
 | Campo | Tipo | Notas |
 |---|---|---|
@@ -405,6 +402,49 @@ que [fase-12-rfc.md](fase-12-rfc.md) §1.2, "no objetivos").
 Índice compuesto `(user_id, purpose)` — resuelve rápido "¿tiene este
 usuario un token pendiente de este propósito?" sin escanear toda la tabla
 (usado por `invalidate_pending` en cada emisión de token nuevo).
+
+### `invitations`
+Invitar a un compañero de la misma clínica (Fase 12, hito 12.2 — ver
+[fase-12-rfc.md](fase-12-rfc.md) §4.2/§5). Tabla propia, no una extensión
+de `account_tokens`: a diferencia de un `AccountToken`, aquí el `User`
+todavía no existe — hace falta guardar `clinic_id`, `email` y el `role`
+propuesto en vez de un `user_id`. Mismo esquema de hashing de token que
+`account_tokens` (SHA-256 hex digest de un token aleatorio de alta
+entropía, nunca el token en claro).
+
+Un registro deja de ser usable (`Invitation.is_usable`, mismo criterio que
+`AccountToken.is_usable`) si `accepted_at` no es nulo o si ha superado
+`expires_at`. Emitir una invitación nueva del mismo `clinic_id`+`email`
+invalida (`accepted_at`, aunque no se haya aceptado de verdad) cualquier
+invitación pendiente anterior — solo la última enviada por email sigue
+siendo válida (reinvitación, p. ej. tras un email escrito mal).
+
+`role` está restringido a `audiologist`/`viewer` a nivel de esquema
+(`InvitationCreateRequest`) y revalidado en `InvitationService` — nunca
+`admin` desde este flujo, para evitar que una invitación escale
+privilegios (RFC §4.2).
+
+No-enumeración (RFC §6): `POST /clinics/{clinic_id}/invitations` responde
+siempre igual (202) al admin, exista o no ya un `User` con ese email
+(`users.email` es único globalmente, no por clínica) — si ya existe, no se
+crea ninguna fila de `invitations` y en su lugar se envía un aviso a esa
+dirección; el admin nunca ve la diferencia.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | UUID PK | |
+| clinic_id | FK clinics.id, indexado | |
+| email | string(254) | Normalizado (recortado + minúsculas); sin unicidad propia |
+| role | string(20) | `audiologist` o `viewer`, nunca `admin` |
+| token_hash | string(64), único, indexado | SHA-256 hex digest del token en claro |
+| expires_at | timestamp | `invitation_token_ttl_days` (7 por defecto) tras la emisión |
+| accepted_at | timestamp, nullable | `NULL` = todavía pendiente |
+| created_by | FK users.id | El admin que envió la invitación |
+| created_at | timestamp | |
+
+Índice compuesto `(clinic_id, email)` — resuelve "¿hay ya una invitación
+pendiente para este email en esta clínica?" sin escanear toda la tabla
+(usado por `invalidate_pending_for_email` en cada reinvitación).
 
 ## 3. Campos de la anamnesis y sus estados
 

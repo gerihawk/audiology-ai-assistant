@@ -28,6 +28,7 @@ from app.integrations.domain.email_sender import EmailSender
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.factory import build_email_sender, build_transcription_provider
 from app.integrations.service import IntegrationConfigService
+from app.onboarding.invitation_service import InvitationService
 from app.onboarding.service import OnboardingService
 from app.patients.service import PatientService
 from app.retention.service import RetentionCleanupService
@@ -50,6 +51,7 @@ __all__ = [
     "get_integration_config_service",
     "get_auth_service",
     "get_onboarding_service",
+    "get_invitation_service",
 ]
 
 
@@ -168,3 +170,9 @@ async def get_onboarding_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> OnboardingService:
     return OnboardingService(session)
+
+
+async def get_invitation_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> InvitationService:
+    return InvitationService(session)
