@@ -82,7 +82,14 @@ describe('useDevUser', () => {
 
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('ready'))
     expect(screen.getByTestId('selected-user-id')).toHaveTextContent('u-1')
-    expect(screen.getByTestId('role')).toHaveTextContent('admin')
+    // `role` viene de `currentUser`, resuelto en un segundo efecto
+    // encadenado (otra llamada async, `getCurrentUser`) independiente del
+    // que fija `status` — comprobado aparte con su propio `waitFor` en vez
+    // de un `expect` síncrono: `status` puede llegar a 'ready' antes de que
+    // esa segunda promesa haya resuelto (visto en CI, con timing distinto
+    // al de una máquina local — no es un cambio de comportamiento, es
+    // ajustar el test a una condición de carrera que ya existía).
+    await waitFor(() => expect(screen.getByTestId('role')).toHaveTextContent('admin'))
   })
 
   it('sin DevUserProvider pero dentro de AuthProvider (modo real), deriva el valor del usuario autenticado', async () => {
