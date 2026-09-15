@@ -90,7 +90,6 @@ class SqlAlchemyAccountTokenRepository:
         await session.execute(delete(AccountTokenORM).where(AccountTokenORM.user_id.in_(user_ids)))
 
 
-
 def _invitation_to_domain(row: InvitationORM) -> Invitation:
     return Invitation(
         id=row.id,
