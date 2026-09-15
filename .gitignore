@@ -62,3 +62,6 @@ docs/legal/*
 .idea/
 .vscode/
 *.swp
+
+# Claude Code (config local del asistente, no del proyecto)
+.claude/
