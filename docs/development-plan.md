@@ -1534,8 +1534,30 @@ clínica quedan aplazados.
   [docs/api-specification.md](api-specification.md) no se ha actualizado
   en este pase (ya era documentación de diseño desactualizada respecto a
   la autenticación real, deuda ya conocida de una fase anterior).
-- **12.2-12.4** — Sin empezar (invitaciones, frontend, anti-abuso y
-  limpieza de clínicas no verificadas).
+- **12.2** — Implementado el 2026-09-15: invitar a un compañero de la
+  misma clínica. `POST /clinics/{clinic_id}/invitations` (solo `admin`,
+  solo sobre su propia clínica — `InvitationAction`/
+  `authorize_invitation_action` en `app/core/authorization.py`) y `POST
+  /invitations/{token}/accept` (público, 5/minute). Entidad `Invitation`
+  propia (no una extensión de `AccountToken` — ver el docstring de
+  `app/onboarding/domain/entities.py` para la justificación), servicio
+  `InvitationService` (`app/onboarding/invitation_service.py`) aparte de
+  `OnboardingService`, migración `invitations` (ver
+  [data-model.md](data-model.md) §2), suite de tests
+  (`test_invitation_service.py`, `test_invitation_api.py`). Rol propuesto
+  restringido a `audiologist`/`viewer` a nivel de esquema (nunca `admin`,
+  RFC §4.2). No-enumeración (RFC §6) resuelta igual que
+  `request_password_reset` en el hito 12.1: la respuesta al admin es
+  siempre 202, exista o no ya una cuenta con ese email — si ya existe, se
+  envía un aviso a esa dirección en vez del enlace de invitación. Dos
+  decisiones de implementación no explícitas en el RFC: (1) `display_name`
+  se pide en `accept` (el RFC no lo menciona, pero `User.display_name` es
+  NOT NULL); (2) `invitation_token_ttl_days` (por defecto 7, ver
+  `app/core/config.py`). Pendiente de ejecutar la migración y la suite de
+  tests en el entorno real de Gerard antes de dar el hito por cerrado.
+- **12.3-12.4** — Sin empezar (frontend de invitaciones y gestión de
+  usuarios de la clínica, anti-abuso y limpieza de clínicas no
+  verificadas).
 
 ## Fuera de las fases del MVP
 

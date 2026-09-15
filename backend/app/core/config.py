@@ -270,6 +270,13 @@ class Settings(BaseSettings):
     # corta que la de verificación: una petición de reseteo no solicitada
     # que quede sin usar debe caducar antes.
     password_reset_token_ttl_hours: int = Field(default=2, gt=0)
+    # --- Invitaciones a compañeros de clínica (Fase 12, hito 12.2) ---
+    # En días, no horas (a diferencia de los dos anteriores): una
+    # invitación a un compañero es una decisión de gestión de equipo, con
+    # un horizonte de "aceptación" natural más largo que confirmar el
+    # propio email o resetear la propia contraseña — 7 días por defecto,
+    # ver docs/fase-12-rfc.md §5.
+    invitation_token_ttl_days: int = Field(default=7, gt=0)
 
     # --- Email transaccional (Fase 12, hito 12.1) — ver app/integrations/factory.py ---
     # "mock" (por defecto, `ConsoleEmailSender`) no requiere credenciales y

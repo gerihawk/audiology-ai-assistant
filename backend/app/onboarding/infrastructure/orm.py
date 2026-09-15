@@ -1,4 +1,5 @@
-"""Modelo ORM de AccountToken (Fase 12, hito 12.1)."""
+"""Modelos ORM del onboarding self-service: AccountToken (Fase 12, hito
+12.1) e Invitation (hito 12.2)."""
 
 from __future__ import annotations
 
@@ -30,6 +31,39 @@ class AccountTokenORM(Base):
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class InvitationORM(Base):
+    """Fase 12, hito 12.2 — ver
+    app.onboarding.domain.entities.Invitation para la justificación de
+    por qué es una tabla propia y no una extensión de `account_tokens`."""
+
+    __tablename__ = "invitations"
+    __table_args__ = (Index("ix_invitations_clinic_email", "clinic_id", "email"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    clinic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("clinics.id"), nullable=False, index=True
+    )
+    # Sin FK a `users.email` (no existe tal columna única aparte del id) ni
+    # a `users.id`: en el momento de invitar, ese `User` normalmente no
+    # existe todavía — es precisamente lo que crea `accept`.
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
+    # VARCHAR, no un tipo enum nativo de Postgres — mismo criterio que
+    # `UserORM.role` (`native_enum=False` implícito al usar `String`).
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Mismo esquema de hashing que `AccountTokenORM.token_hash` (SHA-256
+    # hex digest de un token aleatorio de alta entropía).
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Análogo a `AccountTokenORM.used_at`: `None` mientras está pendiente,
+    # fijado a "ahora" tanto al aceptarse de verdad como al invalidarse por
+    # una reinvitación posterior (ver `invalidate_pending_for_email`).
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
