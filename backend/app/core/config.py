@@ -255,6 +255,34 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_timeout_seconds: float = 120.0
 
+    # --- Onboarding self-service multi-clínica (Fase 12, hito 12.1) ---
+    # Ver docs/fase-12-rfc.md. Nunca datos de pacientes: solo contacto de
+    # personal de clínica (registro, verificación de email, recuperación
+    # de contraseña).
+    # URL pública del frontend — usada para construir el enlace que el
+    # usuario recibe por email (`{frontend_base_url}/verify-email?token=`,
+    # `{frontend_base_url}/reset-password?token=`). Nunca generado por el
+    # cliente: siempre desde esta configuración de servidor.
+    frontend_base_url: str = "http://localhost:5173"
+    # Vida del token de verificación de email (link enviado al registrarse).
+    email_verification_token_ttl_hours: int = Field(default=24, gt=0)
+    # Vida del token de recuperación de contraseña — deliberadamente más
+    # corta que la de verificación: una petición de reseteo no solicitada
+    # que quede sin usar debe caducar antes.
+    password_reset_token_ttl_hours: int = Field(default=2, gt=0)
+
+    # --- Email transaccional (Fase 12, hito 12.1) — ver app/integrations/factory.py ---
+    # "mock" (por defecto, `ConsoleEmailSender`) no requiere credenciales y
+    # nunca envía tráfico real (CLAUDE.md §6). "brevo": elegido en
+    # docs/fase-12-rfc.md §5, DPA autoservicio archivado en
+    # docs/legal/brevo-dpa-2026-09-15.pdf.
+    email_provider: Literal["mock", "brevo"] = "mock"
+    email_from_address: str = "no-reply@audiology-assistant.dev"
+    email_from_name: str = "Audiology AI Assistant"
+    brevo_api_key: str | None = None
+    brevo_base_url: str = "https://api.brevo.com"
+    brevo_timeout_seconds: float = 30.0
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

@@ -18,7 +18,11 @@ from app.api.router import v1_router
 from app.core import orm_registry  # noqa: F401  (registra los modelos ORM)
 from app.core.config import Settings, get_settings
 from app.core.context import RequestIdMiddleware
-from app.core.deps import get_configured_transcription_provider, get_current_user_provider
+from app.core.deps import (
+    get_configured_email_sender,
+    get_configured_transcription_provider,
+    get_current_user_provider,
+)
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
@@ -45,6 +49,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Ídem para TRANSCRIPTION_PROVIDER (p. ej. "assemblyai" sin
     # ASSEMBLYAI_API_KEY) — ver app/integrations/factory.py.
     get_configured_transcription_provider()
+    # Ídem para EMAIL_PROVIDER (Fase 12, hito 12.1 — p. ej. "brevo" sin
+    # BREVO_API_KEY).
+    get_configured_email_sender()
     yield
 
 

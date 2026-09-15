@@ -1510,9 +1510,32 @@ Servicio — ver [fase-12-rfc.md](fase-12-rfc.md) §2.
 transaccional = Brevo (empresa europea, hosting en Francia/Alemania), y
 recuperación de contraseña entra en el hito 12.1 (comparte
 infraestructura con la verificación de email); panel global y baja de
-clínica quedan aplazados. Sin código todavía — ningún hito de
-implementación (12.0-12.4) ha empezado; 12.0 exige primero crear la
-cuenta de Brevo y confirmar su DPA.
+clínica quedan aplazados.
+
+- **12.0** — Completado el 2026-09-15: cuenta de Brevo creada, DPA
+  autoservicio (Anexo 2 de sus Términos de Servicio) confirmado y
+  archivado en [docs/legal/brevo-dpa-2026-09-15.pdf](legal/brevo-dpa-2026-09-15.pdf)
+  (inventario en [docs/legal/README.md](legal/README.md), entrada añadida
+  en [privacy-and-security.md](privacy-and-security.md) §9).
+- **12.1** — Implementado el 2026-09-15: `POST /clinics/signup`,
+  verificación de email y recuperación de contraseña. Módulo
+  `app/onboarding/` (dominio `AccountToken`/`AccountTokenPurpose`,
+  generación de `code` de clínica vía slug, `OnboardingService`),
+  `app/integrations/domain/email_sender.py` (puerto `EmailSender`,
+  `ConsoleEmailSender` mock por defecto, `BrevoEmailSender` real),
+  migración `account_tokens` (ver [data-model.md](data-model.md) §2),
+  suite de tests (`test_onboarding_service.py`, `test_onboarding_api.py`,
+  `test_brevo_email_sender.py`). Rate limiting propio (5/minute) en los
+  cuatro endpoints, adelantado desde el hito 12.4 original del RFC tras
+  detectar la contradicción entre el RFC §5 y su propio roadmap §7 (ver
+  [fase-12-rfc.md](fase-12-rfc.md)) — decisión tomada con Gerard el
+  2026-09-15. Pendiente de ejecutar la migración y la suite de tests en
+  el entorno real de Gerard antes de dar el hito por cerrado.
+  [docs/api-specification.md](api-specification.md) no se ha actualizado
+  en este pase (ya era documentación de diseño desactualizada respecto a
+  la autenticación real, deuda ya conocida de una fase anterior).
+- **12.2-12.4** — Sin empezar (invitaciones, frontend, anti-abuso y
+  limpieza de clínicas no verificadas).
 
 ## Fuera de las fases del MVP
 

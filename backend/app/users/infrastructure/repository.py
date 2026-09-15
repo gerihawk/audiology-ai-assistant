@@ -1,7 +1,10 @@
-"""Repositorio mínimo de User: sin API propia en la Fase 2.
+"""Repositorio de User.
 
-Usado por FakeCurrentUserProvider (resolución del usuario ficticio) y por
-el seed.
+Usado por FakeCurrentUserProvider (resolución del usuario ficticio), por
+el seed y, desde la Fase 12 (hito 12.1), por `OnboardingService` — sigue
+sin `api/` propio (`users` no expone rutas de gestión directa; el alta de
+un usuario nuevo pasa por `POST /clinics/signup` o, en la Fase 12.2, por
+la aceptación de una invitación).
 """
 
 from __future__ import annotations
@@ -96,4 +99,14 @@ class SqlAlchemyUserRepository:
         lógica de creación de `add()`."""
         await session.execute(
             update(UserORM).where(UserORM.id == user_id).values(password_hash=password_hash)
+        )
+
+    async def set_active(
+        self, session: AsyncSession, user_id: uuid.UUID, *, is_active: bool
+    ) -> None:
+        """Usado por `OnboardingService.verify_email` (Fase 12, hito 12.1)
+        para activar el admin creado por `POST /clinics/signup`, inactivo
+        hasta ese momento."""
+        await session.execute(
+            update(UserORM).where(UserORM.id == user_id).values(is_active=is_active)
         )

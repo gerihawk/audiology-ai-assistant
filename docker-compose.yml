@@ -57,10 +57,27 @@ services:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
+      EMAIL_VERIFICATION_TOKEN_TTL_HOURS: ${EMAIL_VERIFICATION_TOKEN_TTL_HOURS:-24}
+      PASSWORD_RESET_TOKEN_TTL_HOURS: ${PASSWORD_RESET_TOKEN_TTL_HOURS:-2}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-mock}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@audiology-assistant.dev}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Audiology AI Assistant}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_BASE_URL: ${BREVO_BASE_URL:-https://api.brevo.com}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      # Fase 11, hito 11.3: tests/test_postgres_backup_cron.py carga
+      # ops/postgres-backup-cron/backup.py por ruta absoluta calculada
+      # desde el propio fichero de test (Path(__file__).parents[2]) —
+      # fuera de Docker esa ruta resuelve a la raíz real del repo, pero
+      # dentro del contenedor solo existía ./backend:/app, así que
+      # ops/ (hermana de backend/, no dentro) nunca llegaba y la
+      # colección de tests se interrumpía con FileNotFoundError.
+      # Solo lectura: ningún test de este proyecto escribe en ops/.
+      - ./ops:/ops:ro
     depends_on:
       db:
         condition: service_healthy

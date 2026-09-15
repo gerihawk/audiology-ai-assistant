@@ -18,5 +18,6 @@ from app.clinical_sessions.infrastructure import orm as _clinical_sessions_orm  
 from app.clinics.infrastructure import orm as _clinics_orm  # noqa: F401
 from app.consents.infrastructure import orm as _consents_orm  # noqa: F401
 from app.integrations.infrastructure import orm as _integrations_orm  # noqa: F401
+from app.onboarding.infrastructure import orm as _onboarding_orm  # noqa: F401
 from app.patients.infrastructure import orm as _patients_orm  # noqa: F401
 from app.users.infrastructure import orm as _users_orm  # noqa: F401

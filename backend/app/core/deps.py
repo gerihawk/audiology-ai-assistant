@@ -24,9 +24,11 @@ from app.core.current_user import (
 from app.core.db import get_db_session
 from app.core.sentry import tag_current_user
 from app.export.service import ExportService
+from app.integrations.domain.email_sender import EmailSender
 from app.integrations.domain.transcription_provider import TranscriptionProvider
-from app.integrations.factory import build_transcription_provider
+from app.integrations.factory import build_email_sender, build_transcription_provider
 from app.integrations.service import IntegrationConfigService
+from app.onboarding.service import OnboardingService
 from app.patients.service import PatientService
 from app.retention.service import RetentionCleanupService
 
@@ -40,12 +42,14 @@ __all__ = [
     "get_ai_pipeline_service",
     "get_audio_recording_service",
     "get_configured_transcription_provider",
+    "get_configured_email_sender",
     "get_export_service",
     "get_clinical_record_service",
     "get_consent_service",
     "get_retention_cleanup_service",
     "get_integration_config_service",
     "get_auth_service",
+    "get_onboarding_service",
 ]
 
 
@@ -71,6 +75,16 @@ def get_configured_transcription_provider() -> TranscriptionProvider:
     inválida (p. ej. `assemblyai` sin API key), falla una única vez, en
     el arranque (ver app.main lifespan), no en cada petición."""
     return build_transcription_provider(get_settings())
+
+
+@lru_cache
+def get_configured_email_sender() -> EmailSender:
+    """Resuelve `EmailSender` según `EMAIL_PROVIDER` — ver
+    app/integrations/factory.py. Se cachea, mismo criterio que
+    `get_configured_transcription_provider`: si la configuración es
+    inválida (p. ej. `brevo` sin API key), falla una única vez, en el
+    arranque (ver app.main lifespan), no en cada petición."""
+    return build_email_sender(get_settings())
 
 
 async def get_current_user(
@@ -148,3 +162,9 @@ async def get_auth_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> AuthService:
     return AuthService(session)
+
+
+async def get_onboarding_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingService:
+    return OnboardingService(session)
