@@ -425,8 +425,8 @@ cubiertos por esta sección.
   descifrarlos (la clave privada de `age` nunca sale de la custodia
   offline de Gerard).
 
-**Acuerdos de tratamiento de datos (DPA) — investigado el 2026-09-14, sin
-firmar ninguno todavía.** Bloqueo estructural de §9 (arriba): ninguno de
+**Acuerdos de tratamiento de datos (DPA) — investigado el 2026-09-14,
+resuelto el 2026-09-15.** Bloqueo estructural de §9 (arriba): ninguno de
 los proveedores de pago con acceso a datos clínicos reales debe recibir
 tráfico real de paciente hasta que esto se resuelva. Estado por
 proveedor, verificado contra la documentación legal pública de cada uno:
@@ -444,12 +444,14 @@ proveedor, verificado contra la documentación legal pública de cada uno:
   Agreement" para obtener una copia firmada aparte — recomendado hacerlo
   para el propio archivo de cumplimiento, aunque no sea legalmente
   necesario. <https://openai.com/policies/data-processing-addendum/>.
-- **Deepgram** (`DEEPGRAM_API_KEY`, activo en production desde hoy): **no
-  es automático** — su documentación pública no ofrece un DPA de
-  autoservicio, hay que solicitarlo directamente a Deepgram (incluye
-  Standard Contractual Clauses), vía `success@deepgram.com`.
-  **Acción pendiente de Gerard**: enviar la petición y esperar
-  confirmación antes de que circule cualquier dato de un paciente real.
+- **Deepgram** (`DEEPGRAM_API_KEY`, activo en production desde hoy):
+  **resuelto, firmado el 2026-09-15** — no era automático, se solicitó vía
+  `success@deepgram.com` (Typeform de intake), Deepgram envió el DPA por
+  DocuSign y quedó firmado por ambas partes el mismo día. Incluye Annex I
+  (Scope of Processing, con las SCCs y el UK Addendum referenciados) y
+  Annex II (medidas técnicas y organizativas). Copia firmada en
+  `docs/legal/deepgram-dpa-signed-2026-09-15.pdf` (fuera de git, ver
+  `docs/legal/README.md`).
 - **Railway**: **resuelto, firmado el 2026-09-15** — DPA vía DocuSign
   (autoservicio, <https://railway.com/legal/dpa>), incluye EU SCCs y UK
   Addendum. Copia firmada en `docs/legal/railway-dpa-signed-2026-09-15.pdf`
@@ -461,10 +463,13 @@ proveedor, verificado contra la documentación legal pública de cada uno:
   gestionan aparte con su Customer Success Manager) — la cuenta de
   Cloudflare de Gerard (dominio + R2) ya lo tiene en vigor.
 
-De los cinco, solo Deepgram queda con acción pendiente de Gerard (no
-bloquea hoy una infracción activa: production sigue sin pacientes
-reales, ver Fase 11) — pero es la condición explícita de §9 antes de dar
-de alta el primer paciente real.
+**Actualizado el 2026-09-15: los cinco DPA están resueltos** (Anthropic y
+OpenAI automáticos, Cloudflare automático, Railway y Deepgram firmados vía
+DocuSign). Queda satisfecha la condición explícita de §9 para dar de alta
+el primer paciente real, en lo que respecta a este bloqueo — sin perjuicio
+de cualquier otro requisito legal/regulatorio que surja por separado (ver
+[development-plan.md](development-plan.md) para el resto de deuda técnica
+de Fase 10/11).
 
 ## 10. Gestión de secretos
 
