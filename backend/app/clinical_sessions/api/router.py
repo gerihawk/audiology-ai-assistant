@@ -12,6 +12,7 @@ from app.clinical_sessions.api.schemas import (
     ClinicalSessionListResponse,
     ClinicalSessionResponse,
     ClinicalSessionUpdateRequest,
+    EligibleProfessionalResponse,
     update_payload_from_request,
 )
 from app.clinical_sessions.domain.entities import ClinicalSessionStatus, SessionType
@@ -87,6 +88,18 @@ async def list_clinical_sessions(
         limit=effective_limit,
         offset=offset,
     )
+
+
+@router.get("/eligible-professionals", response_model=list[EligibleProfessionalResponse])
+async def list_eligible_professionals(
+    current_user: CurrentUser = Depends(get_current_user),
+    service: ClinicalSessionService = Depends(get_clinical_session_service),
+) -> list[EligibleProfessionalResponse]:
+    # Ruta estática registrada ANTES de `/{session_id}` — si fuera al
+    # revés, Starlette intentaría resolver "eligible-professionals" como
+    # `session_id: uuid.UUID` (422 de parseo) en vez de esta ruta.
+    professionals = await service.list_eligible_professionals(current_user)
+    return [EligibleProfessionalResponse.model_validate(user) for user in professionals]
 
 
 @router.get("/{session_id}", response_model=ClinicalSessionResponse)

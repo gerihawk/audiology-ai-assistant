@@ -15,10 +15,12 @@ from collections.abc import Callable
 
 from app.core.config import Settings
 from app.integrations.domain.audio_cost_estimator import AudioCostEstimator
+from app.integrations.domain.email_sender import EmailSender
 from app.integrations.domain.language_model_provider import LanguageModelProvider
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.keyterms import AUDIOLOGY_KEYTERMS_ES, KEYTERM_SET_VERSION
 from app.integrations.mocks.mock_audio_cost_estimator import MockAudioCostEstimator
+from app.integrations.mocks.mock_email_sender import ConsoleEmailSender
 from app.integrations.mocks.mock_language_model_provider import MockLanguageModelProvider
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
 from app.integrations.providers.anthropic_language_model_provider import (
@@ -27,6 +29,7 @@ from app.integrations.providers.anthropic_language_model_provider import (
 from app.integrations.providers.assemblyai_transcription_provider import (
     AssemblyAITranscriptionProvider,
 )
+from app.integrations.providers.brevo_email_sender import BrevoEmailSender
 from app.integrations.providers.deepgram_transcription_provider import (
     DeepgramTranscriptionProvider,
 )
@@ -222,6 +225,36 @@ LANGUAGE_MODEL_PROVIDER_FACTORIES: dict[str, Callable[[Settings], LanguageModelP
         max_output_tokens=settings.llm_max_output_tokens_estimate,
     ),
 }
+
+
+#: Registro único de proveedores de email transaccional (Fase 12, hito
+#: 12.1) — "mock" (por defecto, `ConsoleEmailSender`) nunca envía tráfico
+#: real, ver CLAUDE.md §6. "brevo" es el único proveedor real (elegido en
+#: docs/fase-12-rfc.md §5); añadir uno nuevo es añadir una entrada aquí.
+EMAIL_SENDER_FACTORIES: dict[str, Callable[[Settings], EmailSender]] = {
+    "mock": lambda settings: ConsoleEmailSender(),
+    "brevo": lambda settings: BrevoEmailSender(
+        api_key=settings.brevo_api_key,
+        sender_email=settings.email_from_address,
+        sender_name=settings.email_from_name,
+        base_url=settings.brevo_base_url,
+        timeout_seconds=settings.brevo_timeout_seconds,
+    ),
+}
+
+
+def build_email_sender(settings: Settings, provider_name: str | None = None) -> EmailSender:
+    """`provider_name` por defecto es `settings.email_provider` — mismo
+    patrón que `build_transcription_provider`."""
+    name = provider_name or settings.email_provider
+    try:
+        factory = EMAIL_SENDER_FACTORIES[name]
+    except KeyError as exc:
+        raise ValueError(
+            f"'{name}' no es un proveedor de email reconocido. Valores válidos: "
+            f"{', '.join(sorted(EMAIL_SENDER_FACTORIES))}."
+        ) from exc
+    return factory(settings)
 
 
 def build_language_model_provider(settings: Settings, provider_name: str) -> LanguageModelProvider:

@@ -55,6 +55,15 @@ def test_fake_current_user_provider_rejects_production() -> None:
         raise AssertionError("FakeCurrentUserProvider debería rechazar ENVIRONMENT=production")
 
 
+def test_fake_current_user_provider_rejects_staging() -> None:
+    try:
+        FakeCurrentUserProvider(_production_settings(environment="staging"))
+    except RuntimeError as exc:
+        assert "staging" in str(exc)
+    else:
+        raise AssertionError("FakeCurrentUserProvider debería rechazar ENVIRONMENT=staging")
+
+
 def test_fake_current_user_provider_allows_development() -> None:
     settings = Settings(
         environment="development",

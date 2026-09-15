@@ -110,7 +110,15 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         logger.exception(
             "Error no controlado",
-            extra={"context": {"method": request.method, "path": request.url.path}},
+            extra={
+                "context": {
+                    "method": request.method,
+                    "path": request.url.path,
+                    # `getattr` con default: por seguridad ante cualquier
+                    # petición que no pase por `RequestIdMiddleware`.
+                    "request_id": getattr(request.state, "request_id", None),
+                }
+            },
         )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

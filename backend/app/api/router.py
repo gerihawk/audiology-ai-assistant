@@ -16,11 +16,13 @@ from app.core.current_user import CurrentUser
 from app.core.deps import get_current_user
 from app.export.api.router import router as export_router
 from app.integrations.api.router import router as integrations_router
+from app.onboarding.api.router import router as onboarding_router
 from app.patients.api.router import router as patients_router
 from app.retention.api.router import router as retention_router
 
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(auth_router)
+v1_router.include_router(onboarding_router)
 v1_router.include_router(patients_router)
 v1_router.include_router(clinical_sessions_router)
 v1_router.include_router(audio_router)
@@ -40,7 +42,7 @@ async def get_me(current_user: CurrentUser = Depends(get_current_user)) -> Curre
 def register_dev_tools(router: APIRouter, settings: Settings | None = None) -> None:
     """Registra rutas exclusivas de desarrollo. No-op en producción."""
     settings = settings or get_settings()
-    if settings.is_production:
+    if settings.is_production or settings.is_staging:
         return
     from app.api.dev_tools import router as dev_tools_router
 

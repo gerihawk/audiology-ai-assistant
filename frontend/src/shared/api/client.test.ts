@@ -88,11 +88,13 @@ describe('apiDownload', () => {
 
     const result = await apiDownload('/x', { devUserId: 'u-admin' })
 
-    // El tamaño exacto en bytes depende de la fidelidad del polyfill
-    // Blob/Response de jsdom (entorno de test), no de `apiDownload` — lo
-    // relevante aquí es que llega un Blob con contenido real y que el
-    // filename se toma de Content-Disposition, nunca se reconstruye.
-    expect(result.blob).toBeInstanceOf(Blob)
+    // `result.blob` viene de Response.prototype.blob() (undici/Node), que
+    // vive en un realm distinto al `Blob` global que jsdom-environment
+    // sustituye en este test — por eso `toBeInstanceOf(Blob)` falla pese a
+    // tratarse de un Blob real. Verificamos el nombre del constructor en su
+    // lugar; lo relevante sigue siendo que llega un Blob con contenido real
+    // y que el filename se toma de Content-Disposition, nunca se reconstruye.
+    expect(result.blob.constructor.name).toBe('Blob')
     expect(result.blob.size).toBeGreaterThan(0)
     expect(result.filename).toBe('paciente_p001_historia_clinica_20260101T000000Z.pdf')
   })

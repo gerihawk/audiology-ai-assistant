@@ -4,11 +4,14 @@ import { apiRequest } from '../api/client'
 import type { CurrentUser } from '../api/types'
 import { clearToken, getToken, setToken, subscribe } from './tokenStore'
 
-type Status = 'checking' | 'authenticated' | 'unauthenticated'
+// Exportado (junto con `AuthContextValue`): `DevUserContext.tsx` los usa
+// para derivar su propio valor en modo real (`VITE_AUTH_MODE=real`), sin
+// duplicar el tipo — ver `useAuthOptional` más abajo.
+export type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated'
 
-interface AuthContextValue {
+export interface AuthContextValue {
   currentUser: CurrentUser | null
-  status: Status
+  status: AuthStatus
   errorMessage: string | null
   /** Guarda el token (de `POST /api/v1/auth/login`) y resuelve el usuario
    * actual — llamado por `LoginForm` tras un login correcto. */
@@ -20,7 +23,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
-  const [status, setStatus] = useState<Status>(getToken() ? 'checking' : 'unauthenticated')
+  const [status, setStatus] = useState<AuthStatus>(getToken() ? 'checking' : 'unauthenticated')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const loadCurrentUser = useCallback(() => {
@@ -91,4 +94,12 @@ export function useAuth(): AuthContextValue {
     throw new Error('useAuth debe usarse dentro de <AuthProvider>')
   }
   return context
+}
+
+/** Igual que `useAuth`, pero sin lanzar si no hay `<AuthProvider>` — `null`
+ * en ese caso. Único consumidor: `DevUserContext.tsx::useDevUser`, que
+ * necesita comprobar de forma segura si el árbol está en modo real sin
+ * asumir que `<AuthProvider>` está montado (en modo fake no lo está). */
+export function useAuthOptional(): AuthContextValue | null {
+  return useContext(AuthContext)
 }

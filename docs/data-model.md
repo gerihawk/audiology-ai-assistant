@@ -365,6 +365,47 @@ nada real.
 | updated_by | FK users.id | |
 | updated_at | timestamp | |
 
+### `account_tokens`
+Token de un solo uso para dos propósitos, ambos ligados a un `users.id` ya
+existente (Fase 12, hito 12.1 — ver [fase-12-rfc.md](fase-12-rfc.md)):
+verificación del email de registro (el admin creado por
+`POST /clinics/signup` empieza `is_active=False`) y recuperación de
+contraseña (`request_password_reset`/`confirm_password_reset`). Nunca
+datos de pacientes: solo el flujo de alta/acceso de personal de clínica.
+
+`token_hash` guarda el SHA-256 hex digest del token en claro enviado por
+email — nunca se persiste el token en claro, mismo criterio que
+`users.password_hash`. A diferencia de `password_hash` (bcrypt, pensado
+para contraseñas de baja entropía elegidas por humanos), el token en claro
+es aleatorio de alta entropía (`secrets.token_urlsafe(32)`), así que un
+hash rápido sin salt es apropiado.
+
+Un token deja de ser usable (`AccountToken.is_usable`, evaluado en Python
+contra `datetime.now(UTC)`, no en SQL) si `used_at` no es nulo o si ha
+superado `expires_at`. Emitir un token nuevo del mismo `user_id`+`purpose`
+invalida (`used_at`) cualquier token pendiente anterior — solo el último
+enlace enviado por email sigue siendo válido.
+
+La Fase 12, hito 12.2 (invitar a un compañero de una clínica) necesitará
+un token análogo para un email que todavía no tiene `User` — se decidirá
+entonces si reutiliza esta misma tabla (`user_id` nullable) o una tabla
+`invitations` propia; no se amplía aquí por adelantado (mismo criterio
+que [fase-12-rfc.md](fase-12-rfc.md) §1.2, "no objetivos").
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | UUID PK | |
+| user_id | FK users.id, indexado | |
+| purpose | enum | `email_verification`, `password_reset` |
+| token_hash | string(64), único, indexado | SHA-256 hex digest del token en claro |
+| expires_at | timestamp | |
+| used_at | timestamp, nullable | `NULL` = todavía no consumido |
+| created_at | timestamp | |
+
+Índice compuesto `(user_id, purpose)` — resuelve rápido "¿tiene este
+usuario un token pendiente de este propósito?" sin escanear toda la tabla
+(usado por `invalidate_pending` en cada emisión de token nuevo).
+
 ## 3. Campos de la anamnesis y sus estados
 
 `ai_artifact_versions.content` de la versión vigente de un `ai_artifacts`

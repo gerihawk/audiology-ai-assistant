@@ -5,6 +5,7 @@ import type {
   ClinicalSessionListResponse,
   ClinicalSessionStatus,
   ClinicalSessionUpdateInput,
+  DevUser,
   SessionType,
 } from './types'
 
@@ -74,6 +75,17 @@ function transition(action: string) {
       method: 'POST',
       devUserId,
     })
+}
+
+/** Equivalente real (autenticado) de `listDevUsers()` para el selector de
+ * "profesional responsable": usuarios de la propia clínica con rol
+ * admin/audiologist y activos — misma regla que `_validate_professional`
+ * en el backend (`ClinicalSessionService`). Sin `devUserId`: solo se llama
+ * en modo real (`VITE_AUTH_MODE=real`), donde `client.ts` adjunta
+ * `Authorization: Bearer` automáticamente — mismo patrón que
+ * `GET /api/v1/me` en `AuthContext`. */
+export function listEligibleProfessionals(): Promise<DevUser[]> {
+  return apiRequest<DevUser[]>('/api/v1/clinical-sessions/eligible-professionals')
 }
 
 export const startClinicalSession = transition('start')

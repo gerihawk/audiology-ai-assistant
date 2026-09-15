@@ -12,7 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit_log.infrastructure.orm import AuditLogORM
 from app.patients.domain.entities import Patient
 from app.users.domain.entities import Role
-from tests.factories import ClinicWithUsers, create_clinic_with_users, create_patient, dev_headers
+from tests.factories import (
+    ClinicWithUsers,
+    create_clinic,
+    create_clinic_with_users,
+    create_patient,
+    create_user,
+    dev_headers,
+)
 
 
 async def _create_session(
@@ -915,3 +922,86 @@ async def test_create_rolls_back_session_if_audit_write_fails(
     )
     assert total == 0
     assert items == []
+
+
+# --- GET /clinical-sessions/eligible-professionals -------------------------
+
+
+async def test_eligible_professionals_incluye_admin_y_audiologist(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers
+) -> None:
+    headers = dev_headers(clinic_with_users.admin)
+
+    response = await api_client.get(
+        "/api/v1/clinical-sessions/eligible-professionals", headers=headers
+    )
+
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert str(clinic_with_users.admin.id) in ids
+    assert str(clinic_with_users.audiologist.id) in ids
+
+
+async def test_eligible_professionals_excluye_viewer(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers
+) -> None:
+    # `viewer` sí puede LEER el listado (misma acción READ que list/get),
+    # pero nunca aparece como candidato dentro de él.
+    headers = dev_headers(clinic_with_users.viewer)
+
+    response = await api_client.get(
+        "/api/v1/clinical-sessions/eligible-professionals", headers=headers
+    )
+
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert str(clinic_with_users.viewer.id) not in ids
+
+
+async def test_eligible_professionals_excluye_usuarios_inactivos(
+    api_client: AsyncClient, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    inactive = await create_user(
+        db_session, clinic_with_users.clinic.id, role=Role.AUDIOLOGIST, is_active=False
+    )
+    headers = dev_headers(clinic_with_users.admin)
+
+    response = await api_client.get(
+        "/api/v1/clinical-sessions/eligible-professionals", headers=headers
+    )
+
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert str(inactive.id) not in ids
+
+
+async def test_eligible_professionals_excluye_otra_clinica(
+    api_client: AsyncClient, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    other_clinic = await create_clinic(db_session)
+    other_admin = await create_user(db_session, other_clinic.id, role=Role.ADMIN)
+    headers = dev_headers(clinic_with_users.admin)
+
+    response = await api_client.get(
+        "/api/v1/clinical-sessions/eligible-professionals", headers=headers
+    )
+
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert str(other_admin.id) not in ids
+
+
+async def test_eligible_professionals_shape_coincide_con_dev_user(
+    api_client: AsyncClient, clinic_with_users: ClinicWithUsers
+) -> None:
+    headers = dev_headers(clinic_with_users.admin)
+
+    response = await api_client.get(
+        "/api/v1/clinical-sessions/eligible-professionals", headers=headers
+    )
+
+    assert response.status_code == 200, response.text
+    item = next(i for i in response.json() if i["id"] == str(clinic_with_users.admin.id))
+    assert set(item.keys()) == {"id", "clinic_id", "display_name", "role"}
+    assert item["clinic_id"] == str(clinic_with_users.clinic.id)
+    assert item["role"] == "admin"

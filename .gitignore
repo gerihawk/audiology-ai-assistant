@@ -50,6 +50,13 @@ backend/benchmark/results/*
 backend/benchmark/generation_results/*
 !backend/benchmark/generation_results/.gitkeep
 
+# Documentos legales firmados (DPA, etc.) — nunca en el repo, llevan
+# firmas y datos de identificación de terceros. Solo README.md/.gitkeep
+# versionados, ver docs/legal/README.md y docs/privacy-and-security.md §9.
+docs/legal/*
+!docs/legal/.gitkeep
+!docs/legal/README.md
+
 # Editor / OS
 .DS_Store
 .idea/

@@ -230,6 +230,21 @@ hacerlo —, momento en el que el propio validador ya obliga a tener el
 flag en `true`, así que no haría falta ningún cambio de código en ese
 momento, solo confirmar que la variable de entorno está puesta.
 
+**Activado (2026-09-14)**: `summary` → `anthropic`/`claude-sonnet-5`,
+`patient_summary` y `missing_information` → `openai`/`gpt-5.2` (decisión
+de negocio completa en [development-plan.md](development-plan.md) §Fase
+10). `AI_PROCESSING_CONSENT_ENFORCED=true` en production desde hoy, tal
+como preveía esta sección — sin cambio de código, solo la variable de
+entorno, confirmado. `LLM_COST_LIMIT_ENFORCED=true` y
+`MAX_LLM_COST_PER_SESSION_USD=1.00` activados junto con los proveedores
+(el validador exige los tres a la vez si hay algún `artifact_type` no
+`mock`). Efecto real: cualquier paciente sin consentimiento de
+`procesamiento_ia` registrado y vigente recibe `409` al intentar generar
+— sin impacto inmediato porque production no tiene pacientes reales
+todavía (ver [development-plan.md](development-plan.md) §Fase 11).
+`ANAMNESIS`/`SESSION_NOTES`/`CLINICAL_FLAGS` siguen en `mock`, sin
+benchmark propio todavía.
+
 ## 8. Retención y eliminación
 
 - **Retención por defecto: 30 días**, configurable mediante
@@ -284,21 +299,190 @@ momento, solo confirmar que la variable de entorno está puesta.
   de prueba usando el mismo mecanismo de limpieza manual, no un borrado
   directo en base de datos.
 
+### 8.1 Continuidad y recuperación ante desastres (Fase 11)
+
+Retención (arriba) responde a *"borrar lo que ya no debe conservarse"*.
+Esta subsección responde a lo contrario: *"no perder lo que sí debe
+conservarse"*. **Solo cubre production** — staging es un entorno
+desechable (seed + transcripción mock) y se deja sin backups a propósito.
+
+Tres capas complementarias sobre el Postgres de production de Railway;
+detalle operativo en
+[`ops/postgres-backup-cron/README.md`](../ops/postgres-backup-cron/README.md):
+
+| Capa | Mecanismo | Ventana de recuperación | Cubre / no cubre |
+|------|-----------|-------------------------|------------------|
+| **Volume Backups nativos** (11.1) | Snapshots diarios del volumen, gestionados por Railway | Según retención del plan de Railway | Restaura en el mismo proyecto/servicio: error de despliegue, corrupción accidental. **No** cubre pérdida del proyecto/cuenta. |
+| **Point-in-Time Recovery** (11.2) | pgBackRest: base + WAL continuo a bucket gestionado por Railway | ~4 semanas, **contadas desde la activación** (no retroactiva) | Volver a un instante concreto. Restore a servicio hermano, cutover manual. **No** cubre pérdida de la cuenta. |
+| **`pg_dump` externo cifrado** (11.3) | Cron Job de Railway independiente del backend (`ops/postgres-backup-cron/`): `pg_dump -Fc` → `age` → bucket S3-compatible en la UE | Diaria (granularidad = frecuencia del cron); retención de 30 días por lifecycle rule del bucket | **La única capa que sobrevive a la pérdida total de Railway.** Copia fuera de Railway, bajo control directo de Gerard. |
+
+Puntos de seguridad de la capa 11.3:
+
+- **La clave privada de `age` NUNCA vive en Railway** — ni en variables de
+  entorno, ni en el repo, ni online. La genera Gerard offline
+  (`age-keygen`) y la guarda offline (gestor de contraseñas + copia en
+  frío). Railway solo conoce la **clave pública** (`POSTGRES_BACKUP_AGE_PUBLIC_KEY`),
+  con la que se cifra pero no se descifra. Un atacante con acceso total a
+  Railway (o a Railway comprometido) no puede leer los dumps del bucket.
+- **Acceso al bucket externo**: bucket S3-compatible en región/jurisdicción
+  UE (recomendado Cloudflare R2 con jurisdicción EU). El token que usa el
+  cron tiene permiso de **escritura** sobre el prefijo `production/`; la
+  lectura (restore) usa credenciales aparte, en poder de Gerard. Los
+  objetos del bucket están cifrados en cliente con `age` **además** del
+  cifrado en reposo del proveedor.
+- `POSTGRES_BACKUP_AGE_PUBLIC_KEY` y las credenciales del bucket
+  (`POSTGRES_BACKUP_*`) son **obligatorias, sin default inseguro** — mismo
+  criterio de guardarraíl que `RETENTION_CRON_SECRET`/`JWT_SECRET_KEY`
+  (ver §10); `backup.py` sale con `KeyError` si falta alguna.
+- El dump en claro **nunca se escribe a disco**: `pg_dump | age` por pipe,
+  solo el `.dump.age` ya cifrado toca `/tmp` del contenedor (efímero).
+
+**Un backup no restaurado es un backup no verificado** (criterio de
+Railway). El runbook de restore
+([`README.md`](../ops/postgres-backup-cron/README.md) §Hito 11.4) debe
+ejecutarse de verdad al menos una vez contra un dump real de production,
+con constancia en [development-plan.md](development-plan.md) §Fase 11
+(fecha + resultado).
+
 ## 9. Proveedores externos y envío de datos
+
+**Actualizado en el cierre de la Fase 10 (2026-09-01) — desactualizado
+desde la Fase 5**: esta sección afirmaba que las únicas implementaciones
+disponibles de las ocho interfaces del AI Pipeline eran `Mock*` y que no
+se integraba ningún proveedor real. Eso dejó de ser cierto en la Fase 5
+(transcripción) sin que esta sección se actualizara — se corrige aquí,
+junto con dos proveedores externos nuevos de la Fase 10 (Sentry, Railway)
+que nunca formaron parte del AI Pipeline y por tanto nunca estuvieron
+cubiertos por esta sección.
 
 - Ningún dato (audio, transcripción, texto clínico) sale del entorno
   controlado hacia un proveedor externo sin que (a) exista una integración
   configurada explícitamente distinta de `mock`, y (b) exista consentimiento
   y configuración explícitos para ese tipo de envío.
-- En el MVP esto es estructural: las únicas implementaciones disponibles
-  de las ocho interfaces del AI Pipeline (`TranscriptionProvider`,
+- De las ocho interfaces del AI Pipeline (`TranscriptionProvider`,
   `LanguageModelProvider`, `SummaryGenerator`, `ClinicalFlagsGenerator`,
   `MissingInformationGenerator`, `AnamnesisGenerator`, `CostEstimator`,
   `TokenCounter` — ver
-  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6) son
-  `Mock*`, que no hacen ninguna llamada de red. No se integra ningún
-  proveedor real (OpenAI, Anthropic, Claude API, Gemini, Ollama, Llama,
-  Whisper, Azure, AWS u otra API externa) en esta fase.
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6), las
+  siete relacionadas con generación por modelo de lenguaje siguen siendo
+  exclusivamente `Mock*` en todos los entornos — ningún proveedor de pago
+  (OpenAI, Anthropic, Claude API, Gemini u otro) se ha activado nunca,
+  pese a que `Settings` ya soporta su configuración por `artifact_type`
+  (Fase 6.3) — ver [development-plan.md](development-plan.md) §Fuera de
+  las fases del MVP.
+- **`TranscriptionProvider` es la excepción**, integrada desde la Fase 5
+  (AssemblyAI) y la Fase 5.3 (Deepgram), seleccionable vía
+  `TRANSCRIPTION_PROVIDER=mock|assemblyai|deepgram`:
+  - **AssemblyAI** (`app/integrations/providers/assemblyai_transcription_provider.py`):
+    endpoint configurado por defecto `https://api.assemblyai.com` (EE.UU.
+    salvo indicación contraria). AssemblyAI **sí ofrece** un endpoint de
+    residencia de datos en la UE (`https://api.eu.assemblyai.com`,
+    servido desde AWS eu-west-1/Dublín, verificado en su documentación
+    oficial en el cierre de esta fase) pero **la integración actual no lo
+    usa por defecto** — `Settings.assemblyai_base_url` es configurable, la
+    migración al endpoint UE (variable de entorno, sin cambio de código)
+    queda pendiente de revisión si en el futuro se prefiere AssemblyAI
+    sobre Deepgram (relevante para RGPD).
+  - **Deepgram** (`app/integrations/providers/deepgram_transcription_provider.py`):
+    endpoint UE por defecto y ya en uso, `https://api.eu.deepgram.com`
+    (mismas credenciales que el genérico, sin coste ni activación
+    adicional) — decisión deliberada para un producto sanitario, ver
+    [transcription-benchmark.md](transcription-benchmark.md) §Endpoint EU
+    por defecto.
+  - **Estado real por entorno**: `TRANSCRIPTION_PROVIDER` permaneció en
+    `mock` en todos los entornos, incluida production, hasta el cierre de
+    la Fase 10 — las variables `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` de
+    Railway seguían con el valor placeholder de `.env.example`. Se activó
+    Deepgram (real) primero solo en staging; **actualizado el
+    2026-09-14**: decisión de negocio explícita ya tomada, Deepgram
+    (real) activado también en production, con `DEEPGRAM_API_KEY` propia
+    de production (aislada de la de staging) — ver
+    [development-plan.md](development-plan.md) §Fase 10 y §Fase 11 (nota
+    de decisión de negocio). Ver más abajo el estado de los DPA de cada
+    proveedor de IA real, ahora que hay tráfico de pago en production.
+- **Sentry** (`app/core/sentry.py` backend, `frontend/src/shared/sentry.ts`),
+  proveedor externo nuevo de la Fase 10.6 — EXCLUSIVAMENTE error
+  tracking, nunca contenido clínico. Antes de que cualquier evento salga
+  hacia Sentry: cuerpo de request/response eliminado, variables locales de
+  traceback eliminadas, cabeceras reducidas a una lista blanca mínima
+  (`content-type`, `x-request-id`), parámetros de breadcrumbs SQL
+  eliminados (solo la sentencia parametrizada), `scope.user` limitado a
+  `id` (UUID opaco, nunca email/nombre), sin Session Replay ni Profiling.
+  Activo únicamente si `SENTRY_DSN`/`VITE_SENTRY_DSN` están configuradas
+  — no-op en cualquier entorno sin ellas (ver §10).
+- **Railway**, proveedor de hosting/infraestructura desde la Fase 10 (no
+  un proveedor de IA): aloja los servicios de backend, frontend y
+  PostgreSQL de production y de staging. Toda la base de datos (identidad
+  de pacientes, contenido clínico, auditoría) reside físicamente en la
+  infraestructura de Railway — no hay opción de despliegue alternativa
+  todavía. Región `ams` (`europe-west4-drams3a`, Amsterdam) — confirmado
+  en UE. Los Volume Backups y el WAL continuo del PITR (Fase 11, §8.1)
+  también residen en Railway.
+- **Bucket S3-compatible en la UE** (Fase 11.3, recomendado Cloudflare R2
+  con jurisdicción EU): almacena los `pg_dump` completos de production,
+  **cifrados en cliente con `age`** antes de salir del cron. El proveedor
+  del bucket ve únicamente objetos `.dump.age` opacos — no puede
+  descifrarlos (la clave privada de `age` nunca sale de la custodia
+  offline de Gerard).
+
+**Acuerdos de tratamiento de datos (DPA) — investigado el 2026-09-14,
+resuelto el 2026-09-15.** Bloqueo estructural de §9 (arriba): ninguno de
+los proveedores de pago con acceso a datos clínicos reales debe recibir
+tráfico real de paciente hasta que esto se resuelva. Estado por
+proveedor, verificado contra la documentación legal pública de cada uno:
+
+- **Anthropic** (`ANTHROPIC_API_KEY`, `LLM_PROVIDER_SUMMARY=anthropic` en
+  production): el DPA está incorporado automáticamente en los Commercial
+  Terms of Service — se acepta al mismo tiempo que esos términos, sin
+  firma aparte. Sin acción pendiente, salvo confirmar que la cuenta de
+  Gerard está bajo esos Commercial Terms (cuenta de API/Console estándar,
+  no un plan personal/gratuito). Texto: <https://www.anthropic.com/legal/data-processing-addendum>.
+- **OpenAI** (`OPENAI_API_KEY`, `LLM_PROVIDER_PATIENT_SUMMARY`/
+  `LLM_PROVIDER_MISSING_INFORMATION=openai` en production): mismo patrón
+  — el DPA se incorpora automáticamente al usar la API/aceptar el OpenAI
+  Services Agreement. Existe además un botón "Execute Data Processing
+  Agreement" para obtener una copia firmada aparte — recomendado hacerlo
+  para el propio archivo de cumplimiento, aunque no sea legalmente
+  necesario. <https://openai.com/policies/data-processing-addendum/>.
+- **Deepgram** (`DEEPGRAM_API_KEY`, activo en production desde hoy):
+  **resuelto, firmado el 2026-09-15** — no era automático, se solicitó vía
+  `success@deepgram.com` (Typeform de intake), Deepgram envió el DPA por
+  DocuSign y quedó firmado por ambas partes el mismo día. Incluye Annex I
+  (Scope of Processing, con las SCCs y el UK Addendum referenciados) y
+  Annex II (medidas técnicas y organizativas). Copia firmada en
+  `docs/legal/deepgram-dpa-signed-2026-09-15.pdf` (fuera de git, ver
+  `docs/legal/README.md`).
+- **Railway**: **resuelto, firmado el 2026-09-15** — DPA vía DocuSign
+  (autoservicio, <https://railway.com/legal/dpa>), incluye EU SCCs y UK
+  Addendum. Copia firmada en `docs/legal/railway-dpa-signed-2026-09-15.pdf`
+  (fuera de git, ver `docs/legal/README.md`).
+- **Cloudflare** (bucket R2 de backups): **resuelto, sin acción** —
+  confirmado en su FAQ pública de GDPR que el DPA estándar "se incorpora
+  por referencia" automáticamente al Self-Serve Subscription Agreement de
+  cualquier cuenta de autoservicio (solo las cuentas enterprise lo
+  gestionan aparte con su Customer Success Manager) — la cuenta de
+  Cloudflare de Gerard (dominio + R2) ya lo tiene en vigor.
+
+**Actualizado el 2026-09-15: los cinco DPA de proveedores con acceso a
+datos clínicos reales están resueltos** (Anthropic y OpenAI automáticos,
+Cloudflare automático, Railway y Deepgram firmados vía DocuSign). Queda
+satisfecha la condición explícita de §9 para dar de alta el primer
+paciente real, en lo que respecta a este bloqueo — sin perjuicio de
+cualquier otro requisito legal/regulatorio que surja por separado (ver
+[development-plan.md](development-plan.md) para el resto de deuda técnica
+de Fase 10/11).
+
+**Sexto proveedor, añadido el 2026-09-15 — Brevo** (email transaccional,
+aún no activo en production: dependencia nueva de la Fase 12, onboarding
+self-service multi-clínica, ver [fase-12-rfc.md](fase-12-rfc.md) §5). A
+diferencia de los cinco anteriores, Brevo **nunca procesa datos de
+pacientes** — solo datos de contacto del personal de clínica (nombre,
+email de quien se registra o es invitado). **Resuelto, sin acción** — el
+DPA (Anexo 2 de los Términos de Servicio de Brevo, entidad Sendinblue SAS
+para clientes de España) se incorpora por referencia automáticamente
+desde la creación de la cuenta, sin firma independiente. Copia en
+`docs/legal/brevo-dpa-2026-09-15.pdf` (fuera de git, ver
+`docs/legal/README.md`).
 
 ## 10. Gestión de secretos
 
@@ -313,9 +497,79 @@ momento, solo confirmar que la variable de entorno está puesta.
   exclusivamente de `Settings.jwt_secret_key` — nunca hardcodeada.
   Obligatoria en todos los entornos (sin default de Python, mismo
   criterio que `POSTGRES_PASSWORD`); `_validate_production_safety`
-  rechaza el arranque en production si coincide con el placeholder de
-  `.env.example` (`CHANGE_ME_LOCAL_ONLY`, mismo mecanismo que ya protegía
-  `POSTGRES_PASSWORD`).
+  rechaza el arranque en production **o staging** (Fase 10.7 —
+  `is_production or is_staging`, ver
+  [development-plan.md](development-plan.md) §Fase 10) si coincide con
+  el placeholder de `.env.example` (`CHANGE_ME_LOCAL_ONLY`, mismo
+  mecanismo que ya protegía `POSTGRES_PASSWORD`). Práctica ya implementada desde el
+  despliegue a Railway (Fase 10.3/10.7): **`JWT_SECRET_KEY` es distinto
+  entre production y staging** — nunca la misma clave de firma
+  compartida entre los dos entornos, para que un token emitido en uno no
+  sea válido en el otro.
+- `RETENTION_CRON_SECRET` (Fase 10.4): autentica al cron externo de
+  Railway que dispara `POST /api/v1/retention/system-purge` — mismo
+  criterio de guardarraíl que `JWT_SECRET_KEY` (obligatorio, sin default,
+  rechazado en production/staging si coincide con el placeholder). El
+  endpoint lo compara con `secrets.compare_digest`, nunca `==`.
+- `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` (Fase 5/5.3, activación real
+  decidida en la Fase 10 — ver §9): opcionales, solo obligatorias si
+  `TRANSCRIPTION_PROVIDER` selecciona ese proveedor.
+  `.env.example` las documenta con el placeholder
+  `CHANGE_ME_LOCAL_ONLY`, igual que el resto de secretos — hasta el
+  cierre de la Fase 10 ambas seguían con ese placeholder en Railway en
+  todos los entornos. Nunca se registran en logs ni en
+  `ai_generation_runs` (que de todos modos nunca captura credenciales,
+  ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.5).
+  **Política de manejo de la clave real activada en staging (acordada
+  2026-09-01, cierre de la Fase 10; ampliada a production el
+  2026-09-14)**:
+  1. Heredar una clave real de un proveedor de transcripción está
+     permitido en staging **y, desde el 2026-09-14, en production**
+     (`TRANSCRIPTION_PROVIDER=deepgram`, decisión de negocio documentada
+     en [development-plan.md](development-plan.md) §Fase 10 — prioriza
+     la separación correcta de hablantes sobre el menor WER de
+     AssemblyAI). **Claves distintas por entorno**: la `DEEPGRAM_API_KEY`
+     de production es propia, nunca la misma que la de staging, para
+     aislar cuota y facturación entre los dos.
+  2. Ninguna prueba automática (CI, suite de tests) debe poder disparar
+     una transcripción real bajo ninguna circunstancia, en ningún
+     entorno — la suite completa sigue usando exclusivamente
+     `MockTranscriptionProvider`; ningún test se ejecuta contra staging
+     ni production.
+  3. Las pruebas manuales contra staging que ejerciten el proveedor real
+     deben ser deliberadamente mínimas — nunca una fuente sistemática o
+     recurrente de tráfico de prueba. **En production, el tráfico real
+     es tráfico de uso real del producto, no de prueba** — no aplica
+     esta restricción de minimizar, pero sí el resto de puntos.
+  4. Debe quedar documentado (aquí) que tanto las pruebas manuales en
+     staging como el uso en production consumen cuota/facturación real
+     del proveedor, no una simulación.
+
+     Se sustituirá por credenciales de entorno sandbox si AssemblyAI o
+     Deepgram llegan a ofrecerlas más adelante — ver
+     [development-plan.md](development-plan.md) §Fase 10 para el
+     hallazgo completo (transcripción llevaba en `mock` en todos los
+     entornos, incluida production, hasta el cierre de la Fase 10) y la
+     decisión de activación en production del 2026-09-14.
+- `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` (proveedor LLM real, activación
+  decidida el 2026-09-14 — ver §7 y
+  [development-plan.md](development-plan.md) §Fase 10): mismo criterio
+  que `ASSEMBLYAI_API_KEY`/`DEEPGRAM_API_KEY` — obligatorias solo si el
+  `artifact_type` correspondiente (`LLM_PROVIDER_SUMMARY`/
+  `LLM_PROVIDER_PATIENT_SUMMARY`/`LLM_PROVIDER_MISSING_INFORMATION`)
+  selecciona ese proveedor, `.env.example` con placeholder
+  `CHANGE_ME_LOCAL_ONLY`, claves de production propias y distintas de
+  cualquier clave de desarrollo o de benchmark (`benchmark/generation`
+  usa `OPENROUTER_API_KEY`, una clave y una cuenta completamente
+  distintas). Nunca se registran en logs ni en `ai_generation_runs`.
+- `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend, inyectada en
+  build-time del `Dockerfile.prod`, ver §9): opcionales, sin valor por
+  defecto — si no están configuradas, Sentry no se inicializa en ningún
+  entorno, ni siquiera production. El DSN de Sentry no es, en sí, un
+  secreto de alto riesgo (es de solo-escritura hacia el proyecto Sentry,
+  pensado para ir embebido en el bundle del frontend), pero se gestiona
+  con el mismo mecanismo que el resto de configuración por entorno —
+  nunca hardcodeado, nunca commiteado con un valor real.
 - Nunca se registran secretos en logs ni en `audit_logs.metadata` — esto
   incluye contraseñas en claro (nunca se persisten, solo su hash
   `bcrypt`) y JWT emitidos.
@@ -345,7 +599,7 @@ momento, solo confirmar que la variable de entorno está puesta.
 | Uso indebido de `confidence` para aprobar artefactos de IA automáticamente | Prohibido estructuralmente: ninguna ruta de código condiciona una transición a `approved` por el valor de `confidence` (Fase 4, diseño) |
 | Generación de artefactos de IA sin consentimiento de `procesamiento_ia` | Campo y punto de extensión ya preparados en `consents`/`AIPipelineService`; no forzado en el MVP con datos ficticios — riesgo aceptado conscientemente (Fase 4, diseño, ver §7) |
 | Envío de datos clínicos reales a un proveedor de IA de pago sin acuerdo de tratamiento de datos | Bloqueo estructural mientras tanto (solo `Mock*` disponibles); activar un proveedor real es una decisión de producto/legal explícita y posterior, fuera de esta fase |
-| Ausencia de cabeceras de seguridad HTTP, rate limiting y límites de subida sin revisar (Fase 8, hito 8.4) | **Deuda consciente, aplazada, no un descuido**: `app/main.py` monta hoy exactamente tres middlewares (`CORSMiddleware`, `RequestIdMiddleware`, `log_requests`) — ningún middleware de cabeceras (`X-Content-Type-Options`, `X-Frame-Options`, etc.) ni de rate limiting. El propio plan marcaba este punto como opcional ("si el tiempo lo permite", ver [development-plan.md](development-plan.md) §Fase 8). Se aplaza porque no existe todavía ningún objetivo de despliegue real ni datos reales (§1) — endurecer cabeceras/rate limiting/límites de subida tiene sentido frente a un entorno de producción real concreto, no en abstracto. Se retoma cuando exista ese objetivo de despliegue. |
+| Ausencia de cabeceras de seguridad HTTP, rate limiting y límites de subida sin revisar (Fase 8, hito 8.4) | **Cerrado en la Fase 10.5** (deuda de la Fase 8.4, aplazada hasta que existiera un objetivo de despliegue real): `SecurityHeadersMiddleware` (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security` en production/staging), rate limiting con `slowapi` (120/minute general, 5/minute en `POST /auth/login`, `/health`/`/ready` exentos, cliente identificado por `X-Forwarded-For` detrás del proxy de Railway) y `RequestSizeLimitMiddleware` — ver [development-plan.md](development-plan.md) §Fase 10, hito 10.5. Limitación conocida y aceptada: el `Limiter` es en memoria del proceso (sin Redis), correcto solo mientras el despliegue sea de una única réplica. |
 
 ## 12. `CurrentUserProvider`: alcance y limitaciones (Fase 2, actualizado Fase 9)
 
