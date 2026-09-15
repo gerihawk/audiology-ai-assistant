@@ -401,12 +401,14 @@ def authorize_integration_config_action(
 
 class InvitationAction(StrEnum):
     CREATE = "create"
+    READ = "read"
+    REVOKE = "revoke"
 
 
-#: Fase 12, hito 12.2 (docs/fase-12-rfc.md §4.2). Mismo patrón "admin
-#: únicamente" que `RetentionAction`/`IntegrationConfigAction`: invitar a
-#: un compañero de la clínica es una tarea administrativa, ni siquiera
-#: `audiologist` puede hacerlo.
+#: Fase 12, hitos 12.2/12.3 (docs/fase-12-rfc.md §4.2). Mismo patrón
+#: "admin únicamente" que `RetentionAction`/`IntegrationConfigAction`:
+#: invitar, consultar o revocar una invitación de la clínica es una tarea
+#: administrativa, ni siquiera `audiologist` puede hacerlo.
 INVITATION_PERMISSIONS: dict[Role, frozenset[InvitationAction]] = {
     Role.ADMIN: frozenset(InvitationAction),
     Role.AUDIOLOGIST: frozenset(),
@@ -417,19 +419,20 @@ INVITATION_PERMISSIONS: dict[Role, frozenset[InvitationAction]] = {
 def authorize_invitation_action(
     current_user: CurrentUser, action: InvitationAction, *, clinic_id: uuid.UUID
 ) -> None:
-    """`clinic_id` es el `{clinic_id}` de la ruta (`POST
-    /clinics/{clinic_id}/invitations`) — comprobado además del rol porque,
-    a diferencia del resto de endpoints del proyecto (que derivan la
-    clínica implícitamente de `current_user.clinic_id`, sin parámetro en
-    la URL), aquí el RFC pide la clínica explícita en la ruta. Un admin
-    solo puede invitar a SU PROPIA clínica: si el id de la ruta no
-    coincide, se trata como el mismo tipo de violación de propiedad que
-    `authorize_clinical_session_action` (`ForbiddenError`, no
-    `NotFoundError` — la clínica sí existe, simplemente no es la suya)."""
+    """`clinic_id` es el `{clinic_id}` de la ruta (`.../clinics/{clinic_id}/
+    invitations...`) — comprobado además del rol porque, a diferencia del
+    resto de endpoints del proyecto (que derivan la clínica implícitamente
+    de `current_user.clinic_id`, sin parámetro en la URL), aquí el RFC
+    pide la clínica explícita en la ruta. Un admin solo puede
+    invitar/consultar/revocar invitaciones de SU PROPIA clínica: si el id
+    de la ruta no coincide, se trata como el mismo tipo de violación de
+    propiedad que `authorize_clinical_session_action` (`ForbiddenError`,
+    no `NotFoundError` — la clínica sí existe, simplemente no es la
+    suya)."""
     if action not in INVITATION_PERMISSIONS[current_user.role]:
         raise ForbiddenError(
             f"El rol '{current_user.role.value}' no tiene permiso para "
             f"'{action.value}' sobre invitaciones."
         )
     if clinic_id != current_user.clinic_id:
-        raise ForbiddenError("Un admin solo puede invitar a compañeros de su propia clínica.")
+        raise ForbiddenError("Un admin solo puede operar sobre invitaciones de su propia clínica.")

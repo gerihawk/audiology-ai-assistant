@@ -15,7 +15,7 @@ from app.integrations.domain.email_sender import EmailMessage
 from app.onboarding.invitation_service import InvitationAcceptData, InvitationService
 from app.users.domain.entities import Role
 from app.users.infrastructure.repository import SqlAlchemyUserRepository
-from tests.factories import ClinicWithUsers, create_user, current_user_from
+from tests.factories import ClinicWithUsers, create_clinic, create_user, current_user_from
 
 _PASSWORD = "contraseña-de-doce"
 
@@ -230,3 +230,113 @@ async def test_reinviting_the_same_email_invalidates_the_previous_invitation(
     user = await SqlAlchemyUserRepository().get_by_email(db_session, "reinvitada@test.local")
     assert user is not None
     assert user.role == Role.AUDIOLOGIST
+
+
+async def test_list_pending_invitations_excludes_accepted_and_other_clinics(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, email_sender = _make_service(db_session)
+    admin = current_user_from(clinic_with_users.admin)
+    await service.create_invitation(
+        admin, clinic_with_users.clinic.id, "pendiente@test.local", Role.VIEWER
+    )
+    await service.create_invitation(
+        admin, clinic_with_users.clinic.id, "aceptada@test.local", Role.AUDIOLOGIST
+    )
+    accepted_token = _extract_token_from_link(email_sender.sent[1].html_body)
+    await service.accept_invitation(
+        InvitationAcceptData(token=accepted_token, new_password=_PASSWORD, display_name="Alguien")
+    )
+    other_clinic = await create_clinic(db_session)
+    await service.create_invitation(
+        current_user_from(await create_user(db_session, other_clinic.id, role=Role.ADMIN)),
+        other_clinic.id,
+        "de-otra-clinica@test.local",
+        Role.VIEWER,
+    )
+
+    pending = await service.list_pending_invitations(admin, clinic_with_users.clinic.id)
+
+    assert [invitation.email for invitation in pending] == ["pendiente@test.local"]
+
+
+async def test_list_pending_invitations_requires_admin_role(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, _ = _make_service(db_session)
+    viewer = current_user_from(clinic_with_users.viewer)
+
+    with pytest.raises(ForbiddenError):
+        await service.list_pending_invitations(viewer, clinic_with_users.clinic.id)
+
+
+async def test_revoke_invitation_makes_the_token_unusable(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, email_sender = _make_service(db_session)
+    admin = current_user_from(clinic_with_users.admin)
+    await service.create_invitation(
+        admin, clinic_with_users.clinic.id, "a-revocar@test.local", Role.VIEWER
+    )
+    raw_token = _extract_token_from_link(email_sender.sent[0].html_body)
+    pending = await service.list_pending_invitations(admin, clinic_with_users.clinic.id)
+    invitation_id = pending[0].id
+
+    await service.revoke_invitation(admin, clinic_with_users.clinic.id, invitation_id)
+
+    assert await service.list_pending_invitations(admin, clinic_with_users.clinic.id) == []
+    with pytest.raises(ConflictError):
+        await service.accept_invitation(
+            InvitationAcceptData(
+                token=raw_token, new_password=_PASSWORD, display_name="Demasiado Tarde"
+            )
+        )
+
+
+async def test_revoke_invitation_twice_raises_conflict(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, _ = _make_service(db_session)
+    admin = current_user_from(clinic_with_users.admin)
+    await service.create_invitation(
+        admin, clinic_with_users.clinic.id, "doble-revocacion@test.local", Role.VIEWER
+    )
+    pending = await service.list_pending_invitations(admin, clinic_with_users.clinic.id)
+    invitation_id = pending[0].id
+    await service.revoke_invitation(admin, clinic_with_users.clinic.id, invitation_id)
+
+    with pytest.raises(ConflictError):
+        await service.revoke_invitation(admin, clinic_with_users.clinic.id, invitation_id)
+
+
+async def test_revoke_invitation_from_another_clinic_raises_not_found(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, _ = _make_service(db_session)
+    admin = current_user_from(clinic_with_users.admin)
+    await service.create_invitation(
+        admin, clinic_with_users.clinic.id, "de-mi-clinica@test.local", Role.VIEWER
+    )
+    pending = await service.list_pending_invitations(admin, clinic_with_users.clinic.id)
+    invitation_id = pending[0].id
+    other_clinic = await create_clinic(db_session)
+    other_admin = current_user_from(await create_user(db_session, other_clinic.id, role=Role.ADMIN))
+
+    with pytest.raises(NotFoundError):
+        await service.revoke_invitation(other_admin, other_clinic.id, invitation_id)
+
+
+async def test_revoke_invitation_requires_admin_role(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, _ = _make_service(db_session)
+    admin = current_user_from(clinic_with_users.admin)
+    await service.create_invitation(
+        admin, clinic_with_users.clinic.id, "protegida@test.local", Role.VIEWER
+    )
+    pending = await service.list_pending_invitations(admin, clinic_with_users.clinic.id)
+    invitation_id = pending[0].id
+    audiologist = current_user_from(clinic_with_users.audiologist)
+
+    with pytest.raises(ForbiddenError):
+        await service.revoke_invitation(audiologist, clinic_with_users.clinic.id, invitation_id)

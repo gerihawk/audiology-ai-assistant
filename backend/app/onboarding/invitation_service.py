@@ -7,7 +7,7 @@ aunque comparta módulo `onboarding` y el mismo puerto `EmailSender`: dos
 flujos de negocio distintos (alta de una clínica nueva vs. invitar a un
 compañero dentro de una clínica ya existente).
 
-Dos operaciones:
+Cuatro operaciones:
 1. `create_invitation`: solo `admin`, y solo sobre su propia clínica (ver
    `authorize_invitation_action`). No-enumeración (RFC §6): la respuesta
    al admin es siempre la misma exista o no ya una cuenta con ese email —
@@ -20,6 +20,13 @@ Dos operaciones:
    `is_active=True` desde el principio (a diferencia del alta de clínica:
    quien acepta ya demostró control del email al recibir el enlace, no
    hace falta una verificación adicional).
+3. `list_pending_invitations` (Fase 12, hito 12.3): solo `admin`, solo su
+   propia clínica — invitaciones todavía sin aceptar, incluidas las
+   caducadas.
+4. `revoke_invitation` (hito 12.3): solo `admin`, solo su propia clínica —
+   cancela una invitación pendiente antes de que se acepte. No añade
+   ninguna protección de no-enumeración (a diferencia de `create_invitation`):
+   el admin ya conoce sus propias invitaciones pendientes.
 """
 
 from __future__ import annotations
@@ -228,4 +235,28 @@ class InvitationService:
         )
         await self._users.add(self._session, user)
         await self._invitations.mark_accepted(self._session, invitation.id)
+        await self._session.commit()
+
+    async def list_pending_invitations(
+        self, current_user: CurrentUser, clinic_id: uuid.UUID
+    ) -> list[Invitation]:
+        authorize_invitation_action(current_user, InvitationAction.READ, clinic_id=clinic_id)
+        return await self._invitations.list_pending_for_clinic(self._session, clinic_id)
+
+    async def revoke_invitation(
+        self, current_user: CurrentUser, clinic_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> None:
+        authorize_invitation_action(current_user, InvitationAction.REVOKE, clinic_id=clinic_id)
+
+        invitation = await self._invitations.get_by_id(self._session, invitation_id)
+        # Mismo criterio que `NotFoundError` en general (ver
+        # app/core/exceptions.py): "no existe" y "existe pero es de otra
+        # clínica" son indistinguibles para el llamador — nunca se revela
+        # que una invitación de otra clínica existe.
+        if invitation is None or invitation.clinic_id != clinic_id:
+            raise NotFoundError("Invitación no encontrada.")
+        if not invitation.is_usable:
+            raise ConflictError("Esta invitación ya no está pendiente.")
+
+        await self._invitations.revoke(self._session, invitation.id)
         await self._session.commit()

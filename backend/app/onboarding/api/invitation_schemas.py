@@ -1,4 +1,4 @@
-"""Esquemas Pydantic de invitaciones (Fase 12, hito 12.2).
+"""Esquemas Pydantic de invitaciones (Fase 12, hitos 12.2/12.3).
 
 Mismo criterio que `app.onboarding.api.schemas`: normalización/validación
 de entrada en `@field_validator`s que delegan en
@@ -7,10 +7,13 @@ de entrada en `@field_validator`s que delegan en
 
 from __future__ import annotations
 
-from typing import Literal
+import uuid
+from datetime import UTC, datetime
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.onboarding.domain.entities import Invitation
 from app.onboarding.domain.normalization import (
     normalize_email,
     normalize_required_free_text,
@@ -59,3 +62,39 @@ class InvitationAcceptRequest(BaseModel):
     @classmethod
     def _normalize_display_name(cls, value: str) -> str:
         return normalize_required_free_text(value, field_name=_DISPLAY_NAME_FIELD)
+
+
+class InvitationSummaryResponse(BaseModel):
+    """Fase 12, hito 12.3 — respuesta de `GET
+    /clinics/{clinic_id}/invitations`, siempre invitaciones pendientes
+    (ver `SqlAlchemyInvitationRepository.list_pending_for_clinic`).
+
+    `is_expired` se calcula aquí, no en el dominio: `Invitation.is_usable`
+    ya combina caducidad + `accepted_at`, pero para una fila que YA se sabe
+    pendiente (`accepted_at IS NULL`, garantizado por el repositorio) la
+    única pregunta que le queda al frontend es "¿puede seguir esperando a
+    que la acepten, o toca reenviar?" — de ahí exponer solo la caducidad,
+    sin repetir aquí la noción de "usable" que ya no aporta nada distinto.
+    """
+
+    id: uuid.UUID
+    email: str
+    role: InvitableRoleLiteral
+    expires_at: datetime
+    created_at: datetime
+    is_expired: bool
+
+    @classmethod
+    def from_domain(cls, invitation: Invitation) -> Self:
+        return cls(
+            id=invitation.id,
+            email=invitation.email,
+            role=invitation.role.value,
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+            is_expired=datetime.now(UTC) >= invitation.expires_at,
+        )
+
+
+class InvitationListResponse(BaseModel):
+    items: list[InvitationSummaryResponse]
