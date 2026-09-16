@@ -1644,6 +1644,12 @@ clínica quedan aplazados.
 
 ## Fuera de las fases del MVP
 
+**Facturación/Stripe — en análisis de alcance desde el 2026-09-16**: ver
+[fase-13-rfc.md](fase-13-rfc.md), mismo patrón que
+[fase-12-rfc.md](fase-12-rfc.md) para el onboarding multi-clínica. RFC
+abierto, pendiente de decisiones comerciales de Gerard (niveles, precios,
+IVA) antes de planificar hitos de implementación.
+
 Cualquier integración real (Noah, calendario, o cualquier proveedor de
 modelo de lenguaje de pago — OpenAI, Anthropic, Claude API, Gemini,
 Ollama, Llama), multi-tenant, selector de idioma en tiempo de ejecución
