@@ -53,6 +53,9 @@ dev = [
   # pypdf: solo para verificar en tests que PdfDocumentExporter produce un
   # PDF válido (parseo/nº páginas/texto) — nunca código de producción.
   "pypdf>=5.0,<7.0",
+  # pip-audit: escaneo de vulnerabilidades conocidas en dependencias
+  # (Fase 12 hito 2, CI) contra la base de datos de PyPI Advisory/OSV.
+  "pip-audit>=2.7,<3.0",
 ]
 
 [tool.hatch.build.targets.wheel]

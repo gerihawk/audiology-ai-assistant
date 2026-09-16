@@ -1,0 +1,31 @@
+# Fase 12, hito 2: PRs automáticos semanales de actualización de dependencias,
+# como complemento al escaneo de vulnerabilidades en CI (pip-audit / npm audit).
+# pip-audit/npm audit fallan la build si hay una vulnerabilidad conocida ya
+# publicada; Dependabot además propone ir actualizando antes de llegar a eso.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
