@@ -206,6 +206,7 @@ async def test_provider_metadata_sin_raw_response_completo():
         "keyterm_set_version": None,
         "api_base": "https://api.eu.deepgram.com",
         "region": "eu",
+        "mip_opt_out_requested": True,
     }
     assert "transcript" not in result.provider_metadata
     assert "confidence" not in result.provider_metadata
@@ -253,6 +254,7 @@ async def test_envia_el_audio_como_cuerpo_binario_sin_paso_de_subida_previo():
     assert ("utterances", "true") in captured["params"]
     assert ("smart_format", "true") in captured["params"]
     assert ("punctuate", "true") in captured["params"]
+    assert ("mip_opt_out", "true") in captured["params"]
     assert not any(key == "keyterm" for key, _ in captured["params"])
 
 
@@ -277,6 +279,56 @@ async def test_keyterms_se_repiten_como_parametro_multiple():
     assert keyterm_values == ["hipoacusia", "acúfenos"]
     assert result.provider_metadata["keyterm_prompting"] is True
     assert result.provider_metadata["keyterm_set_version"] == "audiology-es-v1"
+
+
+
+# --- Compliance: no entrenamiento (mip_opt_out) ----------------------------------
+#
+# Requisito de seguridad/compliance, no solo funcional (decision de negocio
+# 2026-09-16, ver docs/privacy-and-security.md #9 y el docstring del modulo):
+# sin `mip_opt_out=true`, Deepgram retiene el audio y puede usarlo para su
+# Model Improvement Partnership Program por defecto (verificado contra el DPA
+# firmado, docs/legal/deepgram-dpa-signed-2026-09-15.pdf, clausula 8.1). Este
+# test debe seguir en verde si alguien refactoriza el provider mas adelante
+# -- si desaparece, CI tiene que fallar, no un review manual.
+
+
+async def test_mip_opt_out_se_envia_siempre_politica_de_no_entrenamiento():
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["params"] = list(request.url.params.multi_items())
+        return httpx.Response(200, json=_success_response())
+
+    client = _client_with_handler(handler)
+    provider = DeepgramTranscriptionProvider(api_key="clave-ficticia", http_client=client)
+
+    result = await provider.transcribe(_AUDIO_INPUT)
+
+    assert ("mip_opt_out", "true") in captured["params"]
+    assert result.provider_metadata["mip_opt_out_requested"] is True
+
+
+async def test_mip_opt_out_se_envia_incluso_con_keyterms_configurados():
+    """El parametro de compliance no depende de ninguna otra configuracion
+    (keyterms, idioma, modelo) -- siempre presente, nunca condicional."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["params"] = list(request.url.params.multi_items())
+        return httpx.Response(200, json=_success_response())
+
+    client = _client_with_handler(handler)
+    provider = DeepgramTranscriptionProvider(
+        api_key="clave-ficticia",
+        http_client=client,
+        keyterms=["hipoacusia"],
+        keyterm_set_version="audiology-es-v1",
+    )
+
+    await provider.transcribe(_AUDIO_INPUT)
+
+    assert ("mip_opt_out", "true") in captured["params"]
 
 
 # --- Errores, timeout, secretos --------------------------------------------------

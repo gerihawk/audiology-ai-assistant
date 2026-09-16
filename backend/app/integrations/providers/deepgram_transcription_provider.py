@@ -11,6 +11,16 @@ developers.deepgram.com, nunca supuestos, ver docs/transcription-benchmark.md
 se incluye en ninguna excepción — solo viaja en la cabecera
 `authorization`.
 
+Política de no entrenamiento (decisión de negocio 2026-09-16, ver
+docs/privacy-and-security.md §9): toda petición incluye
+`mip_opt_out=true`, excluyendo la petición del Model Improvement
+Partnership Program de Deepgram — verificado contra el DPA firmado
+(`docs/legal/deepgram-dpa-signed-2026-09-15.pdf` cláusula 8.1): sin
+este parámetro, Deepgram retiene y puede usar el audio para mejorar
+sus modelos por defecto. Nunca opcional ni condicionado a
+configuración — no hay ningún caso de uso legítimo de este producto
+en el que el audio de un paciente deba entrar en ese programa.
+
 Nota de normalización importante: `start`/`end` en `utterances`/`words`
 de Deepgram vienen en **segundos** (Deepgram), frente a **milisegundos**
 en AssemblyAI — cada proveedor convierte a `start_ms`/`end_ms` según su
@@ -109,6 +119,9 @@ class DeepgramTranscriptionProvider:
             ("utterances", "true"),
             ("smart_format", "true"),
             ("punctuate", "true"),
+            # Nunca condicional ni configurable — ver nota de política de
+            # no entrenamiento en el docstring del módulo.
+            ("mip_opt_out", "true"),
         ]
         if self._keyterms:
             params.extend(("keyterm", term) for term in self._keyterms)
@@ -206,6 +219,10 @@ def _normalize(
         "model_arch": model_info.get("arch"),
         "diarization_requested": True,
         "diarization_used": bool(segments),
+        # Siempre True — ver nota de politica de no entrenamiento en el
+        # docstring del modulo. Trazabilidad de que se pidio, igual que
+        # el resto de flags de esta funcion.
+        "mip_opt_out_requested": True,
         "smart_format_requested": True,
         "language_code_requested": requested_language,
         "keyterm_prompting": keyterm_prompting,
