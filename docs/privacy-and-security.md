@@ -425,6 +425,18 @@ cubiertos por esta sección.
   descifrarlos (la clave privada de `age` nunca sale de la custodia
   offline de Gerard).
 
+**Confirmado el 2026-09-17 — se mantiene el reparto dual de proveedor de
+LLM.** Se planteó consolidar a un único proveedor de LLM (en vez del
+reparto actual, `sonnet-5` para `summary` y `gpt-5.2` para
+`patient_summary`/`missing_information`, decisión del 2026-09-14 más
+arriba) por simplicidad de cara al DPA/subencargados. Decisión explícita
+de Gerard: se deja como está — Anthropic y OpenAI siguen ambos activos en
+production, cada uno con su propio DPA (ver justo abajo). Implicación
+para la documentación legal: el DPA/RAT de Audiology AI Assistant debe
+listar ambos como subencargados activos con su alcance real (Anthropic →
+`summary`; OpenAI → `patient_summary` y `missing_information`), nunca
+como proveedor "de respaldo" o alternativa intercambiable.
+
 **Acuerdos de tratamiento de datos (DPA) — investigado el 2026-09-14,
 resuelto el 2026-09-15.** Bloqueo estructural de §9 (arriba): ninguno de
 los proveedores de pago con acceso a datos clínicos reales debe recibir
@@ -483,6 +495,66 @@ para clientes de España) se incorpora por referencia automáticamente
 desde la creación de la cuenta, sin firma independiente. Copia en
 `docs/legal/brevo-dpa-2026-09-15.pdf` (fuera de git, ver
 `docs/legal/README.md`).
+
+**Actualizado el 2026-09-16 — política de no entrenamiento en Deepgram
+(`mip_opt_out`).** El DPA firmado de Deepgram (cláusula 8.1) supedita sus
+protecciones más fuertes (procesamiento estrictamente en memoria, sin
+persistencia) a que la petición incluya el parámetro `mip_opt_out=true`;
+sin él, Deepgram inscribe por defecto al cliente en su "Model Improvement
+Partnership Program" y puede retener audio/transcripciones para mejorar
+sus modelos — es opt-out, no opt-in. Se verificó que la integración no lo
+enviaba y se corrigió: `DeepgramTranscriptionProvider` incluye
+`mip_opt_out=true` de forma incondicional en toda petición
+(`app/integrations/providers/deepgram_transcription_provider.py`),
+trazado en `provider_metadata.mip_opt_out_requested`, y cubierto por dos
+tests dedicados de compliance/seguridad
+(`tests/test_deepgram_provider.py`) para que un futuro refactor no lo
+elimine sin que CI lo detecte. Decisión de negocio: los datos de
+pacientes no se utilizan para entrenamiento ni mejora general de modelos
+por parte de ningún proveedor, salvo decisión explícita y documentada en
+sentido contrario — primer paso concreto de esa política más amplia (ver
+[transcription-benchmark.md](transcription-benchmark.md) §Política de no
+entrenamiento).
+
+### 9.1 Política de no entrenamiento de modelos por proveedores externos — añadido 2026-09-16
+
+Política de negocio explícita: ningún dato de paciente (audio,
+transcripción, texto clínico) se utiliza para entrenar o mejorar modelos
+de un proveedor externo, salvo decisión explícita y documentada en
+sentido contrario. Estado verificado, proveedor por proveedor, a fecha de
+esta entrada:
+
+- **Deepgram**: por defecto (opt-out, no opt-in) un cliente estándar está
+  inscrito en su "Model Improvement Partnership Program". Resuelto a
+  nivel técnico — ver más arriba, `mip_opt_out=true` incondicional en
+  toda petición, cubierto por tests de compliance dedicados.
+- **Anthropic** (`ANTHROPIC_API_KEY`, API/Claude for Work — no Claude.ai
+  consumer): por defecto NO se usan inputs/outputs de productos
+  comerciales para entrenar modelos
+  (<https://privacy.claude.com>, verificado 2026-09-16). Única excepción:
+  feedback explícito (botón de pulgar arriba/abajo), aplicable a un uso
+  interactivo tipo consola/playground, no al tráfico programático de
+  producción. **Acción pendiente de Gerard** (no ejecutable desde aquí,
+  requiere su cuenta): confirmar/desactivar el toggle "Rate chats" en
+  Organization settings → Data and Privacy del Console de Anthropic, como
+  medida de defensa en profundidad — nunca se debe además probar prompts
+  con datos reales de pacientes en el playground del Console.
+- **OpenAI** (`OPENAI_API_KEY`): por defecto NO se usan datos de la API
+  para entrenar modelos, requiere opt-in explícito que nunca se ha
+  activado (<https://developers.openai.com/api/docs/guides/your-data>,
+  verificado 2026-09-16). Retención por defecto: hasta 30 días en logs de
+  prevención de abuso, no como dato de entrenamiento. Sin acción
+  pendiente.
+- **Railway, Cloudflare, Brevo**: no son proveedores de modelos de IA —
+  fuera del alcance de esta política (infraestructura/hosting y email
+  transaccional, ver más arriba en esta misma sección).
+
+Esta política se refleja también, a nivel contractual, en los DPA ya
+firmados/incorporados de cada proveedor (arriba), y debe trasladarse al
+apartado correspondiente de los Términos de Servicio/DPA propios de
+Audiology AI Assistant cuando se redacten o revisen (ver
+[fase-13-rfc.md](fase-13-rfc.md) para el resto de documentación legal
+pendiente de cierre).
 
 ## 10. Gestión de secretos
 

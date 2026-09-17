@@ -806,8 +806,25 @@ que §13):
     "keyterm_set_version": ...,
     "api_base": "https://api.eu.deepgram.com",
     "region": "eu",
+    "mip_opt_out_requested": True,
 }
 ```
+
+### Política de no entrenamiento (`mip_opt_out`) — añadido 2026-09-16
+
+Toda petición a Deepgram incluye `mip_opt_out=true` (parámetro de query,
+`_params()`), de forma incondicional — no depende de configuración ni de
+ningún otro flag. Excluye la petición del "Model Improvement Partnership
+Program" de Deepgram, en el que un cliente estándar está inscrito por
+defecto (opt-out, no opt-in). Verificado contra el DPA firmado
+(`docs/legal/deepgram-dpa-signed-2026-09-15.pdf`, cláusula 8.1): sin este
+parámetro, Deepgram puede retener audio y transcripciones para su propio
+entrenamiento; con él, el procesamiento es estrictamente en memoria y no
+se persiste. Ver también [privacy-and-security.md](privacy-and-security.md)
+§9. Cubierto por dos tests dedicados de compliance/seguridad en
+`tests/test_deepgram_provider.py` — deliberadamente no solo documentado,
+para que CI detecte una regresión si un refactor futuro elimina el
+parámetro.
 
 ### Configuración
 
