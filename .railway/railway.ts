@@ -12,7 +12,7 @@ export default defineRailway(() => {
     env: { DATABASE_URL: preserve(), POSTGRES_BACKUP_ACCESS_KEY_ID: preserve(), POSTGRES_BACKUP_AGE_PUBLIC_KEY: preserve(), POSTGRES_BACKUP_BUCKET_ENDPOINT: preserve(), POSTGRES_BACKUP_BUCKET_NAME: preserve(), POSTGRES_BACKUP_SECRET_ACCESS_KEY: preserve() },
   });
   const truthfulSolace = service("truthful-solace", {
-    source: github("gerihawk/audiology-ai-assistant", { branch: "feature/phase-10-deployment", checkSuites: false, rootDirectory: "/ops/retention-cron" }),
+    source: github("gerihawk/audiology-ai-assistant", { branch: "main", checkSuites: false, rootDirectory: "/ops/retention-cron" }),
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "/ops/retention-cron/Dockerfile" },
     replicas: { "ams": 1 },
     deploy: { cronSchedule: "0 3 * * *", restartPolicyType: "NEVER" },
@@ -24,21 +24,21 @@ export default defineRailway(() => {
   // apuntar a la URL pública de audiologyAiAssistant (p. ej.
   // https://api.audiology-assistant.dev/api/v1/onboarding/system-cleanup).
   const onboardingCleanupCron = service("onboarding-cleanup-cron", {
-    source: github("gerihawk/audiology-ai-assistant", { branch: "feature/phase-10-deployment", checkSuites: false, rootDirectory: "/ops/onboarding-cleanup-cron" }),
+    source: github("gerihawk/audiology-ai-assistant", { branch: "main", checkSuites: false, rootDirectory: "/ops/onboarding-cleanup-cron" }),
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "/ops/onboarding-cleanup-cron/Dockerfile" },
     replicas: { "ams": 1 },
     deploy: { cronSchedule: "0 3 * * *", restartPolicyType: "NEVER" },
     env: { ONBOARDING_CLEANUP_CRON_SECRET: preserve(), ONBOARDING_CLEANUP_URL: preserve() },
   });
   const givingNourishment = service("giving-nourishment", {
-    source: github("gerihawk/audiology-ai-assistant", { branch: "feature/phase-10-deployment", checkSuites: false, rootDirectory: "/frontend" }),
+    source: github("gerihawk/audiology-ai-assistant", { branch: "main", checkSuites: false, rootDirectory: "/frontend" }),
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "/frontend/Dockerfile.prod" },
     replicas: { "ams": 1 },
     domains: ["app.audiology-assistant.dev"],
     env: { AI_PROCESSING_CONSENT_ENFORCED: preserve(), AI_PROCESSING_CONSENT_VERSION: preserve(), ASSEMBLYAI_API_KEY: preserve(), ASSEMBLYAI_LANGUAGE_CODE: preserve(), AUTH_MODE: preserve(), BACKEND_CORS_ORIGINS: preserve(), BACKEND_PORT: preserve(), DEEPGRAM_API_KEY: preserve(), DEEPGRAM_BASE_URL: preserve(), DEEPGRAM_LANGUAGE_CODE: preserve(), DEEPGRAM_MODEL: preserve(), ENVIRONMENT: preserve(), FRONTEND_PORT: preserve(), GENERATION_BENCHMARK_ENABLED: preserve(), JWT_SECRET_KEY: preserve(), LOG_LEVEL: preserve(), OPENROUTER_API_KEY: preserve(), OPENROUTER_BASE_URL: preserve(), POSTGRES_DB: preserve(), POSTGRES_HOST: preserve(), POSTGRES_PASSWORD: preserve(), POSTGRES_PORT: preserve(), POSTGRES_USER: preserve(), TRANSCRIPTION_PROVIDER: preserve(), VITE_API_BASE_URL: "https://api.audiology-assistant.dev", VITE_AUTH_MODE: preserve(), VITE_SENTRY_DSN: preserve(), VITE_SENTRY_ENVIRONMENT: preserve(), VITE_TURNSTILE_SITE_KEY: preserve() },
   });
   const audiologyAiAssistant = service("audiology-ai-assistant", {
-    source: github("gerihawk/audiology-ai-assistant", { branch: "feature/phase-10-deployment", checkSuites: false, rootDirectory: "/backend" }),
+    source: github("gerihawk/audiology-ai-assistant", { branch: "main", checkSuites: false, rootDirectory: "/backend" }),
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "backend/Dockerfile.prod" },
     start: "",
     replicas: { "ams": 1 },
