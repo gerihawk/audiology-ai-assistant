@@ -1,0 +1,50 @@
+Guion original — consulta_ficticia_01
+======================================
+
+Fuente: aportado por Gerard el 2026-09-18, usado como fuente de verdad
+manual para construir backend/benchmark/dataset/consulta_ficticia_01/
+reference.json y metadata.json (nunca derivado de la salida de un
+proveedor de transcripción bajo evaluación — ver docs/transcription-
+benchmark.md §18/§20).
+
+AP = audioprotesista, PA = paciente.
+
+AP: Buenos días, soy Gerard. Tome asiento. ¿En qué puedo ayudarle hoy?
+PA: Buenos días, desde hace unos meses noto que escucho peor, sobre todo por el oído izquierdo. Mi mujer dice que tengo que subir mucho el volumen de la televisión y que muchas veces le hago repetir las cosas.
+
+AP: ¿Recuerda aproximadamente cuando empezó a notar esa pérdida de audición?
+PA: Pues diría que hace unos 8 o 9 meses. Al principio pensaba que era algo puntual, pero cada vez me cuesta más entender las conversaciones cuando hay ruido.
+
+AP: ¿Tiene esa sensación en los dos oídos o solamente en uno?
+PA: En los dos, pero bastante más en el oído izquierdo.
+
+AP: ¿Ha notado pitidos o acúfenos?
+PA: Sí. Tengo un pitido constante, sobre todo por la noche. Es más intenso en el oído izquierdo.
+
+AP: ¿Y ha tenido episodios de vértigo o mareos?
+PA: No. Vértigos no he tenido nunca. Algún mareo puntual hace años, pero nada importante.
+
+AP: ¿Y alguna otitis frecuente o alguna cirugía en los oídos?
+PA: Otitis de pequeño si tuve varias veces, pero nunca me han operado de los oídos.
+
+AP: ¿Y tiene antecedentes familiares de pérdida auditiva?
+PA: Sí, mi padre empezó a utilizar audífonos con unos 70 años, mi madre escucha perfectamente.
+
+AP: ¿A qué se dedica o a qué se ha dedicado?
+PA: He trabajado durante 25 años en una fábrica de cerámica, había bastante ruido, muchas veces utilizábamos protección auditiva, pero otras no.
+
+AP: ¿Toma alguna medicación actualmente?
+PA: Solo medicación para la tensión arterial. No tomo ningún otro tratamiento y no tengo alergias conocidas.
+
+AP: Perfecto. Vamos a realizar una otoscopia y después una audiometría tonal por vía aérea y vía ósea para valorar exactamente el grado de pérdida auditiva.
+PA: De acuerdo, perfecto.
+
+AP: Cuando tengamos los resultados veremos si presenta una hipoacusia neurosensorial o de otro tipo y hablaremos de las opciones de tratamiento, incluyendo audífonos si fueran necesarios.
+PA: Muy bien, muchas gracias.
+
+Nota (2026-09-18): al comparar este guion con reference.json (creado el
+2026-08-10) el contenido coincide turno a turno, con diferencias
+únicamente de puntuación/formato menor (p. ej. "8 o 9 meses" aquí vs.
+"ocho o nueve meses" en reference.json) — no hay diferencias de
+contenido clínico. Se conserva este archivo como registro de
+procedencia del golden dataset, tal y como pidió Gerard.

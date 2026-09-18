@@ -489,31 +489,49 @@ de `baseline`. AssemblyAI se mantiene válido para precisión textual, pero
 no como líder de diarización. Decisión: evaluar Deepgram Nova-3 (Fase
 5.3) antes de dar por cerrada la elección de proveedor.
 
-### Fase 5.3 — Golden dataset + integración de Deepgram Nova-3
+### Fase 5.3 — Golden dataset + integración de Deepgram Nova-3 (cerrada)
 
-Dos partes independientes:
+**Corrección de esta entrada (2026-09-18)**: quedó registrada durante
+tiempo como bloqueada por dos motivos que en realidad ya estaban
+resueltos desde el propio 2026-08-10 — el detalle correcto siempre
+estuvo en [transcription-benchmark.md](transcription-benchmark.md) §20
+("Estado al cierre de esta fase"), que nunca se vio reflejado aquí. Esta
+sección quedó desincronizada de la fuente de verdad técnica durante más
+de un mes; se corrige ahora y se deja como aviso para no repetir el
+mismo patrón que ya tocó corregir dos veces en la Fase 12 (ver
+`api-specification.md` y el hito 12.4 más abajo).
 
-- **Golden dataset de `consulta_ficticia_01`**: cerrar `reference.json`/
-  `metadata.json` reales usando exclusivamente el guion original grabado
-  como fuente de verdad — nunca la transcripción de un proveedor bajo
-  evaluación, para no invalidar el propio WER que se quiere medir con
-  ella. **Bloqueado**: el guion original no existe en el repositorio;
-  pendiente de que se aporte antes de poder generar estos ficheros y
-  recalcular métricas sobre los resultados ya existentes.
-- **`DeepgramTranscriptionProvider`**: segundo proveedor real, mismo
-  contrato normalizado (§4 de
-  [transcription-benchmark.md](transcription-benchmark.md)), endpoint
-  regional EU por defecto (residencia de datos, decisión deliberada para
-  un producto sanitario), perfil de benchmark `deepgram_nova3_baseline`,
-  pricing propio nunca mezclado con el de AssemblyAI. Implementación,
-  configuración y tests completos y en verde. **Llamada real bloqueada**:
-  `DEEPGRAM_API_KEY` no está configurada en el entorno — pendiente de que
-  se configure para ejecutar el baseline real y generar la comparación de
-  3 vías (`assemblyai_baseline`/`assemblyai_optimized`/
-  `deepgram_nova3_baseline`) con clasificación de errores
-  CRÍTICO/MAYOR/MENOR. Ver
+- **Golden dataset de `consulta_ficticia_01`**: `reference.json`/
+  `metadata.json` ya existen (creados el 2026-08-10) a partir del guion
+  original aportado por Gerard, nunca de la transcripción de un
+  proveedor bajo evaluación — guion conservado además en
+  `backend/benchmark/dataset/consulta_ficticia_01/guion_original.txt`
+  desde el 2026-09-18 para dejar constancia de la procedencia.
+- **`DeepgramTranscriptionProvider`**: implementación, configuración y
+  tests completos y en verde. `DEEPGRAM_API_KEY` configurada en
+  producción (confirmado 2026-09-18: es el `TRANSCRIPTION_PROVIDER`
+  activo). La llamada real (`deepgram_nova3_baseline`) y la comparación
+  de 3 vías con AssemblyAI ya se ejecutaron el 2026-08-10 sobre el golden
+  dataset definitivo: WER 0.03 (AssemblyAI, ambos perfiles) vs. 0.05
+  (Deepgram); terminología 1.00 (AssemblyAI) vs. 0.91 (Deepgram);
+  negación/lateralidad 100% en los tres perfiles; **atribución de
+  hablante** (el criterio que motivó evaluar Deepgram, ver §19: AssemblyAI
+  fusionaba ~83% del diálogo en un único speaker) 0.59
+  (`assemblyai_baseline`) / 0.74 (`assemblyai_optimized`) / **0.92**
+  (`deepgram_nova3_baseline`). Detalle completo en
+  `benchmark/results/comparisons/consulta_ficticia_01.json`.
+  **Recomendación de cierre**: Deepgram es el proveedor correcto para
+  producción pese a su WER/terminología algo peores — la diarización,
+  criterio original que motivó esta fase, es muy superior (0.92 frente a
+  un máximo de 0.74 en AssemblyAI) y es la dimensión más determinante
+  para un transcript clínico con dos hablantes. Coherente con la elección
+  ya vigente en producción.
+  Único punto que sigue explícitamente fuera de alcance, no bloqueante:
+  clasificación cualitativa de errores CRÍTICO/MAYOR/MENOR (análisis
+  manual, nunca implementado en código) — backlog opcional, no condiciona
+  el uso de Deepgram en producción. Ver
   [transcription-benchmark.md](transcription-benchmark.md) §20 para el
-  diseño completo.
+  diseño completo y los datos crudos.
 
 ## Fase 6 — Exportación, documentación clínica completa e IA real
 
@@ -1722,10 +1740,10 @@ la Fase 5 (AssemblyAI) y de nuevo en la Fase 5.3 (Deepgram), cada una el
 "nuevo ciclo de análisis de alcance" que este mismo párrafo pedía como
 condición. AssemblyAI y Deepgram son, ambos, proveedores de transcripción
 integrados en el pipeline real (`POST /audio-recordings/{id}/transcribe`,
-seleccionables vía `TRANSCRIPTION_PROVIDER=assemblyai|deepgram`) — cuál
-de los dos se recomienda para producción queda pendiente de la
-comparación de 3 vías (§Fase 5.3, bloqueada por `DEEPGRAM_API_KEY`, ver
-[transcription-benchmark.md](transcription-benchmark.md) §20). El resto
+seleccionables vía `TRANSCRIPTION_PROVIDER=assemblyai|deepgram`) —
+Deepgram es el recomendado y el activo en producción, por su diarización
+muy superior (ver Fase 5.3, cerrada, para la comparación de 3 vías
+completa). El resto
 de proveedores listados en
 [transcription-benchmark.md](transcription-benchmark.md) (OpenAI,
 Speechmatics, Azure Speech, Google Speech, AWS Transcribe, Whisper local)

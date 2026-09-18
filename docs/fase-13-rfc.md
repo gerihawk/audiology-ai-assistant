@@ -91,19 +91,33 @@ establecido):
 
 ### 1.2 No objetivos (fuera de este ciclo)
 
-- Facturación por sede/organización con múltiples clínicas bajo un mismo
-  pagador — value fuera de alcance hasta que exista un cliente real con
-  esa necesidad.
+**Corrección (2026-09-18, cierre del RFC)**: dos puntos que esta sección
+daba por fuera de alcance entraron finalmente en el ciclo, a petición
+explícita de Gerard — se explican en su decisión correspondiente más
+abajo en vez de repetirse aquí: facturación consolidada de una
+cadena/empresa con varias clínicas bajo un mismo pagador (§3.3, sí en
+alcance — pero sin panel de gestión centralizado, ver más abajo) y
+descuento por pago anual (§3.2, sí en alcance).
+
+- **Panel de sede central** (una cuenta que vea/gestione varias clínicas
+  de una misma cadena desde un solo login) — sigue fuera de alcance de
+  esta fase. A diferencia de la facturación consolidada (que no toca el
+  modelo de datos), esto exige un concepto nuevo en el dominio
+  (agrupar `Clinic`s bajo una entidad de organización) y revisar la
+  autorización que hoy asume `current_user.clinic_id` único en al menos
+  10 puntos del backend — tamaño de una fase propia, no un añadido de
+  Stripe. Decisión explícita de Gerard (2026-09-18): se retoma como fase
+  dedicada una vez el programa ya esté lanzado con facturación
+  funcionando, ver [development-plan.md](development-plan.md).
 - Marketplace/Connect (Gerard no revende el servicio de terceros ni paga
   a terceros a través de Stripe) — el modelo es SaaS directo, no
   plataforma multi-vendedor, así que **Stripe Connect no aplica**, solo
   Stripe Billing/Checkout estándar.
-- Cupones, descuentos, planes anuales con descuento, referidos — quedan
-  como incremento posterior (§8), Stripe los soporta nativamente cuando
-  se decida usarlos.
-- Anti-abuso del signup público (CAPTCHA, dominios desechables) — es el
-  punto 5 de la hoja de ruta acordada con Gerard, deliberadamente después
-  de este; no se mezcla aquí.
+- Cupones, referidos — quedan como incremento posterior (§8), Stripe los
+  soporta nativamente cuando se decida usarlos.
+- Anti-abuso del signup público (CAPTCHA, dominios desechables) — ya
+  implementado el 2026-09-18 (hito 12.4 ampliado), antes de cerrar este
+  RFC, no después como se preveía originalmente aquí.
 
 ## 2. Implicaciones legales y fiscales (gestión de Gerard, no solo técnica)
 
@@ -138,13 +152,14 @@ consumidores), por lo que aplica el régimen de **IVA entre empresas
   Gerard tenga que programar esta lógica a mano, pero exige configurar el
   domicilio fiscal de origen y decidir en qué países hay obligación de
   registro antes de activarlo.
-- **[DECISIÓN PENDIENTE]**: activar Stripe Tax desde el primer cliente de
-  pago, o gestionar el IVA a mano (factura simple con IVA español, sin
-  reverse charge) mientras los clientes sean pocos y mayoritariamente
-  españoles, y activar Stripe Tax cuando de verdad haya clientes en otros
-  países de la UE. Se recomienda esto último — mismo criterio ya aplicado
-  al DPD (no resolver con infraestructura antes de tener el volumen que
-  la justifique), pero es una decisión de Gerard, no técnica.
+**Decisión cerrada (2026-09-18)**: gestión de IVA a mano al principio
+(factura simple con IVA español estándar, sin reverse charge) mientras
+los clientes sean pocos y mayoritariamente españoles. Activar Stripe Tax
+más adelante en cuanto haya clientes reales en otros países de la UE —
+mismo criterio ya aplicado al DPD (no resolver con infraestructura antes
+de tener el volumen que la justifique). Excepción: cualquier cliente
+"Cadena/Empresa" (§3.3) fuera de España se revisa caso a caso antes de
+facturarlo, dado que ahí sí hay negociación directa con Gerard.
 
 ### 2.3 Qué datos ve Stripe (y por qué no toca el DPA de pacientes)
 
@@ -177,28 +192,62 @@ Ninguno de esos datos es un dato de paciente. Por tanto:
 | **C — Medido por uso real (metered billing sobre `estimated_cost_usd`)** | Se reporta a Stripe el consumo real de IA de cada clínica y se cobra sobre eso, con o sin un mínimo | La más justa técnicamente; reutiliza directamente el tracking de coste ya existente en `ai_pipeline` | Factura variable e impredecible para el cliente (mala fricción comercial en un sector poco acostumbrado a SaaS); requiere reportar uso a Stripe de forma fiable (colas, reintentos) — complejidad que no se justifica sin datos reales de uso todavía |
 | **D — Híbrido: base plana + overage medido** | Igual que A, más cobro adicional por Stripe metered billing si se supera el tope incluido | El más robusto a medio plazo — combina predictibilidad con captura de valor real | Es A y C a la vez: más superficie de código y de UI para el primer incremento del proyecto |
 
-### 3.2 Recomendación
+### 3.2 Decisión cerrada (2026-09-18)
 
-**[DECISIÓN PENDIENTE — a confirmar con Gerard]**: empezar por el
-**modelo A** (suscripción plana por niveles), con 2-3 niveles orientativos
-a definir con datos reales de coste de las clínicas piloto ya gestionadas
-a mano (son las primeras candidatas para calibrar dónde poner los topes).
-Motivo: es el que menos código y menos decisiones de producto nuevas
-exige, encaja con la unidad de facturación (`Clinic`) que ya existe, y dejaría
-al modelo C/D documentado en §8 como incremento futuro una vez haya
-suficiente histórico de `estimated_cost_usd` real por clínica para
-calibrarlo con datos en vez de estimaciones.
+Gerard eligió el **modelo D** (base plana por niveles + overage medido
+sobre `estimated_cost_usd`, hasta un techo de seguridad — no el modelo A
+recomendado originalmente): más superficie de código que el modelo A,
+pero evita la fricción de bloquear a una clínica que se pasa del tope por
+poco, sin dejar el gasto totalmente sin límite.
 
-Preguntas que Gerard debe responder antes del hito 13.1 (no técnicas,
-comerciales):
+**Niveles y precios** (mensual / anual con descuento de 2 meses — pagas
+10, no 12):
 
-- ¿Cuántos niveles y con qué tope de uso cada uno? (orientativo: Básico /
-  Profesional / Clínica grande, o similar)
-- ¿Precio mensual de cada nivel? ¿Descuento por pago anual?
-- ¿Periodo de prueba gratuito? ¿Cuántos días, y se pide tarjeta desde el
-  principio (reduce abuso de pruebas) o no (reduce fricción de alta)?
-- ¿Qué pasa si una clínica supera el tope de su nivel: se bloquea, se
-  avisa, o se le sugiere subir de nivel? (afecta a §5.3)
+| Nivel | Tope incluido | Precio/mes | Precio/año | Para quién (aprox.) |
+|---|---|---|---|---|
+| Básico | 40 sesiones/mes | 39€ | 390€ | 1 profesional, uso selectivo de la IA (~2 sesiones/día) — autónomo o consulta muy pequeña |
+| Profesional | 150 sesiones/mes | 109€ | 1.090€ | Clínica de 2-3 profesionales, uso habitual |
+| Clínica grande | 400 sesiones/mes | 249€ | 2.490€ | 5-8 profesionales, o varios puntos de atención bajo un mismo centro |
+| Cadena/Empresa | por clínica, ver §3.3 | 89€/clínica (2-5) · 75€/clínica (6-15) | mismo descuento de 2 meses | Cadenas con varios centros bajo un mismo pagador (tipo GAES, Soloptical) — más de 15 clínicas, presupuesto a medida negociado directamente |
+
+Precios de partida, no un estudio de mercado — a revisar con datos reales
+de conversión/abandono en cuanto haya clientes de pago reales.
+
+**Overage** (modelo D): al superar el tope incluido, el exceso se cobra
+automáticamente vía Stripe metered billing sobre `estimated_cost_usd`
+real, hasta un techo de seguridad fijado en el doble del tope incluido de
+cada nivel (p. ej. Básico: cobro automático hasta 80 sesiones/mes). Por
+encima de ese techo, se bloquea el acceso (ver §5, gate de suscripción) y
+se sugiere explícitamente subir de nivel — evita tanto la fricción de
+bloquear por un exceso pequeño como una factura descontrolada por un uso
+muy por encima de lo esperado.
+
+**Periodo de prueba**: 14 días gratuitos, con tarjeta pedida desde el
+alta (reduce abuso de pruebas, coherente con el anti-abuso ya existente
+en el signup).
+
+**Descuento por pago anual**: sí, equivalente a 2 meses gratis (pagas 10
+meses de una vez en vez de 12 mensualidades) — ver tabla arriba.
+
+### 3.3 Nivel Cadena/Empresa
+
+Añadido el 2026-09-18 a petición de Gerard, pensando en cadenas grandes
+(GAES, Soloptical y similares) con muchas clínicas abiertas en el mismo
+país. Alcance de esta fase, deliberadamente acotado a solo
+**facturación consolidada** — un único pagador (`stripe_customer_id`) con
+una suscripción de cantidad variable (`quantity` = nº de clínicas de la
+cadena) y precio por volumen, mientras cada `Clinic` de la cadena sigue
+funcionando exactamente igual que hoy: aislada, con su propio `admin` y
+usuarios, sin visibilidad cruzada entre clínicas de la misma cadena. No
+incluye ningún panel de gestión centralizado — ver §1.2 para esa
+decisión, aplazada explícitamente a una fase futura dedicada.
+
+Alta de una cadena, en este primer incremento: **gestionada
+semi-manualmente por Gerard** (no self-service) — estas ventas se
+negocian directamente, no llegan por el formulario público de signup. El
+modelo de datos no necesita ningún cambio: basta con poder asociar el
+mismo `stripe_customer_id` a varias filas de `Clinic` en vez de asumir
+1:1 clínica↔pagador (ver §5).
 
 ## 4. Flujo resultante
 
@@ -234,11 +283,15 @@ comerciales):
 
 ### 4.3 Uso de `estimated_cost_usd` en este ciclo
 
-En este primer incremento **no** se reporta a Stripe — sigue siendo
-únicamente el freno de seguridad interno que ya es
-(`LLM_COST_LIMIT_ENFORCED`). Queda documentado como la pieza que se
-activaría para el modelo C/D si en el futuro se decide facturar por uso
-real (§8).
+**Actualizado (2026-09-18)**: al confirmarse el modelo D (§3.2), esta
+pieza sí se activa en este ciclo — no queda aplazada. `estimated_cost_usd`
+(ya trackeado por `ai_pipeline`, mismo campo que alimenta el benchmark de
+proveedores) es la base para reportar el overage medido a Stripe cuando
+una clínica supera el tope de sesiones incluido en su nivel, hasta el
+techo de seguridad de §3.2. Sigue existiendo además, sin cambios, como
+freno de seguridad interno (`LLM_COST_LIMIT_ENFORCED`) — son dos
+mecanismos distintos: uno factura, el otro corta en seco un coste por
+sesión disparado.
 
 ## 5. Arquitectura técnica propuesta
 
@@ -247,9 +300,14 @@ real (§8).
   - `domain/entities.py`: no hace falta una entidad nueva más allá de
     extender `Clinic` con `stripe_customer_id: str | None`,
     `stripe_subscription_id: str | None`, `subscription_status: str
-    | None`, `plan: str | None` (migración Alembic).
+    | None`, `plan: str | None`, `sessions_used_this_period: int`
+    (migración Alembic). `stripe_customer_id` puede repetirse entre varias
+    filas de `Clinic` — es lo único que necesita el nivel Cadena/Empresa
+    (§3.3), sin tabla ni entidad nueva.
   - `service.py` (`BillingService`): `create_checkout_session`,
-    `create_portal_session`, `handle_webhook_event` — autoriza (`ADMIN`
+    `create_portal_session`, `handle_webhook_event`, `report_overage_usage`
+    (nuevo, reporta a Stripe metered billing cuando se supera el tope
+    incluido, hasta el techo de seguridad de §3.2) — autoriza (`ADMIN`
     para las dos primeras; el webhook no tiene usuario, se autentica por
     firma) → opera → audita → commit, mismo criterio que el resto.
   - `api/router.py`: `POST /billing/checkout-session`, `POST /billing/
@@ -260,15 +318,21 @@ real (§8).
 - Variables de entorno nuevas (`.env.example`, `config.py`,
   `.railway/railway.ts`, mismo patrón `preserve()` ya usado para el resto
   de secretos): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-  `STRIPE_PRICE_ID_<NIVEL>` (uno por nivel de precio).
+  `STRIPE_PRICE_ID_<NIVEL>` (uno por nivel de precio, incluido el precio
+  por volumen de Cadena/Empresa), `STRIPE_METERED_PRICE_ID_<NIVEL>`
+  (overage).
 - **Gate de acceso por estado de suscripción**: nueva dependencia FastAPI
   (parecida a `get_current_user_provider`) que bloquee (403, no 401 — el
   usuario sí está autenticado, es su clínica la que no está al día) los
   endpoints de negocio cuando `Clinic.subscription_status` no sea
-  `active`/`trialing`. **[DECISIÓN PENDIENTE]**: periodo de gracia tras un
-  `past_due` antes de bloquear (Stripe ya reintenta el cobro varias veces
-  por defecto — "dunning" — antes de marcarlo como impagado definitivo),
-  o bloqueo inmediato al primer fallo de pago.
+  `active`/`trialing`, o cuando el uso del periodo supere el techo de
+  seguridad de overage (§3.2). **Decisión cerrada (2026-09-18)**: periodo
+  de gracia = el que ya gestiona Stripe con sus reintentos de cobro
+  ("dunning") — no se bloquea en el primer `past_due`, solo cuando Stripe
+  marca la suscripción como definitivamente impagada
+  (`unpaid`/`canceled`). Evita bloquear a una clínica por un fallo de
+  cobro puntual (tarjeta caducada ese mismo día, por ejemplo) mientras
+  Stripe todavía está reintentando.
 - Idempotencia del webhook: Stripe puede reenviar el mismo evento más de
   una vez — el handler debe ser idempotente (comprobar
   `stripe_event.id` ya procesado antes de aplicar el cambio), mismo
@@ -320,26 +384,43 @@ real (§8).
 
 ## 8. Cuestiones futuras, no bloqueantes (quedan fuera de este ciclo)
 
-- Modelo C/D (facturación por uso real, sobre `estimated_cost_usd`) — se
-  retoma cuando haya histórico real de coste por clínica que permita
-  calibrar topes/precios de overage con datos, no estimaciones.
-- Cupones, descuentos, planes anuales, programa de referidos — Stripe los
-  soporta nativamente cuando se decida usarlos.
-- Facturación consolidada para una organización con varias clínicas bajo
-  un mismo pagador — no aplica mientras la unidad de negocio siga siendo
-  una clínica por cliente.
+- **Panel de sede central** para el nivel Cadena/Empresa (§3.3) — ver
+  §1.2, fase propia dedicada, a retomar una vez el programa esté lanzado
+  con Stripe funcionando.
+- Cupones, programa de referidos — Stripe los soporta nativamente cuando
+  se decida usarlos.
 - Activación de Stripe Tax (ver §2.2) — aplazado hasta tener clientes
   reales fuera de España.
+- Clasificación de errores CRÍTICO/MAYOR/MENOR del benchmark de
+  transcripción (Fase 5.3) — nota cruzada, sin relación con facturación,
+  dejada aquí solo porque comparte el mismo criterio de "backlog
+  explícito, no bloqueante".
 
 ## 9. Cierre de este RFC
 
-**No cerrado.** A diferencia de la Fase 12, las decisiones de §2.2 (IVA)
-y §3.2 (niveles, precios, periodo de prueba, qué pasa al superar el tope)
-son comerciales, no técnicas, y las tiene que tomar Gerard antes de que
-tenga sentido empezar el hito 13.1 — este documento dilata explícitamente
-esa conversación aquí en vez de meterla implícita en el código. En cuanto
-se cierre, dos documentos legales dejan de estar en placeholder por lo
-que decida este RFC: el **ToS** (cláusula 4, tarifas — reescritura
-completa) y, solo si la fiscalidad elegida en §2.2 lo requiere,
+**Cerrado el 2026-09-18.** Decisiones tomadas con Gerard:
+
+- Modelo de negocio: **D** (base plana por niveles + overage medido con
+  techo de seguridad) — no el modelo A recomendado originalmente (§3.2).
+- Niveles, precios (mensual/anual) y a quién va dirigido cada uno: ver
+  tabla de §3.2.
+- Nivel nuevo **Cadena/Empresa**, no contemplado en la versión original de
+  este RFC: facturación consolidada por volumen, sin panel de gestión
+  centralizado (§3.3).
+- IVA: gestión manual al principio, Stripe Tax cuando haya clientes reales
+  fuera de España (§2.2).
+- Periodo de prueba: 14 días, con tarjeta desde el alta (§3.2).
+- Qué pasa al superar el tope: cobro automático del exceso hasta un techo
+  de seguridad, bloqueo solo por encima de ese techo o por impago
+  definitivo confirmado por Stripe, nunca por el primer `past_due` (§3.2,
+  §5).
+
+Con el RFC cerrado, quedan dos documentos legales por actualizar con
+estas cifras definitivas: el **ToS** (cláusula 4, tarifas — reescritura
+completa, hecha el mismo día) y, solo si la fiscalidad elegida en §2.2 lo
+llega a requerir más adelante,
 [privacy-and-security.md](privacy-and-security.md) (nueva entrada para
-Stripe como proveedor de Gerard, no del DPA de sus clientes).
+Stripe como proveedor de Gerard, no del DPA de sus clientes — pendiente,
+se añade cuando se active Stripe de verdad, no antes). El hito 13.1
+(código) puede empezar en cuanto Gerard lo pida — este RFC ya no es un
+bloqueante.
