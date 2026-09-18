@@ -51,6 +51,7 @@ describe('SignupPage', () => {
       admin_email: 'nueva-clinica@test.local',
       admin_display_name: 'Admin Nuevo',
       admin_password: 'contraseña-de-doce',
+      turnstile_token: '',
     })
   })
 

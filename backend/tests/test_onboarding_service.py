@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.integrations.domain.email_sender import EmailMessage
 from app.onboarding.service import ClinicSignupData, OnboardingService
 from app.users.domain.entities import Role
@@ -29,9 +29,29 @@ class _RecordingEmailSender:
         self.sent.append(message)
 
 
-def _make_service(session: AsyncSession) -> tuple[OnboardingService, _RecordingEmailSender]:
+class _StubTurnstileVerifier:
+    """Doble de test de `TurnstileVerifier` — controla directamente el
+    resultado en vez de depender de `MockTurnstileVerifier` (que siempre
+    aprueba) para poder probar también el camino de rechazo. Registra
+    `token`/`remote_ip` recibidos para verificar que `OnboardingService`
+    los reenvía tal cual."""
+
+    def __init__(self, *, result: bool) -> None:
+        self._result = result
+        self.calls: list[tuple[str, str | None]] = []
+
+    async def verify(self, token: str, *, remote_ip: str | None) -> bool:
+        self.calls.append((token, remote_ip))
+        return self._result
+
+
+def _make_service(
+    session: AsyncSession, *, turnstile_verifier: _StubTurnstileVerifier | None = None
+) -> tuple[OnboardingService, _RecordingEmailSender]:
     email_sender = _RecordingEmailSender()
-    service = OnboardingService(session, email_sender=email_sender)
+    service = OnboardingService(
+        session, email_sender=email_sender, turnstile_verifier=turnstile_verifier
+    )
     return service, email_sender
 
 
@@ -250,3 +270,88 @@ async def test_signup_clinic_generates_clinic_code_from_name(
     )
     assert clinic is not None
     assert clinic.name == "Clínica Auditiva Vila-real"
+
+
+async def test_signup_clinic_with_disposable_email_domain_raises_conflict(
+    db_session: AsyncSession,
+) -> None:
+    service, email_sender = _make_service(db_session)
+
+    with pytest.raises(ConflictError) as exc_info:
+        await service.signup_clinic(
+            ClinicSignupData(
+                clinic_name="Clínica Desechable",
+                admin_email="alguien@mailinator.com",
+                admin_display_name="Alguien",
+                admin_password=_PASSWORD,
+            )
+        )
+
+    assert exc_info.value.field == "admin_email"
+    assert email_sender.sent == []
+
+
+async def test_signup_clinic_with_failed_turnstile_raises_forbidden(
+    db_session: AsyncSession,
+) -> None:
+    turnstile_verifier = _StubTurnstileVerifier(result=False)
+    service, email_sender = _make_service(db_session, turnstile_verifier=turnstile_verifier)
+
+    with pytest.raises(ForbiddenError):
+        await service.signup_clinic(
+            ClinicSignupData(
+                clinic_name="Clínica Bot",
+                admin_email="bot@test.local",
+                admin_display_name="Bot",
+                admin_password=_PASSWORD,
+                turnstile_token="token-invalido",
+                remote_ip="203.0.113.9",
+            )
+        )
+
+    assert turnstile_verifier.calls == [("token-invalido", "203.0.113.9")]
+    assert email_sender.sent == []
+
+
+async def test_signup_clinic_forwards_turnstile_token_and_remote_ip(
+    db_session: AsyncSession,
+) -> None:
+    """El feliz camino: `OnboardingService` reenvía el token/IP recibidos
+    tal cual a `TurnstileVerifier.verify`, sin transformarlos."""
+    turnstile_verifier = _StubTurnstileVerifier(result=True)
+    service, _ = _make_service(db_session, turnstile_verifier=turnstile_verifier)
+
+    await service.signup_clinic(
+        ClinicSignupData(
+            clinic_name="Clínica Legítima",
+            admin_email="legitima@test.local",
+            admin_display_name="Admin",
+            admin_password=_PASSWORD,
+            turnstile_token="token-valido",
+            remote_ip="198.51.100.20",
+        )
+    )
+
+    assert turnstile_verifier.calls == [("token-valido", "198.51.100.20")]
+
+
+async def test_signup_clinic_checks_disposable_domain_before_calling_turnstile(
+    db_session: AsyncSession,
+) -> None:
+    """Orden de coste creciente (ver docstring de `signup_clinic`): un
+    dominio desechable se rechaza sin siquiera llamar a Turnstile."""
+    turnstile_verifier = _StubTurnstileVerifier(result=True)
+    service, _ = _make_service(db_session, turnstile_verifier=turnstile_verifier)
+
+    with pytest.raises(ConflictError):
+        await service.signup_clinic(
+            ClinicSignupData(
+                clinic_name="Clínica Desechable",
+                admin_email="otro@guerrillamail.com",
+                admin_display_name="Alguien",
+                admin_password=_PASSWORD,
+                turnstile_token="cualquiera",
+            )
+        )
+
+    assert turnstile_verifier.calls == []

@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import get_settings
 from app.core.db import get_session_factory
 from app.core.deps import get_onboarding_service
-from app.core.rate_limit import limiter
+from app.core.rate_limit import client_ip_key, limiter
 from app.onboarding.api.schemas import (
     ClinicSignupRequest,
     PasswordResetConfirmRequest,
@@ -56,6 +56,11 @@ async def signup_clinic(
             admin_email=payload.admin_email,
             admin_display_name=payload.admin_display_name,
             admin_password=payload.admin_password,
+            turnstile_token=payload.turnstile_token,
+            # Fase 12, hito 12.4 ampliado: mismo extractor que el rate
+            # limiter (ver app/core/rate_limit.py) — la IP del proxy de
+            # Railway, no la real, si no se reutilizase esta función.
+            remote_ip=client_ip_key(request),
         )
     )
 

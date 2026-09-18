@@ -18,11 +18,13 @@ from app.integrations.domain.audio_cost_estimator import AudioCostEstimator
 from app.integrations.domain.email_sender import EmailSender
 from app.integrations.domain.language_model_provider import LanguageModelProvider
 from app.integrations.domain.transcription_provider import TranscriptionProvider
+from app.integrations.domain.turnstile_verifier import TurnstileVerifier
 from app.integrations.keyterms import AUDIOLOGY_KEYTERMS_ES, KEYTERM_SET_VERSION
 from app.integrations.mocks.mock_audio_cost_estimator import MockAudioCostEstimator
 from app.integrations.mocks.mock_email_sender import ConsoleEmailSender
 from app.integrations.mocks.mock_language_model_provider import MockLanguageModelProvider
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
+from app.integrations.mocks.mock_turnstile_verifier import MockTurnstileVerifier
 from app.integrations.providers.anthropic_language_model_provider import (
     AnthropicLanguageModelProvider,
 )
@@ -30,6 +32,9 @@ from app.integrations.providers.assemblyai_transcription_provider import (
     AssemblyAITranscriptionProvider,
 )
 from app.integrations.providers.brevo_email_sender import BrevoEmailSender
+from app.integrations.providers.cloudflare_turnstile_verifier import (
+    CloudflareTurnstileVerifier,
+)
 from app.integrations.providers.deepgram_transcription_provider import (
     DeepgramTranscriptionProvider,
 )
@@ -253,6 +258,37 @@ def build_email_sender(settings: Settings, provider_name: str | None = None) -> 
         raise ValueError(
             f"'{name}' no es un proveedor de email reconocido. Valores válidos: "
             f"{', '.join(sorted(EMAIL_SENDER_FACTORIES))}."
+        ) from exc
+    return factory(settings)
+
+
+#: Registro único de verificadores anti-bot (Fase 12, hito 12.4 ampliado,
+#: decisión del 2026-09-18 — ver docs/fase-12-rfc.md §6). "mock" (por
+#: defecto, `MockTurnstileVerifier`) siempre aprueba y nunca contacta a
+#: Cloudflare, ver CLAUDE.md §6. "cloudflare" es el único proveedor real;
+#: añadir uno nuevo (p. ej. hCaptcha) es añadir una entrada aquí.
+TURNSTILE_VERIFIER_FACTORIES: dict[str, Callable[[Settings], TurnstileVerifier]] = {
+    "mock": lambda settings: MockTurnstileVerifier(),
+    "cloudflare": lambda settings: CloudflareTurnstileVerifier(
+        secret_key=settings.turnstile_secret_key,
+        base_url=settings.turnstile_base_url,
+        timeout_seconds=settings.turnstile_timeout_seconds,
+    ),
+}
+
+
+def build_turnstile_verifier(
+    settings: Settings, provider_name: str | None = None
+) -> TurnstileVerifier:
+    """`provider_name` por defecto es `settings.turnstile_provider` — mismo
+    patrón que `build_email_sender`."""
+    name = provider_name or settings.turnstile_provider
+    try:
+        factory = TURNSTILE_VERIFIER_FACTORIES[name]
+    except KeyError as exc:
+        raise ValueError(
+            f"'{name}' no es un proveedor de Turnstile reconocido. Valores válidos: "
+            f"{', '.join(sorted(TURNSTILE_VERIFIER_FACTORIES))}."
         ) from exc
     return factory(settings)
 

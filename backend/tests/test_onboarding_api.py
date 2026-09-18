@@ -6,6 +6,14 @@ app/onboarding/api/router.py) y un `EmailSender` sustituido por un doble
 de test — la API nunca expone el token en claro, así que capturar el
 enlace enviado es la única forma de probar verify-email/password-reset de
 extremo a extremo.
+
+`_TURNSTILE_TOKEN`: valor de relleno para el campo obligatorio
+`turnstile_token` — `TURNSTILE_PROVIDER=mock` en tests (default de
+`Settings`, ver app/core/config.py) nunca lo verifica de verdad
+(`MockTurnstileVerifier` siempre aprueba), así que su contenido es
+irrelevante aquí. Los tests específicos del rechazo por Turnstile/dominio
+desechable viven en test_onboarding_service.py, con un `TurnstileVerifier`
+doble inyectado directamente.
 """
 
 from __future__ import annotations
@@ -27,6 +35,7 @@ from app.users.infrastructure.repository import SqlAlchemyUserRepository
 from tests.factories import ClinicWithUsers, create_user
 
 _PASSWORD = "contraseña-de-doce"
+_TURNSTILE_TOKEN = "test-turnstile-token"
 
 
 class _RecordingEmailSender:
@@ -79,6 +88,7 @@ async def test_signup_endpoint_returns_201_and_creates_inactive_admin(
             "admin_email": "nueva-clinica@test.local",
             "admin_display_name": "Admin Nuevo",
             "admin_password": _PASSWORD,
+            "turnstile_token": _TURNSTILE_TOKEN,
         },
     )
 
@@ -98,6 +108,7 @@ async def test_signup_endpoint_rejects_duplicate_email_with_409(
             "admin_email": clinic_with_users.admin.email,
             "admin_display_name": "Alguien",
             "admin_password": _PASSWORD,
+            "turnstile_token": _TURNSTILE_TOKEN,
         },
     )
 
@@ -117,6 +128,7 @@ async def test_signup_endpoint_rejects_short_password_with_422(
             "admin_email": "corta@test.local",
             "admin_display_name": "Admin",
             "admin_password": "corta",
+            "turnstile_token": _TURNSTILE_TOKEN,
         },
     )
 
@@ -134,6 +146,7 @@ async def test_signup_endpoint_rejects_blank_clinic_name_with_422(
             "admin_email": "blanco@test.local",
             "admin_display_name": "Admin",
             "admin_password": _PASSWORD,
+            "turnstile_token": _TURNSTILE_TOKEN,
         },
     )
 
@@ -152,6 +165,7 @@ async def test_verify_email_endpoint_activates_user(
             "admin_email": "verificable@test.local",
             "admin_display_name": "Admin",
             "admin_password": _PASSWORD,
+            "turnstile_token": _TURNSTILE_TOKEN,
         },
     )
     assert signup_response.status_code == 201, signup_response.text
@@ -228,6 +242,7 @@ async def test_signup_endpoint_returns_429_after_five_requests_per_minute(
         "admin_email": "rate-limit@test.local",
         "admin_display_name": "Admin",
         "admin_password": _PASSWORD,
+        "turnstile_token": _TURNSTILE_TOKEN,
     }
     for _ in range(5):
         response = await api_client.post("/api/v1/clinics/signup", json=payload)

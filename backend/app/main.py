@@ -21,6 +21,7 @@ from app.core.context import RequestIdMiddleware
 from app.core.deps import (
     get_configured_email_sender,
     get_configured_transcription_provider,
+    get_configured_turnstile_verifier,
     get_current_user_provider,
 )
 from app.core.errors import register_exception_handlers
@@ -52,6 +53,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Ídem para EMAIL_PROVIDER (Fase 12, hito 12.1 — p. ej. "brevo" sin
     # BREVO_API_KEY).
     get_configured_email_sender()
+    # Ídem para TURNSTILE_PROVIDER (Fase 12, hito 12.4 ampliado — p. ej.
+    # "cloudflare" sin TURNSTILE_SECRET_KEY).
+    get_configured_turnstile_verifier()
     yield
 
 

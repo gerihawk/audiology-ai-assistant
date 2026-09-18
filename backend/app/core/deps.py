@@ -26,7 +26,12 @@ from app.core.sentry import tag_current_user
 from app.export.service import ExportService
 from app.integrations.domain.email_sender import EmailSender
 from app.integrations.domain.transcription_provider import TranscriptionProvider
-from app.integrations.factory import build_email_sender, build_transcription_provider
+from app.integrations.domain.turnstile_verifier import TurnstileVerifier
+from app.integrations.factory import (
+    build_email_sender,
+    build_transcription_provider,
+    build_turnstile_verifier,
+)
 from app.integrations.service import IntegrationConfigService
 from app.onboarding.invitation_service import InvitationService
 from app.onboarding.service import OnboardingService
@@ -44,6 +49,7 @@ __all__ = [
     "get_audio_recording_service",
     "get_configured_transcription_provider",
     "get_configured_email_sender",
+    "get_configured_turnstile_verifier",
     "get_export_service",
     "get_clinical_record_service",
     "get_consent_service",
@@ -87,6 +93,16 @@ def get_configured_email_sender() -> EmailSender:
     inválida (p. ej. `brevo` sin API key), falla una única vez, en el
     arranque (ver app.main lifespan), no en cada petición."""
     return build_email_sender(get_settings())
+
+
+@lru_cache
+def get_configured_turnstile_verifier() -> TurnstileVerifier:
+    """Resuelve `TurnstileVerifier` según `TURNSTILE_PROVIDER` — ver
+    app/integrations/factory.py. Se cachea, mismo criterio que
+    `get_configured_email_sender`: si la configuración es inválida (p. ej.
+    `cloudflare` sin TURNSTILE_SECRET_KEY), falla una única vez, en el
+    arranque (ver app.main lifespan), no en cada petición."""
+    return build_turnstile_verifier(get_settings())
 
 
 async def get_current_user(

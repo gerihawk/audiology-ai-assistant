@@ -30,10 +30,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clinics.domain.entities import Clinic
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core.config import Settings, get_settings
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.integrations.domain.email_sender import EmailMessage, EmailSender
-from app.integrations.factory import build_email_sender
+from app.integrations.domain.turnstile_verifier import TurnstileVerifier
+from app.integrations.factory import build_email_sender, build_turnstile_verifier
 from app.onboarding.domain.clinic_code import slugify_clinic_name
+from app.onboarding.domain.disposable_email_domains import is_disposable_email_domain
 from app.onboarding.domain.entities import AccountToken, AccountTokenPurpose
 from app.onboarding.domain.normalization import (
     normalize_email,
@@ -56,6 +58,15 @@ class ClinicSignupData:
     admin_email: str
     admin_display_name: str
     admin_password: str
+    #: Fase 12, hito 12.4 ampliado (2026-09-18) — ver docstring de
+    #: `OnboardingService.signup_clinic`. Con default para no romper
+    #: llamadores/tests existentes anteriores a esta fase; en la práctica
+    #: `POST /clinics/signup` siempre lo envía (`ClinicSignupRequest.turnstile_token`
+    #: es obligatorio en el esquema Pydantic).
+    turnstile_token: str = ""
+    #: IP real del visitante (ver app/core/rate_limit.py::client_ip_key) —
+    #: opcional, solo mejora la puntuación de Cloudflare, nunca bloqueante.
+    remote_ip: str | None = None
 
 
 def _hash_token(raw_token: str) -> str:
@@ -77,6 +88,7 @@ class OnboardingService:
         user_repository: SqlAlchemyUserRepository | None = None,
         account_token_repository: SqlAlchemyAccountTokenRepository | None = None,
         email_sender: EmailSender | None = None,
+        turnstile_verifier: TurnstileVerifier | None = None,
     ) -> None:
         self._session = session
         self._settings = settings or get_settings()
@@ -84,6 +96,7 @@ class OnboardingService:
         self._users = user_repository or SqlAlchemyUserRepository()
         self._tokens = account_token_repository or SqlAlchemyAccountTokenRepository()
         self._email_sender = email_sender or build_email_sender(self._settings)
+        self._turnstile_verifier = turnstile_verifier or build_turnstile_verifier(self._settings)
 
     async def signup_clinic(self, data: ClinicSignupData) -> None:
         """A diferencia de `request_password_reset` (siempre silencioso, ver
@@ -92,13 +105,46 @@ class OnboardingService:
         diferencia del login — quien envía el formulario ya sabe que ese
         email existe (lo acaba de escribir él mismo) y el riesgo real de
         enumeración es bajo frente al coste de UX de no poder decirle
-        "ese email ya tiene cuenta, inicia sesión en su lugar"."""
+        "ese email ya tiene cuenta, inicia sesión en su lugar".
+
+        Anti-abuso (Fase 12, hito 12.4 ampliado, decisión del 2026-09-18 —
+        ver docs/fase-12-rfc.md §6): dos capas independientes, además del
+        rate limiting de 5/minute ya existente en el router (ver
+        app/onboarding/api/router.py). Se comprueban en este orden por
+        coste creciente — local y gratis primero, llamada de red después
+        — para no gastar una verificación contra Cloudflare en un email ya
+        descartable localmente:
+
+        1. Dominio de email desechable (`is_disposable_email_domain`):
+           reutiliza el mismo `ConflictError(field="admin_email")` que el
+           email duplicado — misma superficie de error ya manejada por el
+           frontend para este campo.
+        2. Turnstile (`self._turnstile_verifier.verify`): filtra tráfico
+           de script/bot genérico. Un fallo aquí no es específico de
+           ningún campo del formulario, así que se usa `ForbiddenError`
+           (403) en vez de `ConflictError`.
+        """
         admin_email = normalize_email(data.admin_email)
         admin_display_name = normalize_required_free_text(
             data.admin_display_name, field_name="admin_display_name"
         )
         clinic_name = normalize_required_free_text(data.clinic_name, field_name="clinic_name")
         validate_password_length(data.admin_password)
+
+        if is_disposable_email_domain(admin_email):
+            raise ConflictError(
+                "No se admiten direcciones de email de proveedores desechables/temporales.",
+                field="admin_email",
+            )
+
+        turnstile_ok = await self._turnstile_verifier.verify(
+            data.turnstile_token, remote_ip=data.remote_ip
+        )
+        if not turnstile_ok:
+            raise ForbiddenError(
+                "No hemos podido verificar que la solicitud proviene de una persona real. "
+                "Vuelve a intentarlo."
+            )
 
         existing_user = await self._users.get_by_email(self._session, admin_email)
         if existing_user is not None:

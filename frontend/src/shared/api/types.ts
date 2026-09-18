@@ -387,6 +387,12 @@ export interface ClinicSignupInput {
   admin_email: string
   admin_display_name: string
   admin_password: string
+  /** Fase 12, hito 12.4 ampliado (2026-09-18) — valor `cf-turnstile-response`
+   * del widget de Cloudflare Turnstile, ver `TurnstileWidget`. Cadena vacía
+   * cuando `VITE_TURNSTILE_SITE_KEY` no está configurada (desarrollo local
+   * sin site key propio): el backend en TURNSTILE_PROVIDER=mock (default)
+   * lo acepta igualmente. */
+  turnstile_token: string
 }
 
 export interface ApiErrorDetail {

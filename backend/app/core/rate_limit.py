@@ -17,8 +17,12 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 
-def _client_ip_key(request: Request) -> str:
-    """Clave de rate limit por IP real del cliente, no del socket TCP.
+def client_ip_key(request: Request) -> str:
+    """IP real del cliente, no la del socket TCP — usada como clave de
+    rate limit (`Limiter(key_func=...)` más abajo) y, desde Fase 12 hito
+    12.4 ampliado (2026-09-18), también para informar a Cloudflare
+    Turnstile de la IP real en `OnboardingService.signup_clinic` (ver
+    app/integrations/providers/cloudflare_turnstile_verifier.py).
 
     Hallazgo verificado en production (Railway): `get_remote_address`
     (usa `request.client.host`, la IP del socket TCP directo) devuelve la
@@ -44,4 +48,4 @@ def _client_ip_key(request: Request) -> str:
     return get_remote_address(request)
 
 
-limiter = Limiter(key_func=_client_ip_key, default_limits=["120/minute"])
+limiter = Limiter(key_func=client_ip_key, default_limits=["120/minute"])

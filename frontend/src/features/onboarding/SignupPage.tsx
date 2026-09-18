@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError } from '../../shared/api/client'
 import { signupClinic } from '../../shared/api/onboarding'
+import { TurnstileWidget } from './TurnstileWidget'
 
 /** Coincide con `MIN_PASSWORD_LENGTH` en
  * `app/onboarding/domain/normalization.py` — solo para el hint/`minLength`
@@ -15,6 +16,12 @@ export function SignupPage() {
   const [adminDisplayName, setAdminDisplayName] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
+  // `null` mientras el widget de Turnstile no ha entregado ningún token
+  // todavía (o no hay site key configurada, ver `TurnstileWidget` — en
+  // ese caso el propio widget entrega '' de inmediato). Distinto de ''
+  // para poder deshabilitar el envío hasta que el widget termine su
+  // primer ciclo, en vez de dejar enviar con un token a medio resolver.
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -32,6 +39,7 @@ export function SignupPage() {
         admin_email: adminEmail,
         admin_display_name: adminDisplayName,
         admin_password: adminPassword,
+        turnstile_token: turnstileToken ?? '',
       })
       setSubmittedEmail(adminEmail)
     } catch (error) {
@@ -157,7 +165,11 @@ export function SignupPage() {
       </div>
 
       <div>
-        <button type="submit" disabled={submitting}>
+        <TurnstileWidget onToken={setTurnstileToken} />
+      </div>
+
+      <div>
+        <button type="submit" disabled={submitting || turnstileToken === null}>
           {submitting ? 'Creando cuenta…' : 'Crear cuenta'}
         </button>
       </div>

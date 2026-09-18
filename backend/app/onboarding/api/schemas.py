@@ -29,6 +29,13 @@ class ClinicSignupRequest(BaseModel):
     admin_email: str
     admin_display_name: str
     admin_password: str
+    #: Valor `cf-turnstile-response` del widget de Cloudflare Turnstile
+    #: (Fase 12, hito 12.4 ampliado, decisión del 2026-09-18 — ver
+    #: docs/fase-12-rfc.md §6). Se verifica en `OnboardingService.signup_clinic`,
+    #: no aquí: a diferencia de `admin_email`/`admin_password`, su validez
+    #: solo puede confirmarse con una llamada a Cloudflare, no con una
+    #: regla de formato local.
+    turnstile_token: str
 
     @field_validator("clinic_name")
     @classmethod

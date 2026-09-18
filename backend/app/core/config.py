@@ -292,6 +292,25 @@ class Settings(BaseSettings):
     brevo_base_url: str = "https://api.brevo.com"
     brevo_timeout_seconds: float = 30.0
 
+    # --- Anti-abuso en el alta pública (Fase 12, hito 12.4 ampliado) ---
+    # Decidido con Gerard el 2026-09-18: `POST /clinics/signup` es
+    # superficie pública sin autenticar (mismo riesgo que login/onboarding
+    # en general), y el rate limiting de 5/minute (ver
+    # app/core/rate_limit.py) no distingue tráfico automatizado de
+    # humano. Turnstile filtra scripts/bots genéricos; el bloqueo de
+    # dominios de email desechables cubre el abuso humano que Turnstile no
+    # detiene (una persona real usando un email de usar-y-tirar para
+    # crear cuentas de prueba repetidas). "mock" (por defecto,
+    # `MockTurnstileVerifier`) siempre aprueba y no requiere credenciales
+    # ni hace ninguna llamada real (CLAUDE.md §6) — igual que
+    # `email_provider`/`transcription_provider`. "cloudflare": única
+    # opción real, ver
+    # app/integrations/providers/cloudflare_turnstile_verifier.py.
+    turnstile_provider: Literal["mock", "cloudflare"] = "mock"
+    turnstile_secret_key: str | None = None
+    turnstile_base_url: str = "https://challenges.cloudflare.com"
+    turnstile_timeout_seconds: float = 10.0
+
     # --- Limpieza de clínicas no verificadas (Fase 12, hito 12.4) ---
     # Una clínica es "fantasma" si ninguno de sus usuarios está activo
     # (nunca verificó su email tras `POST /clinics/signup`, ver
