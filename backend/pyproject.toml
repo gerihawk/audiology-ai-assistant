@@ -51,7 +51,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3,<9.0",
-  "pytest-asyncio>=0.24,<1.0",
+  "pytest-asyncio>=0.24,<2.0",
   "ruff>=0.7,<1.0",
   "black>=24.10,<25.0",
   # pypdf: solo para verificar en tests que PdfDocumentExporter produce un
