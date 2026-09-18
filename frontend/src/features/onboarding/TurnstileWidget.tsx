@@ -43,7 +43,8 @@ function loadTurnstileScript(): Promise<void> {
       script.async = true
       script.defer = true
       script.onload = () => resolve()
-      script.onerror = () => reject(new Error('No se pudo cargar el script de Cloudflare Turnstile.'))
+      script.onerror = () =>
+        reject(new Error('No se pudo cargar el script de Cloudflare Turnstile.'))
       document.head.appendChild(script)
     })
   }
