@@ -802,14 +802,13 @@ no tiene, todavía, un modo de funcionamiento válido en producción"):
   función `RealAuthApp`). Reseteo de contraseña también está
   implementado, pero para el personal de clínica (Fase 12, hito 12.0 —
   `PasswordResetRequestPage`/`PasswordResetConfirmPage`), no como parte
-  de esta ronda de Fase 9. **Pendiente de verificar** (no ejecutable
-  desde el código: requiere mirar la configuración real de Railway): que
-  la variable de build `VITE_AUTH_MODE` de production esté efectivamente
-  en `real` — aunque, aunque no lo estuviera, la barrera de seguridad
-  real está en el backend (`AUTH_MODE=real` obligatorio en producción,
-  punto anterior), así que un frontend mal configurado degradaría la
-  experiencia de uso, no abriría una vía de acceso sin autenticación a
-  la API.
+  de esta ronda de Fase 9. **Confirmado 2026-09-18**: `VITE_AUTH_MODE` de producción
+  cambiado a `real` por Gerard directamente en la configuración de
+  Railway — antes de esta fecha no estaba verificado (aunque, aunque no
+  lo hubiera estado, la barrera de seguridad real está en el backend,
+  `AUTH_MODE=real` obligatorio en producción, punto anterior, así que un
+  frontend mal configurado habría degradado la experiencia de uso, no
+  abierto una vía de acceso sin autenticación a la API).
 
 ## 13. Auditoría RBAC (Fase 8, hito 8.1)
 

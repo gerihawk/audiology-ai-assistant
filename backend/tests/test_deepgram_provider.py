@@ -281,7 +281,6 @@ async def test_keyterms_se_repiten_como_parametro_multiple():
     assert result.provider_metadata["keyterm_set_version"] == "audiology-es-v1"
 
 
-
 # --- Compliance: no entrenamiento (mip_opt_out) ----------------------------------
 #
 # Requisito de seguridad/compliance, no solo funcional (decision de negocio

@@ -268,27 +268,29 @@ gestión del riesgo (véase §0).
 | R5 | Tres capas de backup (snapshots de volumen, PITR ~4 semanas, `pg_dump` cifrado externo a bucket UE que sobrevive a la pérdida total de Railway); clave de cifrado `age` custodiada offline por Gerard, nunca en Railway | Bajo — pendiente verificar en producción real el runbook de restore (ver §8) |
 | R6 | `purge_patient_clinical_data()` (2026-09-18): purga física atómica, admin-only, doble confirmación, con entrada de auditoría que sobrevive al borrado | Bajo |
 | R7 | Lenguaje no diagnóstico obligatorio y validado por tests; aviso obligatorio en toda respuesta de API y exportación; aprobación humana explícita antes de exportar o considerar un artefacto parte del expediente; ninguna transición a `approved` puede depender de `confidence` | Medio — depende en última instancia de que el profesional respete el flujo de revisión; no hay control técnico que impida a un usuario ignorar el aviso |
-| R8 | Autenticación real por JWT + `bcrypt` obligatoria en producción (`RealCurrentUserProvider`), rate limiting en login (5/min) | **Alto** — sin pantalla de login en el frontend todavía (verificable solo por `curl`), sin MFA, sin lista de revocación de tokens (logout solo del lado cliente), tokens de 8h de vida — ver recomendaciones §8 |
+| R8 | Autenticación real por JWT + `bcrypt` obligatoria en producción (`RealCurrentUserProvider`), rate limiting en login (5/min), pantalla de login real en el frontend (`LoginForm.tsx`/`AuthContext.tsx`, hito 9.2) que bloquea todas las rutas sin token válido — **corregido 2026-09-18**: una versión anterior de esta EIPD daba esto por pendiente basándose en `privacy-and-security.md` §12, que estaba desactualizado; verificado directamente contra `frontend/src/App.tsx` (función `RealAuthApp`), el hito ya estaba implementado y mergeado | Medio — sin MFA, sin lista de revocación de tokens (logout solo del lado cliente), tokens de 8h de vida; pendiente confirmar que `VITE_AUTH_MODE` de producción esté en `real` en la configuración real de Railway (no verificable desde el código) — aunque la barrera real está en el backend, no en el frontend |
 | R9 | Diseño preparado para cifrado a nivel de columna en los campos más sensibles (`ai_artifact_versions.content`, entre otros) | **Medio-alto** — cifrado a nivel de aplicación **no implementado todavía**, documentado como deuda consciente; el contenido clínico depende del cifrado en reposo del proveedor de infraestructura (Railway) como única defensa |
 | R10 | `SecurityHeadersMiddleware`, rate limiting con `slowapi`, límites de tamaño de subida | Bajo mientras el despliegue sea de una sola réplica (limitación conocida y aceptada, documentada) |
 | R11 | Checklist aislado detrás de una interfaz sustituible (`ClinicalFlagsGenerator`); doble aviso obligatorio ("checklist de demostración, no validado clínicamente, no apto para uso con pacientes reales") cuando exista; lenguaje no diagnóstico; ligado a fragmento de transcripción | Medio — la funcionalidad no está implementada todavía (§13 de [privacy-and-security.md](privacy-and-security.md)); si se implementa, no debe activarse para pacientes reales sin validación clínica y legal previa, tal y como ya reconoce el propio [clinical-safety.md](clinical-safety.md) §7 |
 
 ## 7. Riesgo residual y necesidad de consulta previa (art. 36 RGPD)
 
-Tras las medidas aplicadas, la mayoría de los riesgos identificados
-quedan en un nivel bajo o medio. **Dos riesgos residuales se consideran
-altos** y, a criterio de quien firma esta EIPD, deberían resolverse
-**antes** de dar de alta pacientes reales de forma sostenida, no solo
-antes de la primera activación técnica:
+Tras las medidas aplicadas, todos los riesgos identificados quedan en un
+nivel bajo o medio, con una excepción:
 
-- **R8 (autenticación)**: la ausencia de pantalla de login en producción
-  y de MFA es una brecha de seguridad de acceso, no solo un elemento de
-  producto incompleto — un dato de salud detrás de una autenticación
-  débil es precisamente el escenario que una EIPD debe señalar.
 - **R9 (cifrado en reposo)**: el contenido clínico más sensible
   (transcripciones, resúmenes, anamnesis) no tiene cifrado a nivel de
   aplicación todavía, pese a que el diseño ya lo contempla como mejora
-  preparada.
+  preparada — **riesgo residual alto**, y el único que, a criterio de
+  quien firma esta EIPD, debería resolverse antes de dar de alta
+  pacientes reales de forma sostenida, no solo antes de la primera
+  activación técnica.
+
+(R8, autenticación, se consideraba también alto en una versión anterior
+de este documento por una lectura de `privacy-and-security.md` que
+resultó estar desactualizada — la pantalla de login real ya existe y
+está en producción; queda en riesgo medio por la falta de MFA y de
+revocación de tokens, no en alto.)
 
 Ninguno de los riesgos residuales identificados alcanza, a día de hoy,
 el umbral de "riesgo residual alto e ineludible" que obligaría a una
@@ -302,14 +304,16 @@ aquí.
 
 Por orden de prioridad, a criterio de quien redacta este borrador:
 
-1. **Pantalla de login real en el frontend** (hito 9.2, pendiente) —
-   hoy la autenticación real solo es verificable por `curl`; sin esto,
-   el riesgo R8 no puede considerarse cerrado en la práctica aunque el
-   backend ya lo soporte.
-2. **Cifrado a nivel de columna** para `ai_artifact_versions.content` y
+1. **Cifrado a nivel de columna** para `ai_artifact_versions.content` y
    el resto de columnas candidatas identificadas en
    [privacy-and-security.md](privacy-and-security.md) §4 — hoy es deuda
-   consciente, no implementada.
+   consciente, no implementada. Único riesgo alto que queda abierto tras
+   la corrección de §7.
+2. **Confirmar en Railway que `VITE_AUTH_MODE` de producción está en
+   `real`** — no verificable desde el código (es configuración de
+   despliegue, no del repositorio); baja prioridad porque el backend ya
+   impone `AUTH_MODE=real` de forma independiente, pero conviene
+   confirmarlo para que la experiencia de frontend coincida.
 3. **Confirmar el estado de DPA de Sentry** y la jurisdicción exacta del
    DPA de Brevo (§2.2) para poder dar el registro de subencargados por
    completo y verificado.
