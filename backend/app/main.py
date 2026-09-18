@@ -20,6 +20,7 @@ from app.core.config import Settings, get_settings
 from app.core.context import RequestIdMiddleware
 from app.core.deps import (
     get_configured_email_sender,
+    get_configured_payment_gateway,
     get_configured_transcription_provider,
     get_configured_turnstile_verifier,
     get_current_user_provider,
@@ -56,6 +57,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Ídem para TURNSTILE_PROVIDER (Fase 12, hito 12.4 ampliado — p. ej.
     # "cloudflare" sin TURNSTILE_SECRET_KEY).
     get_configured_turnstile_verifier()
+    # Ídem para PAYMENT_GATEWAY (Fase 13, hito 13.1 — p. ej. "stripe" sin
+    # STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET).
+    get_configured_payment_gateway()
     yield
 
 

@@ -17,12 +17,14 @@ from app.core.config import Settings
 from app.integrations.domain.audio_cost_estimator import AudioCostEstimator
 from app.integrations.domain.email_sender import EmailSender
 from app.integrations.domain.language_model_provider import LanguageModelProvider
+from app.integrations.domain.payment_gateway import PaymentGateway
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.domain.turnstile_verifier import TurnstileVerifier
 from app.integrations.keyterms import AUDIOLOGY_KEYTERMS_ES, KEYTERM_SET_VERSION
 from app.integrations.mocks.mock_audio_cost_estimator import MockAudioCostEstimator
 from app.integrations.mocks.mock_email_sender import ConsoleEmailSender
 from app.integrations.mocks.mock_language_model_provider import MockLanguageModelProvider
+from app.integrations.mocks.mock_payment_gateway import MockPaymentGateway
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
 from app.integrations.mocks.mock_turnstile_verifier import MockTurnstileVerifier
 from app.integrations.providers.anthropic_language_model_provider import (
@@ -47,6 +49,7 @@ from app.integrations.providers.openai_language_model_provider import (
 from app.integrations.providers.pricing_table_audio_cost_estimator import (
     PricingTableAudioCostEstimator,
 )
+from app.integrations.providers.stripe_payment_gateway import StripePaymentGateway
 
 
 def _build_assemblyai_baseline(settings: Settings) -> TranscriptionProvider:
@@ -289,6 +292,33 @@ def build_turnstile_verifier(
         raise ValueError(
             f"'{name}' no es un proveedor de Turnstile reconocido. Valores válidos: "
             f"{', '.join(sorted(TURNSTILE_VERIFIER_FACTORIES))}."
+        ) from exc
+    return factory(settings)
+
+
+#: Registro único de pasarelas de pago (Fase 13, hito 13.1) — "mock" (por
+#: defecto, `MockPaymentGateway`) nunca llama a Stripe de verdad, ver
+#: CLAUDE.md §6. "stripe" es el único proveedor real; añadir uno nuevo
+#: (p. ej. Paddle) es añadir una entrada aquí — ver docs/fase-13-rfc.md §5.
+PAYMENT_GATEWAY_FACTORIES: dict[str, Callable[[Settings], PaymentGateway]] = {
+    "mock": lambda settings: MockPaymentGateway(),
+    "stripe": lambda settings: StripePaymentGateway(
+        api_key=settings.stripe_secret_key,
+        webhook_secret=settings.stripe_webhook_secret,
+    ),
+}
+
+
+def build_payment_gateway(settings: Settings, provider_name: str | None = None) -> PaymentGateway:
+    """`provider_name` por defecto es `settings.payment_gateway` — mismo
+    patrón que `build_email_sender`/`build_turnstile_verifier`."""
+    name = provider_name or settings.payment_gateway
+    try:
+        factory = PAYMENT_GATEWAY_FACTORIES[name]
+    except KeyError as exc:
+        raise ValueError(
+            f"'{name}' no es una pasarela de pago reconocida. Valores válidos: "
+            f"{', '.join(sorted(PAYMENT_GATEWAY_FACTORIES))}."
         ) from exc
     return factory(settings)
 

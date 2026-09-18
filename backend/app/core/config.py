@@ -333,6 +333,32 @@ class Settings(BaseSettings):
     # app/onboarding/api/router.py).
     onboarding_cleanup_cron_secret: str
 
+    # --- Facturación / Stripe (Fase 13, hito 13.1) — ver docs/fase-13-rfc.md ---
+    # "mock" (por defecto, `MockPaymentGateway`) nunca llama a Stripe de
+    # verdad — mismo criterio de CLAUDE.md §6 que `transcription_provider`/
+    # `email_provider`/`turnstile_provider`. "stripe" es el único proveedor
+    # real. Alcance de este hito: solo `create_checkout_session` y el
+    # webhook con los eventos de alta (`checkout.session.completed`) — el
+    # gate de acceso por `subscription_status` (hito 13.2) y
+    # `create_portal_session` (hito 13.3) quedan para hitos posteriores, ver
+    # docs/fase-13-rfc.md §7.
+    payment_gateway: Literal["mock", "stripe"] = "mock"
+    stripe_secret_key: str | None = None
+    # Verifica la firma `Stripe-Signature` de `POST /billing/webhook` — sin
+    # ella, `StripePaymentGateway.construct_webhook_event` rechaza
+    # cualquier payload (nunca confía en el cuerpo del request sin
+    # verificar la firma primero, ver docs/fase-13-rfc.md §6).
+    stripe_webhook_secret: str | None = None
+    # Un Price de Stripe (modo suscripción) por nivel — ver la tabla de
+    # precios cerrada en docs/fase-13-rfc.md §3.2. El nivel Cadena/Empresa
+    # se gestiona semi-manualmente por Gerard (§3.3): su Price de volumen
+    # también se resuelve desde aquí una vez creado en el dashboard de
+    # Stripe.
+    stripe_price_id_basico: str | None = None
+    stripe_price_id_profesional: str | None = None
+    stripe_price_id_clinica_grande: str | None = None
+    stripe_price_id_cadena_empresa: str | None = None
+
     # --- Cifrado de campos a nivel de aplicación (Fase 12) — añadido 2026-09-18 ---
     # Ver app/core/field_encryption.py y docs/privacy-and-security.md §4.
     # Diseño con claves VERSIONADAS desde el principio, no una clave fija de

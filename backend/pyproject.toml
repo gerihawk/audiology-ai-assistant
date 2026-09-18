@@ -46,6 +46,12 @@ dependencies = [
   # las columnas clínicas más sensibles (Fase 12, ver
   # app/core/field_encryption.py y docs/privacy-and-security.md §4).
   "cryptography>=50.0,<51.0",
+  # stripe: SDK oficial (Python) — Checkout Sessions y verificación de
+  # webhooks (Fase 13, hito 13.1, ver docs/fase-13-rfc.md §5). Solo
+  # `StripePaymentGateway` (app/billing/infrastructure/) lo importa;
+  # `PAYMENT_GATEWAY=mock` (por defecto, ver app/integrations/factory.py)
+  # nunca lo usa.
+  "stripe>=15.0,<16.0",
 ]
 
 [project.optional-dependencies]

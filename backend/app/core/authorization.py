@@ -428,6 +428,29 @@ INVITATION_PERMISSIONS: dict[Role, frozenset[InvitationAction]] = {
 }
 
 
+class BillingAction(StrEnum):
+    CREATE_CHECKOUT_SESSION = "create_checkout_session"
+
+
+#: Fase 13, hito 13.1 (docs/fase-13-rfc.md §5). Mismo patrón "admin
+#: únicamente" que `RetentionAction`/`IntegrationConfigAction`/
+#: `InvitationAction`: dar de alta la facturación de la clínica es una
+#: tarea administrativa, ni siquiera `audiologist` puede hacerlo.
+BILLING_PERMISSIONS: dict[Role, frozenset[BillingAction]] = {
+    Role.ADMIN: frozenset(BillingAction),
+    Role.AUDIOLOGIST: frozenset(),
+    Role.VIEWER: frozenset(),
+}
+
+
+def authorize_billing_action(current_user: CurrentUser, action: BillingAction) -> None:
+    if action not in BILLING_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre facturación."
+        )
+
+
 def authorize_invitation_action(
     current_user: CurrentUser, action: InvitationAction, *, clinic_id: uuid.UUID
 ) -> None:

@@ -1711,27 +1711,106 @@ clínica quedan aplazados.
   cada módulo) — se avisa además de que, si vuelve a quedar desactualizada,
   debe corregirse ahí mismo en vez de dejarla arrastrar.
 
+## Fase 13 — Facturación / Stripe (RFC cerrado, hito 13.1 implementado)
+
+Ver [fase-13-rfc.md](fase-13-rfc.md) para el RFC completo (cerrado el
+2026-09-18: modelo D híbrido, niveles y precios, IVA manual al principio,
+prueba de 14 días con tope de 20 sesiones, nivel Cadena/Empresa de
+facturación consolidada sin panel de sede central).
+
+**Hito 13.1 (implementado el 2026-09-18)**: modelo de datos + pasarela de
+pago + alta de suscripción vía Checkout, ver docs/fase-13-rfc.md §7 para
+el alcance exacto de este hito frente a 13.2/13.3 (todavía no
+implementados):
+
+- `Clinic` extendida con `stripe_customer_id`/`stripe_subscription_id`/
+  `subscription_status`/`plan`/`sessions_used_this_period`
+  (`app/clinics/domain/entities.py`, `app/clinics/infrastructure/orm.py`)
+  — migración `44c526b3b6ea_add_billing_fields_to_clinics.py`, que también
+  crea `stripe_webhook_events` (idempotencia del webhook).
+- Puerto `PaymentGateway` (`app/integrations/domain/payment_gateway.py`),
+  mismo patrón `Protocol` + factory que `EmailSender`/`TurnstileVerifier`:
+  `MockPaymentGateway` (por defecto, `PAYMENT_GATEWAY=mock`, nunca llama a
+  Stripe — CLAUDE.md §6) y `StripePaymentGateway`
+  (`app/integrations/providers/stripe_payment_gateway.py`, SDK oficial
+  `stripe`, `create_async` para no bloquear el event loop).
+- `app/billing/domain/plans.py`: enum `Plan` (cuatro niveles cerrados en
+  §3.2 del RFC) y resolución de su `Price` de Stripe desde `Settings`.
+- `BillingService` (`app/billing/service.py`): `create_checkout_session`
+  (autenticado, `ADMIN` únicamente vía `authorize_billing_action` nuevo en
+  `app/core/authorization.py`) y `handle_webhook_event` (sin
+  `CurrentUser`, autenticado por la firma `Stripe-Signature` —
+  `WebhookSignatureError` -> 400). Alcance de este hito: solo el evento de
+  alta `checkout.session.completed`; cualquier otro tipo de evento se
+  reconoce y se marca procesado sin aplicar ningún cambio (para que Stripe
+  no lo reintente indefinidamente), a la espera del hito 13.2. Sin entrada
+  en `audit_log` para el cambio que aplica el webhook — mismo criterio ya
+  documentado en `UnverifiedClinicCleanupService.purge`
+  (`app/onboarding/cleanup_service.py`): no existe ningún `actor_user_id`
+  humano real en un evento disparado por Stripe: el detalle queda en el
+  log de aplicación (`app.billing`), con el `event_id` de Stripe para
+  poder cruzarlo con su dashboard.
+- `POST /api/v1/billing/checkout-session` y `POST /api/v1/billing/webhook`
+  (`app/billing/api/router.py`), registrados en `app/api/router.py`.
+- Nueva dependencia de producción `stripe` (`pyproject.toml`) y variables
+  `PAYMENT_GATEWAY`/`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/
+  `STRIPE_PRICE_ID_<NIVEL>` en `.env.example`, `docker-compose.yml` y
+  `.railway/railway.ts` (`preserve()`, mismo patrón que el resto de
+  secretos). Fallo rápido en el arranque si `PAYMENT_GATEWAY=stripe` sin
+  las claves configuradas (`get_configured_payment_gateway()` en
+  `app.main` lifespan, mismo patrón que el resto de integraciones).
+- Tests: `tests/test_billing_service.py` (permisos, resolución de Price,
+  aplicación e idempotencia del webhook) y `tests/test_billing_api.py`
+  (superficie HTTP, 401/403/422/400 incluidos).
+
+**Pendiente, hitos 13.2/13.3 (no implementados todavía, ver
+docs/fase-13-rfc.md §7)**: resto del ciclo de vida del webhook (impago,
+cancelación, actualización), gate de acceso por `subscription_status`
+(403 cuando la suscripción no está `active`/`trialing`, o por encima del
+techo de overage), `report_overage_usage` (metered billing sobre
+`estimated_cost_usd`), cron de reconciliación diaria Stripe↔`Clinic`,
+`POST /billing/portal-session` (Customer Portal) y el apartado
+"Facturación" del frontend. Hasta que el hito 13.2 exista, ninguna
+suscripción se bloquea automáticamente por impago o cancelación —
+`Clinic.subscription_status` se actualiza en el alta pero todavía no lo
+lee ningún guardarraíl de acceso.
+
 ## Fuera de las fases del MVP
 
-**Facturación/Stripe — en análisis de alcance desde el 2026-09-16**: ver
-[fase-13-rfc.md](fase-13-rfc.md), mismo patrón que
-[fase-12-rfc.md](fase-12-rfc.md) para el onboarding multi-clínica. RFC
-abierto, pendiente de decisiones comerciales de Gerard (niveles, precios,
-IVA) antes de planificar hitos de implementación.
+**Facturación/Stripe — RFC cerrado el 2026-09-18, hito 13.1 implementado el
+mismo día**: ver [fase-13-rfc.md](fase-13-rfc.md) y la sección "Fase 13 —
+Facturación / Stripe" más arriba en este mismo documento para el detalle
+técnico. Corrección respecto a la nota anterior de este mismo párrafo
+("RFC abierto, pendiente de decisiones comerciales") — quedó
+desactualizada en cuanto Gerard cerró esas decisiones (niveles, precios,
+IVA, modelo D) el 2026-09-18, el mismo día en que se abrió.
 
-Cualquier integración real (Noah, calendario, o cualquier proveedor de
-modelo de lenguaje de pago — OpenAI, Anthropic, Claude API, Gemini,
-Ollama, Llama), multi-tenant, selector de idioma en tiempo de ejecución
-(más allá de centralizar textos para prepararlo, ver
+Cualquier integración real (Noah, calendario), selector de idioma en
+tiempo de ejecución (más allá de centralizar textos para prepararlo, ver
 [architecture.md](architecture.md) §8), grabación en vivo, scheduler
 automático de retención (Fase 7 solo prepara la interfaz, Fase 8 la
 automatiza si el tiempo lo permite), bloqueo forzado por
 consentimiento de IA (preparado en la Fase 4, no forzado hasta que se
 decida explícitamente) o firma electrónica avanzada quedan fuera de este
 plan (ver [product-requirements.md](product-requirements.md) §4) y
-requerirían un nuevo ciclo de análisis de alcance — o, en el caso de un
-proveedor de IA real, además un acuerdo de tratamiento de datos previo —
-antes de planificarse.
+requerirían un nuevo ciclo de análisis de alcance antes de planificarse.
+
+**Excepción ya decidida: proveedores de modelo de lenguaje real (Anthropic
+y OpenAI, Fase 6) y multi-tenant (Fase 2).** Mismo criterio que la
+excepción de transcripción de más abajo: una versión anterior de este
+párrafo listaba "cualquier proveedor de modelo de lenguaje de pago" y
+"multi-tenant" como fuera de alcance, pero ambos llevan resueltos desde
+hace tiempo y el párrafo nunca se actualizó. `LanguageModelProvider` real
+(Anthropic/OpenAI, Google preparado) está integrado desde la Fase 6.3
+(`app/integrations/factory.py::LANGUAGE_MODEL_PROVIDER_FACTORIES`,
+routing por artifact_type vía `LLM_PROVIDER_SUMMARY`/
+`LLM_PROVIDER_PATIENT_SUMMARY`/`LLM_PROVIDER_MISSING_INFORMATION`), con
+sus guardarraíles de producción (`AI_PROCESSING_CONSENT_ENFORCED`,
+`LLM_COST_LIMIT_ENFORCED`) ya en `_validate_production_safety`. El
+multi-tenant es, de hecho, la arquitectura base del proyecto desde la
+Fase 2 (`User.clinic_id` obligatorio, `current_user.clinic_id` como
+filtro implícito en toda la superficie de la API) — nunca fue una
+ampliación pendiente, sino el diseño de partida.
 
 **Excepción ya decidida: AssemblyAI (Fase 5) y Deepgram (Fase 5.3).** El
 párrafo anterior excluía "cualquier proveedor de transcripción... de

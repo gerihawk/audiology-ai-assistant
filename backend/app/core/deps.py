@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai_pipeline.service import AIPipelineService
 from app.audio.service import AudioRecordingService
 from app.auth.service import AuthService
+from app.billing.service import BillingService
 from app.clinical_record.service import ClinicalRecordService
 from app.clinical_sessions.service import ClinicalSessionService
 from app.consents.service import ConsentService
@@ -25,10 +26,12 @@ from app.core.db import get_db_session
 from app.core.sentry import tag_current_user
 from app.export.service import ExportService
 from app.integrations.domain.email_sender import EmailSender
+from app.integrations.domain.payment_gateway import PaymentGateway
 from app.integrations.domain.transcription_provider import TranscriptionProvider
 from app.integrations.domain.turnstile_verifier import TurnstileVerifier
 from app.integrations.factory import (
     build_email_sender,
+    build_payment_gateway,
     build_transcription_provider,
     build_turnstile_verifier,
 )
@@ -58,6 +61,8 @@ __all__ = [
     "get_auth_service",
     "get_onboarding_service",
     "get_invitation_service",
+    "get_configured_payment_gateway",
+    "get_billing_service",
 ]
 
 
@@ -103,6 +108,16 @@ def get_configured_turnstile_verifier() -> TurnstileVerifier:
     `cloudflare` sin TURNSTILE_SECRET_KEY), falla una única vez, en el
     arranque (ver app.main lifespan), no en cada petición."""
     return build_turnstile_verifier(get_settings())
+
+
+@lru_cache
+def get_configured_payment_gateway() -> PaymentGateway:
+    """Resuelve `PaymentGateway` según `PAYMENT_GATEWAY` — ver
+    app/integrations/factory.py. Se cachea, mismo criterio que
+    `get_configured_email_sender`: si la configuración es inválida (p. ej.
+    `stripe` sin `STRIPE_SECRET_KEY`), falla una única vez, en el arranque
+    (ver app.main lifespan), no en cada petición."""
+    return build_payment_gateway(get_settings())
 
 
 async def get_current_user(
@@ -192,3 +207,10 @@ async def get_invitation_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> InvitationService:
     return InvitationService(session)
+
+
+async def get_billing_service(
+    session: AsyncSession = Depends(get_db_session),
+    configured_payment_gateway: PaymentGateway = Depends(get_configured_payment_gateway),
+) -> BillingService:
+    return BillingService(session, payment_gateway=configured_payment_gateway)

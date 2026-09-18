@@ -8,6 +8,7 @@ from app.ai_pipeline.api.router import router as ai_pipeline_router
 from app.api.schemas import CurrentUserResponse
 from app.audio.api.router import router as audio_router
 from app.auth.api.router import router as auth_router
+from app.billing.api.router import router as billing_router
 from app.clinical_record.api.router import router as clinical_record_router
 from app.clinical_sessions.api.router import router as clinical_sessions_router
 from app.consents.api.router import router as consents_router
@@ -34,6 +35,7 @@ v1_router.include_router(clinical_record_router)
 v1_router.include_router(consents_router)
 v1_router.include_router(retention_router)
 v1_router.include_router(integrations_router)
+v1_router.include_router(billing_router)
 
 
 @v1_router.get("/me", response_model=CurrentUserResponse, tags=["dev-tools"])

@@ -600,6 +600,53 @@ devuelve `422` nativo.
 | GET | `/integrations` | admin | Estado de cada integración abstracta (proveedor activo, habilitada) |
 | PATCH | `/integrations/{integration_name}` | admin | Cambia proveedor activo (en el MVP, solo valores `mock`) |
 
+## Facturación (Fase 13, hito 13.1)
+
+| Método | Ruta | Rol | Descripción |
+|---|---|---|---|
+| POST | `/billing/checkout-session` | admin | Crea una Stripe Checkout Session (modo `subscription`) para el nivel pedido y devuelve su URL |
+| POST | `/billing/webhook` | — (firma Stripe) | Recibe eventos de Stripe; en este hito solo aplica `checkout.session.completed` |
+
+Ver [fase-13-rfc.md](fase-13-rfc.md) para el modelo de negocio completo
+(niveles, precios, overage, prueba gratuita) y
+[development-plan.md](development-plan.md) para el alcance exacto de este
+hito frente a 13.2/13.3 (todavía no implementados: gate de acceso por
+`subscription_status`, overage medido, Customer Portal).
+
+### Alta de suscripción (`POST /billing/checkout-session`)
+
+- Body: `{"plan": "basico" | "profesional" | "clinica_grande" |
+  "cadena_empresa"}` — un valor fuera de esos cuatro se rechaza con `422`
+  antes de ejecutar ninguna lógica de dominio.
+- Solo `admin` de la propia clínica (`BillingAction.CREATE_CHECKOUT_SESSION`);
+  cualquier otro rol recibe `403`. Sin `X-Dev-User-Id`/JWT válido, `401`.
+- Un nivel válido pero sin `Price` de Stripe configurado en este entorno
+  (`STRIPE_PRICE_ID_<NIVEL>` ausente) devuelve `409` con
+  `field: "plan"` — nunca un `500`.
+- Respuesta `200`: `{"checkout_url": string}` — el frontend redirige ahí
+  directamente; el estado real de la suscripción nunca se confía a ese
+  redirect, solo al webhook (ver más abajo).
+
+### Webhook de Stripe (`POST /billing/webhook`)
+
+- Sin `X-Dev-User-Id`/JWT: autenticado exclusivamente por la cabecera
+  `Stripe-Signature`, verificada contra `STRIPE_WEBHOOK_SECRET`. Firma
+  ausente o inválida → `400`, sin aplicar ningún cambio.
+- Idempotente por `id` de evento de Stripe (tabla `stripe_webhook_events`):
+  un mismo evento reenviado más de una vez (Stripe no garantiza entrega
+  única) se reconoce con `204` sin volver a aplicar el cambio.
+- `checkout.session.completed` (único tipo aplicado en este hito): localiza
+  la `Clinic` por `client_reference_id`/`metadata.clinic_id`, y fija
+  `stripe_customer_id`, `stripe_subscription_id`, `subscription_status =
+  "active"` y `plan` (de `metadata.plan`); reinicia
+  `sessions_used_this_period` a `0`.
+- Cualquier otro tipo de evento se reconoce (`204`) sin aplicar ningún
+  cambio — evita que Stripe reintente indefinidamente un evento que este
+  hito todavía no interpreta (impago, cancelación, actualización: hito
+  13.2).
+- Respuesta siempre `204` salvo firma inválida (`400`) — nunca expone el
+  resultado de la aplicación del evento en el cuerpo de la respuesta.
+
 ## Retention (limpieza manual)
 
 | Método | Ruta | Rol | Descripción |
