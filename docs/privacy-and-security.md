@@ -285,16 +285,25 @@ benchmark propio todavía.
   El borrado físico invalida `storage_reference` pero conserva la fila de
   `audio_recordings` (`status = deleted`) para trazabilidad, en ambos
   casos.
-- **Artefactos de IA** (`ai_artifacts`/`ai_artifact_versions`): **nunca**
-  se eliminan físicamente, ni siquiera pasado el periodo de retención.
-  Solo admiten **borrado lógico** (`deleted_by`, `deleted_at` en
-  `ai_artifacts`), conservando `ai_artifact_versions`,
-  `ai_generation_runs` y `audit_log` íntegros. Esto aplica con más razón a
-  artefactos ya `approved`: la trazabilidad de lo que se aprobó no puede
-  perderse.
+- **Artefactos de IA** (`ai_artifacts`/`ai_artifact_versions`): por
+  defecto **nunca** se eliminan físicamente, ni siquiera pasado el
+  periodo de retención — solo admiten **borrado lógico**
+  (`deleted_by`, `deleted_at` en `ai_artifacts`), conservando
+  `ai_artifact_versions`, `ai_generation_runs` y `audit_log` íntegros.
+  Esto aplica con más razón a artefactos ya `approved`: la trazabilidad
+  de lo que se aprobó no puede perderse. **Excepción, añadida
+  2026-09-18** (ver §8.2 más abajo): `RetentionCleanupService.
+  purge_patient_clinical_data()` sí borra físicamente estos artefactos,
+  pero solo a petición explícita y admin-only, nunca automáticamente ni
+  por el paso del tiempo — cierra el hueco de que, hasta esa fecha, no
+  existía NINGÚN camino posible para honrar una solicitud de supresión
+  de un paciente una vez pasado el plazo legal de conservación de la
+  clínica.
 - `clinical_sessions` sigue el mismo criterio que los artefactos de IA:
-  borrado lógico únicamente; su audio asociado puede haberse eliminado
-  físicamente de forma independiente por retención.
+  borrado lógico por defecto (`is_archived`/`archived_at`); su audio
+  asociado puede haberse eliminado físicamente de forma independiente
+  por retención; y la misma excepción de §8.2 aplica también a esta
+  tabla.
 - En desarrollo, se recomienda limpiar periódicamente los datos ficticios
   de prueba usando el mismo mecanismo de limpieza manual, no un borrado
   directo en base de datos.
@@ -343,6 +352,63 @@ Railway). El runbook de restore
 ejecutarse de verdad al menos una vez contra un dump real de production,
 con constancia en [development-plan.md](development-plan.md) §Fase 11
 (fecha + resultado).
+
+### 8.2 Purga definitiva de datos clínicos de un paciente (Fase 12) — añadido 2026-09-18
+
+Hasta esta fecha, **ningún** camino del sistema podía borrar físicamente
+`ai_artifacts`/`clinical_sessions`: el criterio de §8 (arriba) era
+correcto para la operación normal — evitar que retención automática por
+antigüedad destruyera trazabilidad clínica — pero como efecto colateral
+dejaba sin implementar el derecho de supresión (RGPD art. 17) *una vez
+superado* el plazo mínimo legal de conservación de la clínica (en España,
+5 años desde el alta, art. 17 Ley 41/2002). Un paciente podía solicitar
+legítimamente la eliminación de sus datos y la plataforma no tenía forma
+de cumplirla. `RetentionCleanupService.purge_patient_clinical_data()`
+cierra ese hueco.
+
+Diferencias deliberadas frente a `purge()` (audio por antigüedad, arriba):
+
+| | `purge()` (§8) | `purge_patient_clinical_data()` (§8.2) |
+|---|---|---|
+| Alcance | Solo audio expirado por `RETENTION_DAYS_DEFAULT` | Todo el contenido clínico de **un paciente**: audio, `ai_artifacts`/`ai_artifact_versions`, `ai_generation_runs`, `ai_pipeline_runs`, `clinical_sessions` |
+| Disparo | Manual (endpoint admin) o automatizado (cron externo, hito 8.2 de arriba) | **Solo manual**, nunca cron ni automático — "cuándo procede legalmente borrar" es un juicio de la clínica, no un valor por defecto del sistema |
+| Atomicidad | No — cada `AudioRecordingService.delete()` confirma de forma independiente | **Sí** — una única transacción; cualquier fallo revierte todo el borrado |
+| Confirmación | Ninguna adicional (ya requiere admin) | Doble barrera: `confirm: Literal[True]` en el schema Pydantic (rechaza `false`/ausente con 422 antes de tocar dominio) + comprobación `if not confirm` en el servicio (defensa en profundidad para otros llamadores, p. ej. tests/CLI) |
+
+**Autorización**: acción dedicada `RetentionAction.PURGE_PATIENT_DATA` en
+`app/core/authorization.py`, admin-only (igual criterio que el resto de
+`RetentionAction`) — ver [architecture.md](architecture.md) §4.
+
+**Orden de borrado** (una sola transacción, `except Exception: rollback()`
+si algo falla): audio físico + filas de `audio_recordings` → se
+desvinculan las referencias circulares de `ai_artifacts`
+(`current_version_id`, `baseline_artifact_id`, `baseline_version_id` a
+`NULL`) → `ai_artifact_versions` → `ai_generation_runs` →
+`ai_artifacts` → `ai_pipeline_runs` → `clinical_sessions`. Este orden
+existe porque `ai_artifacts` y `ai_artifact_versions` se referencian
+mutuamente (FK circular con `use_alter=True`); intentar borrar en
+cualquier otro orden viola una constraint de clave foránea.
+
+**Auditoría que sobrevive al borrado**: se escribe una entrada en
+`audit_log` (`action = "retention.patient_data_purged"`,
+`entity_type = "patient"`, `entity_id = <patient_id>`, con el recuento de
+filas purgadas por tabla en `audit_metadata`) **antes** del commit final.
+Como `audit_logs.entity_id` es una columna UUID sin restricción de clave
+foránea (ver §6), esta entrada permanece íntegra aunque el paciente, sus
+sesiones y sus artefactos ya no existan — es la única prueba que queda de
+que esos datos existieron y de quién solicitó su eliminación.
+
+**Aislamiento**: opera exclusivamente sobre las sesiones clínicas del
+`patient_id` indicado dentro de la clínica del usuario autenticado; no
+afecta a otros pacientes ni a otras clínicas (verificado en
+`tests/test_retention_service.py::test_purge_does_not_touch_other_patients_data`).
+
+Endpoint: `POST /api/v1/retention/patients/{patient_id}/purge` (ver
+[api-specification.md](api-specification.md) §Retention). Cobertura de
+test: `tests/test_retention_service.py` (capa de servicio: cascada
+completa, atomicidad, permisos, auditoría, aislamiento, caso sin
+sesiones) y `tests/test_retention_api.py` (capa HTTP: validación 422 de
+`confirm`, 403 no-admin, 200 con recuento exacto).
 
 ## 9. Proveedores externos y envío de datos
 

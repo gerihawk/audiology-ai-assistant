@@ -162,3 +162,30 @@ class SqlAlchemyClinicalSessionRepository:
             setattr(row, key, value)
         await session.flush()
         return _to_domain(row)
+
+    async def list_all_by_patient(
+        self, session: AsyncSession, clinic_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> list[ClinicalSession]:
+        result = await session.execute(
+            select(ClinicalSessionORM).where(
+                ClinicalSessionORM.clinic_id == clinic_id,
+                ClinicalSessionORM.patient_id == patient_id,
+            )
+        )
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def delete_all(
+        self, session: AsyncSession, clinic_id: uuid.UUID, session_ids: list[uuid.UUID]
+    ) -> int:
+        from sqlalchemy import delete
+
+        if not session_ids:
+            return 0
+        result = await session.execute(
+            delete(ClinicalSessionORM).where(
+                ClinicalSessionORM.id.in_(session_ids),
+                ClinicalSessionORM.clinic_id == clinic_id,
+            )
+        )
+        await session.flush()
+        return result.rowcount or 0

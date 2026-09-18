@@ -9,6 +9,22 @@ from datetime import UTC, datetime
 import bcrypt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_pipeline.domain.entities import (
+    AIArtifact,
+    AIArtifactStatus,
+    AIArtifactType,
+    AIArtifactVersion,
+    AIArtifactVersionSource,
+    AIGenerationRun,
+    AIGenerationRunStatus,
+    AIPipelineRun,
+    AIPipelineRunStatus,
+)
+from app.ai_pipeline.infrastructure.repository import (
+    SqlAlchemyAIArtifactRepository,
+    SqlAlchemyAIGenerationRunRepository,
+    SqlAlchemyAIPipelineRunRepository,
+)
 from app.audio.domain.entities import AudioRecording
 from app.audio.infrastructure.orm import AudioRecordingORM
 from app.clinical_sessions.domain.entities import (
@@ -261,6 +277,113 @@ async def create_integration_config(
         updated_by=row.updated_by,
         updated_at=row.updated_at,
     )
+
+
+async def create_ai_artifact_with_version(
+    session: AsyncSession,
+    clinic_id: uuid.UUID,
+    clinical_session_id: uuid.UUID,
+    triggered_by: uuid.UUID,
+    *,
+    artifact_type: AIArtifactType = AIArtifactType.SUMMARY,
+    status: AIArtifactStatus = AIArtifactStatus.APPROVED,
+) -> AIArtifact:
+    """Crea un `AIPipelineRun` + `AIGenerationRun` + `AIArtifact` +
+    `AIArtifactVersion` completos y enlazados entre sí (incluido
+    `current_version_id`) — mismo grafo de tablas que produce un pipeline
+    real, para tests que necesiten un artefacto de IA de verdad (p. ej.
+    la purga definitiva de datos de paciente, Fase de retención,
+    docs/privacy-and-security.md §8)."""
+    now = _now()
+
+    pipeline_run = AIPipelineRun(
+        id=uuid.uuid4(),
+        clinical_session_id=clinical_session_id,
+        triggered_by=triggered_by,
+        status=AIPipelineRunStatus.COMPLETED,
+        started_at=now,
+        completed_at=now,
+        request_id=None,
+    )
+    await SqlAlchemyAIPipelineRunRepository().add(session, pipeline_run)
+
+    artifact = AIArtifact(
+        id=uuid.uuid4(),
+        clinical_session_id=clinical_session_id,
+        artifact_type=artifact_type,
+        status=status,
+        current_version_id=None,
+        confidence=None,
+        schema_version=1,
+        approved_by=None,
+        approved_at=None,
+        rejected_by=None,
+        rejected_at=None,
+        rejection_reason=None,
+        deleted_by=None,
+        deleted_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    await SqlAlchemyAIArtifactRepository().insert_new(session, artifact)
+
+    generation_run = AIGenerationRun(
+        id=uuid.uuid4(),
+        ai_pipeline_run_id=pipeline_run.id,
+        clinical_session_id=clinical_session_id,
+        artifact_type=artifact_type,
+        ai_artifact_id=artifact.id,
+        resulting_version_number=1,
+        status=AIGenerationRunStatus.COMPLETED,
+        provider_name="mock",
+        model_name=None,
+        prompt_template_id=None,
+        prompt_template_version=None,
+        input_token_count=None,
+        output_token_count=None,
+        estimated_cost_usd=None,
+        latency_ms=None,
+        execution_time_ms=None,
+        rendered_system_prompt=None,
+        rendered_user_prompt=None,
+        raw_response=None,
+        started_at=now,
+        completed_at=now,
+        failure_reason=None,
+        request_id=None,
+    )
+    await SqlAlchemyAIGenerationRunRepository().add(session, generation_run)
+
+    version = AIArtifactVersion(
+        id=uuid.uuid4(),
+        ai_artifact_id=artifact.id,
+        version_number=1,
+        content={"text": "Contenido ficticio de test."},
+        confidence=None,
+        source_map=None,
+        source=AIArtifactVersionSource.AI_GENERATED,
+        generation_run_id=generation_run.id,
+        created_by=None,
+        change_note=None,
+        created_at=now,
+    )
+    await SqlAlchemyAIArtifactRepository().insert_version(session, version)
+
+    updated = await SqlAlchemyAIArtifactRepository().update_disposition(
+        session,
+        clinic_id,
+        artifact.id,
+        # `updated_at` explícito, no confiar en `onupdate=func.now()`: sin
+        # esto, SQLAlchemy expira la columna tras el UPDATE y el acceso
+        # síncrono posterior a `.updated_at` en `_artifact_to_domain()`
+        # dispara un `MissingGreenlet` (mismo motivo por el que
+        # `AIPipelineService.delete_artifact` ya pasa `updated_at`
+        # explícito junto a `deleted_at`/`deleted_by`).
+        {"current_version_id": version.id, "updated_at": now},
+    )
+    await session.commit()
+    assert updated is not None
+    return updated
 
 
 def dev_headers(user: User) -> dict[str, str]:

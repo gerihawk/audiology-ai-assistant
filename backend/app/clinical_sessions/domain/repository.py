@@ -52,3 +52,25 @@ class ClinicalSessionRepository(Protocol):
         session_id: uuid.UUID,
         values: dict[str, Any],
     ) -> ClinicalSession | None: ...
+
+    async def list_all_by_patient(
+        self, session: AsyncSession, clinic_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> list[ClinicalSession]:
+        """TODAS las sesiones clínicas del paciente (incluidas
+        archivadas), sin paginar — a diferencia de `list()`. Usado
+        exclusivamente por `RetentionCleanupService.
+        purge_patient_clinical_data()`, que necesita el conjunto completo
+        para la purga, nunca una página."""
+        ...
+
+    async def delete_all(
+        self, session: AsyncSession, clinic_id: uuid.UUID, session_ids: list[uuid.UUID]
+    ) -> int:
+        """Borrado físico definitivo de `clinical_sessions` — usado
+        exclusivamente por `RetentionCleanupService.
+        purge_patient_clinical_data()`, como último paso de la purga
+        (una vez borrados ya `audio_recordings`/`ai_pipeline_runs`/
+        `ai_generation_runs`/`ai_artifacts` de estas sesiones, que de lo
+        contrario bloquearían el borrado por FK). Devuelve el nº de filas
+        eliminadas."""
+        ...

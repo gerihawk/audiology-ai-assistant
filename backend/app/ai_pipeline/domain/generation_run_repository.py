@@ -31,3 +31,17 @@ class AIGenerationRunRepository(Protocol):
         `AIPipelineRun`) — base de `SessionCostBudget.accumulated_usd` al
         arrancar una nueva ejecución (ver docs/fase-6-rfc.md §6.3)."""
         ...
+
+    async def delete_for_sessions(
+        self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
+    ) -> int:
+        """Borrado físico definitivo — usado EXCLUSIVAMENTE por
+        `RetentionCleanupService.purge_patient_clinical_data()`. Debe
+        llamarse después de `AIArtifactRepository.
+        prepare_purge_for_sessions()` (que ya borró las
+        `ai_artifact_versions` que referenciaban estas ejecuciones vía
+        `generation_run_id`) y antes de `AIArtifactRepository.
+        finish_purge()` (que exige que ya no exista ningún
+        `ai_generation_runs.ai_artifact_id` apuntando a esos
+        artefactos). Devuelve el nº de filas eliminadas."""
+        ...

@@ -306,6 +306,56 @@ class SqlAlchemyAIArtifactRepository:
         await session.flush()
         return _artifact_to_domain(row)
 
+    async def prepare_purge_for_sessions(
+        self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_ids: list[uuid.UUID]
+    ) -> list[uuid.UUID]:
+        from sqlalchemy import delete, update
+
+        from app.clinical_sessions.infrastructure.orm import ClinicalSessionORM
+
+        if not clinical_session_ids:
+            return []
+
+        artifact_ids_result = await session.execute(
+            select(AIArtifactORM.id)
+            .join(ClinicalSessionORM, AIArtifactORM.clinical_session_id == ClinicalSessionORM.id)
+            .where(
+                AIArtifactORM.clinical_session_id.in_(clinical_session_ids),
+                ClinicalSessionORM.clinic_id == clinic_id,
+            )
+        )
+        artifact_ids = [row[0] for row in artifact_ids_result.all()]
+        if not artifact_ids:
+            return []
+
+        # Rompe las tres referencias circulares propias de ai_artifacts
+        # ANTES de borrar versiones — si no, la FK current_version_id/
+        # baseline_version_id (-> ai_artifact_versions) o
+        # baseline_artifact_id (self-referencia) bloquea el borrado.
+        await session.execute(
+            update(AIArtifactORM)
+            .where(AIArtifactORM.id.in_(artifact_ids))
+            .values(current_version_id=None, baseline_artifact_id=None, baseline_version_id=None)
+        )
+        await session.execute(
+            delete(AIArtifactVersionORM).where(
+                AIArtifactVersionORM.ai_artifact_id.in_(artifact_ids)
+            )
+        )
+        await session.flush()
+        return artifact_ids
+
+    async def finish_purge(self, session: AsyncSession, artifact_ids: list[uuid.UUID]) -> int:
+        from sqlalchemy import delete
+
+        if not artifact_ids:
+            return 0
+        result = await session.execute(
+            delete(AIArtifactORM).where(AIArtifactORM.id.in_(artifact_ids))
+        )
+        await session.flush()
+        return result.rowcount or 0
+
 
 class SqlAlchemyAIGenerationRunRepository:
     async def add(self, session: AsyncSession, run: AIGenerationRun) -> AIGenerationRun:
@@ -365,6 +415,21 @@ class SqlAlchemyAIGenerationRunRepository:
         )
         return result.scalar_one()
 
+    async def delete_for_sessions(
+        self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
+    ) -> int:
+        from sqlalchemy import delete
+
+        if not clinical_session_ids:
+            return 0
+        result = await session.execute(
+            delete(AIGenerationRunORM).where(
+                AIGenerationRunORM.clinical_session_id.in_(clinical_session_ids)
+            )
+        )
+        await session.flush()
+        return result.rowcount or 0
+
 
 class SqlAlchemyAIPipelineRunRepository:
     async def add(self, session: AsyncSession, run: AIPipelineRun) -> AIPipelineRun:
@@ -415,6 +480,21 @@ class SqlAlchemyAIPipelineRunRepository:
         )
         row = result.scalar_one_or_none()
         return _pipeline_run_to_domain(row) if row is not None else None
+
+    async def delete_for_sessions(
+        self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
+    ) -> int:
+        from sqlalchemy import delete
+
+        if not clinical_session_ids:
+            return 0
+        result = await session.execute(
+            delete(AIPipelineRunORM).where(
+                AIPipelineRunORM.clinical_session_id.in_(clinical_session_ids)
+            )
+        )
+        await session.flush()
+        return result.rowcount or 0
 
 
 class SqlAlchemyPromptTemplateRepository:

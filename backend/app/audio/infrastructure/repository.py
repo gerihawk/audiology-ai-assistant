@@ -164,3 +164,36 @@ class SqlAlchemyAudioRecordingRepository:
             .order_by(AudioRecordingORM.uploaded_at.asc())
         )
         return [_to_domain(row) for row in result.scalars().all()]
+
+    async def list_for_sessions(
+        self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_ids: list[uuid.UUID]
+    ) -> list[AudioRecording]:
+        if not clinical_session_ids:
+            return []
+        result = await session.execute(
+            select(AudioRecordingORM)
+            .join(
+                ClinicalSessionORM,
+                ClinicalSessionORM.id == AudioRecordingORM.clinical_session_id,
+            )
+            .where(
+                ClinicalSessionORM.clinic_id == clinic_id,
+                AudioRecordingORM.clinical_session_id.in_(clinical_session_ids),
+            )
+        )
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def delete_all_for_sessions(
+        self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
+    ) -> int:
+        from sqlalchemy import delete
+
+        if not clinical_session_ids:
+            return 0
+        result = await session.execute(
+            delete(AudioRecordingORM).where(
+                AudioRecordingORM.clinical_session_id.in_(clinical_session_ids)
+            )
+        )
+        await session.flush()
+        return result.rowcount or 0

@@ -23,3 +23,13 @@ class AIPipelineRunRepository(Protocol):
         """Ejecución `queued`/`processing` en curso para la sesión, si
         existe — usada para rechazar un segundo disparo concurrente."""
         ...
+
+    async def delete_for_sessions(
+        self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
+    ) -> int:
+        """Borrado físico definitivo — usado EXCLUSIVAMENTE por
+        `RetentionCleanupService.purge_patient_clinical_data()`. Debe
+        llamarse después de `AIGenerationRunRepository.
+        delete_for_sessions()` (que ya borró las filas que referencian
+        `ai_pipeline_run_id`). Devuelve el nº de filas eliminadas."""
+        ...

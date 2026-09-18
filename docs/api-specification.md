@@ -491,6 +491,33 @@ devuelve `422` nativo.
 |---|---|---|---|
 | GET | `/retention/expired-audio` | admin | Lista audios que superan `RETENTION_DAYS_DEFAULT` vía `RetentionCleanupService.find_expired_audio` |
 | POST | `/retention/expired-audio/purge` | admin | Ejecuta el borrado físico manual de los audios listados; no hay scheduler en el MVP |
+| POST | `/retention/patients/{patient_id}/purge` | admin | Purga definitiva (física, irreversible) de todas las sesiones clínicas, artefactos de IA y audio de un paciente — añadido 2026-09-18, ver [privacy-and-security.md](privacy-and-security.md) §8.2 |
+
+### Purga definitiva de paciente (`POST /retention/patients/{patient_id}/purge`)
+
+- Body requerido: `{"confirm": true}` — `PatientDataPurgeRequest.confirm`
+  es `Literal[True]`, por lo que `confirm: false` o el campo ausente se
+  **rechaza con `422`** antes de ejecutar ninguna lógica de dominio; el
+  servicio repite la comprobación (`ConflictError` → `409`) como defensa
+  en profundidad para otros llamadores (tests, CLI futuro).
+- `patient_id` inexistente (o de otra clínica) devuelve `404`.
+- Solo `admin` (`RetentionAction.PURGE_PATIENT_DATA`); cualquier otro rol
+  recibe `403`.
+- Respuesta `200` (`PatientDataPurgeResponse`): recuento exacto de filas
+  borradas físicamente —
+  `{"clinical_sessions_purged": int, "ai_artifacts_purged": int, "audio_recordings_purged": int}`.
+  Un paciente sin sesiones clínicas es una operación válida que devuelve
+  todos los recuentos a `0` (no error).
+- La operación es **atómica**: una sola transacción sobre las 6 tablas
+  implicadas (audio, `ai_artifact_versions`, `ai_generation_runs`,
+  `ai_artifacts`, `ai_pipeline_runs`, `clinical_sessions`); si falla
+  cualquier paso, no se borra nada. No afecta a otros pacientes ni
+  clínicas. Queda una entrada en `audit_log`
+  (`action = "retention.patient_data_purged"`) que sobrevive al borrado.
+  Detalle completo, orden de borrado y justificación de por qué existe
+  esta excepción al criterio general de "los artefactos de IA nunca se
+  eliminan físicamente": [privacy-and-security.md](privacy-and-security.md)
+  §8.2.
 
 ## Convenciones transversales
 

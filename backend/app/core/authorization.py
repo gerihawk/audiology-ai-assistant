@@ -352,13 +352,25 @@ def authorize_consent_action(current_user: CurrentUser, action: ConsentAction) -
 class RetentionAction(StrEnum):
     READ = "read"
     PURGE = "purge"
+    #: Purga definitiva (física, irreversible) de TODAS las sesiones
+    #: clínicas, artefactos de IA y audio de un paciente concreto —
+    #: distinta de `PURGE` (que solo purga audio ya expirado por
+    #: antigüedad). Añadido 2026-09-18, ver docs/privacy-and-security.md
+    #: §8 y RetentionCleanupService.purge_patient_clinical_data(). Cierra
+    #: el hueco de "el paciente ejerce su derecho de supresión una vez
+    #: pasado el plazo legal de conservación de la clínica" — hasta ahora
+    #: no existía ningún borrado físico posible de `ai_artifacts`/
+    #: `clinical_sessions`.
+    PURGE_PATIENT_DATA = "purge_patient_data"
 
 
 #: Fase 7.2 (docs/development-plan.md). A diferencia de
 #: `ConsentAction`/resto de matrices, aquí ni siquiera `audiologist` tiene
 #: ninguna acción — la purga de audio expirado es una tarea puramente
 #: administrativa, no asistencial (ver docs/api-specification.md
-#: §Retention).
+#: §Retention). `PURGE_PATIENT_DATA` hereda el mismo criterio "solo
+#: admin" — es la acción más destructiva de toda la matriz, nunca
+#: delegable a `audiologist`.
 RETENTION_PERMISSIONS: dict[Role, frozenset[RetentionAction]] = {
     Role.ADMIN: frozenset(RetentionAction),
     Role.AUDIOLOGIST: frozenset(),

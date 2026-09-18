@@ -25,6 +25,7 @@ from app.main import app as fastapi_app
 from app.patients.domain.entities import Patient
 from tests.factories import (
     ClinicWithUsers,
+    create_ai_artifact_with_version,
     create_audio_recording,
     create_clinical_session,
     dev_headers,
@@ -260,3 +261,83 @@ async def test_system_purge_with_correct_secret_purges_expired_audio_cross_clini
         "/api/v1/retention/expired-audio", headers=dev_headers(clinic_with_users.admin)
     )
     assert str(expired.id) not in [item["id"] for item in listing.json()["items"]]
+
+
+# --- /patients/{patient_id}/purge: purga definitiva -----------------------
+#
+# Distinto del resto de este fichero (que cubre `purge()`, la purga de
+# audio expirado por antigüedad) — ver también tests/test_retention_
+# service.py para la cobertura exhaustiva del borrado en cascada.
+
+
+async def test_purge_patient_data_requires_confirm_true(
+    api_client: AsyncClient,
+    db_session: AsyncSession,
+    clinic_with_users: ClinicWithUsers,
+    patient: Patient,
+    clinical_session: ClinicalSession,
+):
+    await create_audio_recording(db_session, clinical_session.id, clinic_with_users.admin.id)
+
+    missing = await api_client.post(
+        f"/api/v1/retention/patients/{patient.id}/purge",
+        json={},
+        headers=dev_headers(clinic_with_users.admin),
+    )
+    assert missing.status_code == 422
+
+    false_confirm = await api_client.post(
+        f"/api/v1/retention/patients/{patient.id}/purge",
+        json={"confirm": False},
+        headers=dev_headers(clinic_with_users.admin),
+    )
+    assert false_confirm.status_code == 422
+
+
+@pytest.mark.parametrize("role_attr", ["audiologist", "viewer"])
+async def test_purge_patient_data_forbidden_for_non_admin(
+    api_client: AsyncClient,
+    clinic_with_users: ClinicWithUsers,
+    patient: Patient,
+    role_attr: str,
+):
+    user = getattr(clinic_with_users, role_attr)
+    response = await api_client.post(
+        f"/api/v1/retention/patients/{patient.id}/purge",
+        json={"confirm": True},
+        headers=dev_headers(user),
+    )
+    assert response.status_code == 403
+
+
+async def test_purge_patient_data_deletes_everything_and_returns_counts(
+    api_client: AsyncClient,
+    db_session: AsyncSession,
+    clinic_with_users: ClinicWithUsers,
+    patient: Patient,
+    clinical_session: ClinicalSession,
+):
+    await create_audio_recording(db_session, clinical_session.id, clinic_with_users.admin.id)
+    await create_ai_artifact_with_version(
+        db_session,
+        clinic_with_users.clinic.id,
+        clinical_session.id,
+        clinic_with_users.audiologist.id,
+    )
+
+    response = await api_client.post(
+        f"/api/v1/retention/patients/{patient.id}/purge",
+        json={"confirm": True},
+        headers=dev_headers(clinic_with_users.admin),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "clinical_sessions_purged": 1,
+        "ai_artifacts_purged": 1,
+        "audio_recordings_purged": 1,
+    }
+
+    audit_result = await db_session.execute(
+        select(AuditLogORM).where(AuditLogORM.action == "retention.patient_data_purged")
+    )
+    assert len(audit_result.scalars().all()) == 1

@@ -120,3 +120,34 @@ class AIArtifactRepository(Protocol):
         artifact_id: uuid.UUID,
         values: dict[str, Any],
     ) -> AIArtifact | None: ...
+
+    async def prepare_purge_for_sessions(
+        self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_ids: list[uuid.UUID]
+    ) -> list[uuid.UUID]:
+        """Paso 1/2 de la purga definitiva (borrado físico, no el
+        soft-delete de `delete_artifact`) — usado EXCLUSIVAMENTE por
+        `RetentionCleanupService.purge_patient_clinical_data()` (Fase de
+        política de retención, docs/privacy-and-security.md §8), nunca
+        por la purga automática de audio expirado.
+
+        Rompe primero las referencias circulares propias de
+        `ai_artifacts` (`current_version_id`, `baseline_artifact_id`,
+        `baseline_version_id`) y borra físicamente las
+        `ai_artifact_versions` de estas sesiones — así, ni el propio
+        artefacto ni otro artefacto que lo use de baseline lo siguen
+        referenciando. Devuelve los `artifact_id` ya listos para
+        `finish_purge()`, una vez que el llamador haya borrado también
+        sus `ai_generation_runs` (tabla de otro repositorio,
+        `AIGenerationRunRepository.delete_for_sessions`) — esa
+        dependencia cruzada entre repositorios la resuelve el
+        orquestador (`RetentionCleanupService`), no este método."""
+        ...
+
+    async def finish_purge(self, session: AsyncSession, artifact_ids: list[uuid.UUID]) -> int:
+        """Paso 2/2: borra físicamente los `ai_artifacts` ya preparados
+        por `prepare_purge_for_sessions()`. Debe llamarse solo después de
+        que el orquestador haya borrado sus `ai_generation_runs`
+        (`AIGenerationRunRepository.delete_for_sessions`) — si no, la
+        FK `ai_generation_runs.ai_artifact_id` bloquea el borrado.
+        Devuelve el nº de artefactos eliminados."""
+        ...

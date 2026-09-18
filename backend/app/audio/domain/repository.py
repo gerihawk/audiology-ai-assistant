@@ -57,3 +57,25 @@ class AudioRecordingRepository(Protocol):
         7.2). Ordenado por `uploaded_at` ascendente: lo más vencido
         primero, al revés que el resto de listados de audio."""
         ...
+
+    async def list_for_sessions(
+        self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_ids: list[uuid.UUID]
+    ) -> list[AudioRecording]:
+        """TODAS las grabaciones (cualquier `status`, incluidas ya
+        `deleted`) de estas sesiones — usado exclusivamente por
+        `RetentionCleanupService.purge_patient_clinical_data()` para
+        borrar también el blob de almacenamiento de las que todavía no
+        se hubieran purgado por antigüedad."""
+        ...
+
+    async def delete_all_for_sessions(
+        self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
+    ) -> int:
+        """Borrado físico definitivo de las FILAS de `audio_recordings`
+        (no solo el blob/estado, a diferencia de `AudioRecordingService.
+        delete()`) — usado exclusivamente por `RetentionCleanupService.
+        purge_patient_clinical_data()`. El llamador es responsable de
+        haber borrado ya el blob de almacenamiento de cada una (ver
+        `list_for_sessions`) antes de invocar esto. Devuelve el nº de
+        filas eliminadas."""
+        ...
