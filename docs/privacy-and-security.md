@@ -780,9 +780,9 @@ no tiene, todavía, un modo de funcionamiento válido en producción"):
   verificada con `bcrypt` contra `users.password_hash`.
 - Token de vida media (8h), sin refresh tokens ni blacklist de
   revocación en esta ronda — logout es solo del lado cliente (descarta
-  el token). Reseteo de contraseña, MFA y rate limiting del endpoint de
-  login quedan fuera de esta ronda; el rate limiting conecta con la
-  deuda ya documentada en el hito 8.4.
+  el token). MFA queda fuera de esta ronda; rate limiting del endpoint de
+  login conecta con la deuda ya documentada en el hito 8.4 (5/minute,
+  cerrado en la Fase 10.5).
 - Mismo criterio de validación de usuario que `FakeCurrentUserProvider`:
   el usuario referenciado por el token debe existir y estar activo — un
   JWT válido pero de un usuario desactivado después de emitirlo se
@@ -791,9 +791,25 @@ no tiene, todavía, un modo de funcionamiento válido en producción"):
   "real"` en `ENVIRONMENT=production` — production con
   `FakeCurrentUserProvider` ya no es posible ni siquiera por omisión de
   configuración.
-- Sin pantalla de login en el frontend todavía (hito 9.2, pendiente) —
-  esta ronda es solo backend, verificable con `curl` (ver
-  [README.md](../README.md) §Autenticación real).
+- **Corregido 2026-09-18**: esta sección decía "sin pantalla de login en
+  el frontend todavía (hito 9.2, pendiente)" — quedó desactualizada sin
+  que nadie volviera a corregirla. El hito 9.2 (`frontend/src/shared/
+  auth/LoginForm.tsx` + `AuthContext.tsx`) está implementado y mergeado
+  desde hace tiempo: con `VITE_AUTH_MODE=real`, `App.tsx` renderiza
+  `RealAuthApp`, que bloquea todas las rutas tras la pantalla de login
+  hasta que exista un token válido (verificado leyendo el código fuente
+  actual, no solo esta documentación — ver `frontend/src/App.tsx`,
+  función `RealAuthApp`). Reseteo de contraseña también está
+  implementado, pero para el personal de clínica (Fase 12, hito 12.0 —
+  `PasswordResetRequestPage`/`PasswordResetConfirmPage`), no como parte
+  de esta ronda de Fase 9. **Pendiente de verificar** (no ejecutable
+  desde el código: requiere mirar la configuración real de Railway): que
+  la variable de build `VITE_AUTH_MODE` de production esté efectivamente
+  en `real` — aunque, aunque no lo estuviera, la barrera de seguridad
+  real está en el backend (`AUTH_MODE=real` obligatorio en producción,
+  punto anterior), así que un frontend mal configurado degradaría la
+  experiencia de uso, no abriría una vía de acceso sin autenticación a
+  la API.
 
 ## 13. Auditoría RBAC (Fase 8, hito 8.1)
 
