@@ -265,7 +265,7 @@ gestión del riesgo (véase §0).
 | R2 | Identidad separada del contenido clínico; `audit_logs.metadata` nunca contiene valores de campos, solo sus nombres; Sentry con scrubbing de cuerpo/cabeceras/variables antes de cualquier envío, `scope.user` limitado a UUID opaco | Bajo |
 | R3 | Hasta la Fase 10, únicamente implementaciones `Mock*` disponibles para LLM — activar un proveedor real requiere cambio explícito de configuración; los cinco proveedores con acceso a datos clínicos reales tenían DPA resuelto antes de la primera activación en producción (2026-09-14/15) | Bajo |
 | R4 | `mip_opt_out=true` incondicional en toda petición a Deepgram, verificado con tests de compliance dedicados; Anthropic/OpenAI no usan datos de API para entrenamiento por defecto, sin opt-in activado | Bajo |
-| R5 | Tres capas de backup (snapshots de volumen, PITR ~4 semanas, `pg_dump` cifrado externo a bucket UE que sobrevive a la pérdida total de Railway); clave de cifrado `age` custodiada offline por Gerard, nunca en Railway | Bajo — pendiente verificar en producción real el runbook de restore (ver §8) |
+| R5 | Tres capas de backup (snapshots de volumen, PITR ~4 semanas, `pg_dump` cifrado externo a bucket UE que sobrevive a la pérdida total de Railway); clave de cifrado `age` custodiada offline por Gerard, nunca en Railway; runbook de restore verificado dos veces contra dumps reales (2026-09-14 y 2026-09-18) — **corregido 2026-09-18**: una versión anterior de esta EIPD lo daba por pendiente citando `privacy-and-security.md` §8.1, que a su vez remitía a `development-plan.md`, donde ya constaba cerrado desde el 2026-09-14; no verificado contra el documento correcto antes de escribirlo | Bajo |
 | R6 | `purge_patient_clinical_data()` (2026-09-18): purga física atómica, admin-only, doble confirmación, con entrada de auditoría que sobrevive al borrado | Bajo |
 | R7 | Lenguaje no diagnóstico obligatorio y validado por tests; aviso obligatorio en toda respuesta de API y exportación; aprobación humana explícita antes de exportar o considerar un artefacto parte del expediente; ninguna transición a `approved` puede depender de `confidence` | Medio — depende en última instancia de que el profesional respete el flujo de revisión; no hay control técnico que impida a un usuario ignorar el aviso |
 | R8 | Autenticación real por JWT + `bcrypt` obligatoria en producción (`RealCurrentUserProvider`), rate limiting en login (5/min), pantalla de login real en el frontend (`LoginForm.tsx`/`AuthContext.tsx`, hito 9.2) que bloquea todas las rutas sin token válido — **corregido 2026-09-18**: una versión anterior de esta EIPD daba esto por pendiente basándose en `privacy-and-security.md` §12, que estaba desactualizado; verificado directamente contra `frontend/src/App.tsx` (función `RealAuthApp`), el hito ya estaba implementado y mergeado | Medio — sin MFA, sin lista de revocación de tokens (logout solo del lado cliente), tokens de 8h de vida; pendiente confirmar que `VITE_AUTH_MODE` de producción esté en `real` en la configuración real de Railway (no verificable desde el código) — aunque la barrera real está en el backend, no en el frontend |
@@ -303,40 +303,38 @@ por definitiva solo por constar aquí.
 
 ## 8. Brechas y recomendaciones pendientes
 
-Por orden de prioridad, a criterio de quien redacta este borrador. Dos
-elementos que figuraban aquí como #1 y #2 en versiones anteriores de
-este documento — cifrado a nivel de columna y confirmación de
-`VITE_AUTH_MODE` en producción — ya están resueltos (ver §6/§7) y se
-retiran de esta lista, no se dejan tachados: mantener resuelto en la
-lista de pendientes invitaría a confundir "ya resuelto" con "todavía por
-hacer" en una lectura rápida del documento.
+Por orden de prioridad, a criterio de quien redacta este borrador. Tres
+elementos que figuraban aquí en versiones anteriores de este documento —
+cifrado a nivel de columna, confirmación de `VITE_AUTH_MODE` en
+producción, y el runbook de restore de backups — ya están resueltos (ver
+§6/§7, y el runbook en particular en
+[development-plan.md](development-plan.md) §Fase 11, verificado dos
+veces: 2026-09-14 y 2026-09-18) y se retiran de esta lista, no se dejan
+tachados: mantener algo resuelto en la lista de pendientes invitaría a
+confundir "ya resuelto" con "todavía por hacer" en una lectura rápida
+del documento.
 
 1. **Confirmar el estado de DPA de Sentry** y la jurisdicción exacta del
    DPA de Brevo (§2.2) para poder dar el registro de subencargados por
    completo y verificado.
-2. **Ejecutar de verdad el runbook de restore** de la copia de seguridad
-   externa cifrada al menos una vez contra un dump real de producción
-   (ya identificado como pendiente en
-   [privacy-and-security.md](privacy-and-security.md) §8.1) — un backup
-   no restaurado no es un backup verificado.
-3. **MFA y lista de revocación de tokens** para las cuentas de personal
+2. **MFA y lista de revocación de tokens** para las cuentas de personal
    de clínica — no bloqueante para el riesgo actual (bajo volumen,
    primer cliente), pero recomendable antes de escalar a varias clínicas.
-4. **No activar `clinical_flags`** para pacientes reales hasta contar con
+3. **No activar `clinical_flags`** para pacientes reales hasta contar con
    una validación clínica y legal del ruleset (ya reconocido en
    [clinical-safety.md](clinical-safety.md) §7); mientras tanto, la
    funcionalidad sigue sin implementar, lo cual es, en sí, la mitigación
    correcta.
-5. **Revisar el toggle "Rate chats" en Anthropic Console** (Organization
+4. **Revisar el toggle "Rate chats" en Anthropic Console** (Organization
    settings → Data and Privacy) como defensa en profundidad — acción
    pendiente de Gerard, no ejecutable desde el propio sistema (ya
    señalada en [privacy-and-security.md](privacy-and-security.md) §9.1).
-6. **Redactar el DPA/RAT/ToS propio de Audiology AI Assistant** hacia sus
+5. **Redactar el DPA/RAT/ToS propio de Audiology AI Assistant** hacia sus
    clínicas clientes, reflejando el reparto dual de proveedores de LLM
    con su alcance real (nunca como proveedor de respaldo) y la política
    de no entrenamiento — siguiente paso ya previsto en la hoja de ruta
    ([fase-13-rfc.md](fase-13-rfc.md)).
-7. **Rotar la clave de cifrado de campo de ejemplo** que vive en
+6. **Rotar la clave de cifrado de campo de ejemplo** que vive en
    `.env.example`/`backend/tests/conftest.py` si alguna vez se llega a
    copiar tal cual a un entorno real — es una clave pública (está en el
    repositorio), pensada solo para desarrollo y tests locales; Railway

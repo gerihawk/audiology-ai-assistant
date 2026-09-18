@@ -1478,6 +1478,22 @@ verificado de punta a punta con los datos que hay hoy en production.
 reales**, para confirmar también la integridad del contenido restaurado
 y no solo la estructura.
 
+**Segunda verificación (2026-09-18)**: repetido de punta a punta con un
+backup más reciente (objeto del bucket `2026-09-18T03-03-25Z.dump.age`),
+esta vez contra el `db` normal de `docker-compose` (ya sin necesidad del
+contenedor Postgres suelto de la primera vez, gracias al fix del punto de
+montaje del mismo 2026-09-14) — token de lectura del bucket de Cloudflare
+R2 creado específicamente para esto (scope `Object Read` sobre
+`audiology-pg-backups`, credenciales en el llavero de Gerard, nunca en
+Railway ni en el repo). Mismo resultado: las 16 tablas del esquema
+presentes, `0` filas en `users`/`patients`/`clinical_sessions`/
+`ai_artifacts` — consistente con que production sigue en fase de
+pruebas, sin clientes reales todavía (confirmado explícitamente por
+Gerard en esta verificación, no solo inferido del recuento). El pipeline
+completo (descarga autenticada del bucket → descifrado `age` → `pg_restore`
+→ verificación de esquema y filas → limpieza) queda re-confirmado
+funcionando dos veces, en dos fechas distintas, con dos dumps distintos.
+
 **Documentación**: [privacy-and-security.md](privacy-and-security.md) §8.1
 ya incluye la subsección de continuidad / recuperación ante desastres (qué
 capas existen, dónde vive la clave privada de `age` — nunca en Railway —,
