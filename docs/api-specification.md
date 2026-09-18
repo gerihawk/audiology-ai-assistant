@@ -1,18 +1,24 @@
 # Especificación de API — Audiology AI Assistant (MVP)
 
-API REST bajo `/api/v1`. **Sin autenticación real todavía** (ver
-[architecture.md](architecture.md) §9): la identidad del usuario se
-resuelve mediante `CurrentUserProvider`; en el MVP, `FakeCurrentUserProvider`
-la obtiene de la cabecera de desarrollo `X-Dev-User-Id` (UUID de un
-usuario existente y activo en `users`) o, si no se envía, de
-`DEV_DEFAULT_USER_ID`. Esta cabecera **no sustituye** a un mecanismo de
-autenticación real y se rechaza (arranque fallido) si
-`ENVIRONMENT=production`. Todas las rutas de negocio requieren un
-`CurrentUser` resuelto (401 si no); las marcadas con un rol exigen que
+API REST bajo `/api/v1`. La identidad del usuario se resuelve mediante
+`CurrentUserProvider` (ver [architecture.md](architecture.md) §9), con dos
+implementaciones seleccionadas por `AUTH_MODE` (Fase 9, hito 9.1):
+`FakeCurrentUserProvider` (`AUTH_MODE=fake`, por defecto fuera de
+producción) la obtiene de la cabecera de desarrollo `X-Dev-User-Id` (UUID
+de un usuario existente y activo en `users`) o, si no se envía, de
+`DEV_DEFAULT_USER_ID`; `RealCurrentUserProvider` (`AUTH_MODE=real`,
+**obligatorio en `ENVIRONMENT=production`**, arranque fallido si no) exige
+un JWT Bearer emitido por `POST /auth/login` (ver sección **Auth**).
+`FakeCurrentUserProvider` no puede usarse en producción bajo ningún
+`AUTH_MODE`. Todas las rutas de negocio requieren un `CurrentUser`
+resuelto (401 si no); las marcadas con un rol exigen que
 `current_user.role` tenga permiso para la acción, según la matriz de
 autorización de cada recurso (ver más abajo). El acceso está siempre
 acotado a `current_user.clinic_id`; nunca se acepta un `clinic_id` desde
-el cliente.
+el cliente (excepción explícita: las rutas de invitaciones, ver sección
+**Onboarding**). Las rutas de `Auth` y `Onboarding` son públicas por
+diseño — no requieren `CurrentUser` — al ser el propio punto de entrada
+antes de tener sesión.
 
 Respuestas de error usan el formato `{"error": {"code": ..., "message":
 ..., ...}}` (ver [architecture.md](architecture.md), manejo global de
@@ -22,15 +28,14 @@ Esta especificación es de alto nivel (contratos y propósito). El detalle
 fino de esquemas Pydantic se define en el código durante la implementación
 de cada módulo, siguiendo esta forma.
 
-**Estado de implementación**: solo la sección **Patients** (y sus rutas de
-apoyo `/me`, `/dev/users`) están implementadas, desde la Fase 2. La
-sección **Clinical sessions** está **diseñada y cerrada** en la Fase 3,
-pendiente de implementación. La sección **AI Pipeline** está **diseñada y
-cerrada** en la Fase 4 (ver
-[ai-pipeline-architecture.md](ai-pipeline-architecture.md)), pendiente de
-implementación. El resto de secciones de este documento describen el
-diseño objetivo de fases futuras y no tienen código todavía (ver
-[development-plan.md](development-plan.md)).
+**Estado de implementación**: a fecha de esta revisión (2026-09-18, tras
+cerrar la Fase 12) todas las secciones de este documento describen
+funcionalidad ya implementada y con tests — no queda ninguna sección en
+estado de solo diseño. Esta nota se dejó desactualizada desde la Fase 2 (cuando
+solo **Patients** estaba implementado) hasta ahora; si en el futuro se
+añade una sección de diseño para una fase todavía no implementada,
+márquese explícitamente aquí de nuevo para no repetir el mismo desfase.
+Ver [development-plan.md](development-plan.md) para el histórico de fases.
 
 ## Dev tools (solo desarrollo, ausentes en producción)
 
@@ -43,6 +48,116 @@ sin autenticación real. Estas rutas **no se registran** cuando
 |---|---|---|---|
 | GET | `/dev/users` | público (solo no-producción) | Lista `{id, display_name, role, clinic_id}` de todos los usuarios, para poblar un selector de "usuario activo" en el frontend de desarrollo |
 | GET | `/me` | autenticado | Datos del `CurrentUser` resuelto (id, clinic_id, email, display_name, role) |
+
+## Auth
+
+Implementado en la Fase 9, hito 9.1. Público (sin `CurrentUser` previo) —
+es el propio punto de entrada de autenticación.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/auth/login` | Autentica con `email`/`password`; devuelve `{"access_token": string, "token_type": "bearer"}` (JWT firmado HS256, verificado por `RealCurrentUserProvider`) |
+
+- Límite propio de `5/minute` (frente al general de `120/minute`), para
+  frenar fuerza bruta de contraseñas.
+- No-enumeración: email inexistente, contraseña incorrecta y usuario
+  inactivo devuelven exactamente el mismo `401` (`UnauthenticatedError`),
+  sin distinguir el motivo. La comparación de contraseña (`bcrypt`) se
+  ejecuta siempre, incluso si el usuario no existe (contra un hash señuelo
+  fijo), para no abrir un canal lateral de timing.
+
+## Onboarding (alta self-service y colaboración, Fase 12)
+
+Endpoints para que una clínica nueva se dé de alta sola, verifique su
+email, resetee su contraseña, e invite a compañeros — sin intervención
+manual. Los cuatro primeros bloques (alta, verificación, reset de
+contraseña, aceptar invitación) son **públicos** (sin `CurrentUser`) y
+comparten el mismo límite de `5/minute` que `/auth/login` — mismo riesgo
+de abuso que un endpoint de autenticación. Las invitaciones (crear,
+listar, revocar) sí requieren `CurrentUser` y usan el límite general de la
+app.
+
+### Alta de clínica (`POST /clinics/signup`)
+
+| Campo | Notas |
+|---|---|
+| `clinic_name` | normalizado; se deriva un `code` único de clínica (slug + sufijo aleatorio si colisiona) |
+| `admin_email` | normalizado; único en toda la app |
+| `admin_display_name` | normalizado |
+| `admin_password` | longitud mínima validada |
+| `turnstile_token` | valor `cf-turnstile-response` del widget de Cloudflare Turnstile (hito 12.4 ampliado, 2026-09-18) |
+
+Crea la `Clinic` y su primer `User` (rol `admin`, `is_active=False`) y
+envía un email de verificación con un enlace de un solo uso
+(`EMAIL_VERIFICATION_TOKEN_TTL_HOURS`, 24h por defecto). El usuario no
+puede iniciar sesión hasta verificar el email.
+
+Anti-abuso, comprobado en este orden — barato/local primero, llamada de
+red después:
+
+1. Dominio de email desechable/temporal (lista curada) → `409 Conflict`
+   (`field: admin_email`).
+2. Verificación Cloudflare Turnstile → `403 Forbidden` si falla.
+3. Email ya registrado → `409 Conflict` (`field: admin_email`). A
+   diferencia del resto de este bloque, aquí sí se comunica
+   explícitamente: quien rellena el formulario ya conoce su propio email,
+   así que no hay riesgo real de enumeración.
+
+Además, `5/minute` por IP a nivel de router (extraída de
+`X-Forwarded-For`, no de la IP del proxy de Railway).
+
+### Verificación de email (`POST /onboarding/verify-email`)
+
+Body: `{"token": string}`. Activa (`is_active=True`) al usuario asociado
+si el token es válido. `404` si el token no existe; `409` si ya se usó o
+caducó.
+
+### Recuperación de contraseña
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/onboarding/password-reset/request` | Emite un token de reseteo (`PASSWORD_RESET_TOKEN_TTL_HOURS`, 2h por defecto) y lo envía por email |
+| POST | `/onboarding/password-reset/confirm` | Body `{"token", "new_password"}`; consume el token y fija la nueva contraseña |
+
+`request` responde siempre `204`, exista o no la cuenta — no-enumeración
+(no hace falta además igualar tiempos de respuesta: no hay ninguna
+operación lenta en la rama "no existe"). `confirm` devuelve `404` (token
+inexistente) o `409` (ya usado/caducado); al confirmar, cualquier otro
+reseteo pendiente del mismo usuario queda invalidado.
+
+### Invitaciones (hitos 12.2/12.3)
+
+Autenticadas — a diferencia del resto de este bloque. Solo `admin`, y
+solo sobre su propia clínica (`{clinic_id}` de la ruta debe coincidir con
+`current_user.clinic_id`; si no, `403` — la clínica sí existe, simplemente
+no es la del usuario).
+
+| Método | Ruta | Rol | Descripción |
+|---|---|---|---|
+| POST | `/clinics/{clinic_id}/invitations` | admin (de esa clínica) | Body `{"email", "role"}` (`role` restringido a `audiologist`/`viewer`, nunca `admin`); responde `202` siempre |
+| GET | `/clinics/{clinic_id}/invitations` | admin (de esa clínica) | Lista invitaciones pendientes, incluidas las caducadas (`is_expired` calculado en la respuesta) |
+| DELETE | `/clinics/{clinic_id}/invitations/{invitation_id}` | admin (de esa clínica) | Revoca una invitación pendiente; `409` si ya no está pendiente |
+| POST | `/invitations/{token}/accept` | público, `5/minute` | Body `{"new_password", "display_name"}`; crea el `User` con el rol propuesto, `is_active=True` desde el principio (a diferencia del alta de clínica: quien acepta ya demostró control del email) |
+
+- No-enumeración en la creación: si el email ya tiene cuenta (en
+  cualquier clínica), la respuesta al admin sigue siendo `202` y en su
+  lugar se envía un aviso a ese email — nunca se revela al admin que ya
+  existía.
+- Reinvitar (mismo email, misma clínica) invalida el enlace anterior.
+  Token con TTL de `INVITATION_TOKEN_TTL_DAYS` (7 días por defecto).
+- Aceptar: `404` si el token no existe; `409` si ya se usó/caducó, o si ya
+  existe una cuenta con ese email (aquí sí se comunica: quien acepta ya
+  conoce su propio email).
+
+### Limpieza de clínicas fantasma (`POST /onboarding/system-cleanup`)
+
+Acción de sistema cross-clínica, **sin** `CurrentUser`: autenticada con la
+cabecera `X-Onboarding-Cleanup-Cron-Secret` (comparación con
+`secrets.compare_digest`, nunca `==`), pensada para un cron externo —
+mismo patrón que `POST /retention/system-purge`. Purga las clínicas cuyo
+admin nunca verificó su email dentro de `UNVERIFIED_CLINIC_TTL_DAYS` (7
+días por defecto). Respuesta `200`: `{"purged_clinics": [string]}` (los
+`clinic.code` purgados).
 
 ## Patients
 

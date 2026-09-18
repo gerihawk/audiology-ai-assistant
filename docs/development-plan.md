@@ -1607,10 +1607,12 @@ clínica quedan aplazados.
 - **12.4** — Limpieza de clínicas no verificadas ("fantasma"): implementada
   y verificada — suite completa del backend en verde vía
   `docker compose run --rm backend pytest` (1331 tests, incluidos los
-  nuevos de este hito) el 2026-09-15. Pendiente solo el despliegue del
-  nuevo servicio cron en Railway. Anti-abuso (CAPTCHA, dominios
-  desechables) aplazado explícitamente — decisión del 2026-09-15, no
-  forma parte de este hito.
+  nuevos de este hito) el 2026-09-15. Servicio cron `onboardingCleanupCron`
+  desplegado en Railway y confirmado corriendo en producción el
+  2026-09-18 (ver también 12.4 (ampliación), justo debajo). Anti-abuso
+  (CAPTCHA, dominios desechables) aplazado explícitamente el 2026-09-15,
+  no formaba parte de este hito en su alcance original — implementado
+  después, ver 12.4 (ampliación).
   `unverified_clinic_ttl_days` (7 días por defecto,
   `UNVERIFIED_CLINIC_TTL_DAYS`) es el plazo de gracia desde el alta
   (`POST /clinics/signup`) antes de considerar fantasma una clínica sin
@@ -1635,28 +1637,61 @@ clínica quedan aplazados.
   obligatorio y sujeto al mismo guardarraíl de `_validate_production_safety`
   que `retention_cron_secret`/`jwt_secret_key`). `ops/onboarding-cleanup-cron/`
   (mismo patrón que `ops/retention-cron/`: script HTTP standalone +
-  `Dockerfile`) queda listo para un nuevo servicio cron dedicado en
-  `.railway/railway.ts` (`onboarding-cleanup-cron`, ya añadido al IaC junto
-  con `ONBOARDING_CLEANUP_CRON_SECRET`/`UNVERIFIED_CLINIC_TTL_DAYS` en el
-  servicio principal — aplicar/desplegar crea un recurso Railway nuevo,
-  pendiente de que Gerard lo confirme y lo despliegue). Tests nuevos:
+  `Dockerfile`) desplegado como servicio cron dedicado en
+  `.railway/railway.ts` (`onboardingCleanupCron`, con
+  `ONBOARDING_CLEANUP_CRON_SECRET`/`UNVERIFIED_CLINIC_TTL_DAYS` en el
+  servicio principal) — confirmado por Gerard el 2026-09-18 que el
+  recurso está desplegado y el cron corre en producción. Tests nuevos:
   `test_unverified_clinic_cleanup_service.py` (criterio de selección +
   cascada de borrado), `test_onboarding_cleanup_cli.py` (integración
   end-to-end de `main()`), `test_onboarding_cleanup_api.py` (401 sin
   cabecera/con secreto incorrecto, 200 con purga real cross-clínica —
   mismo patrón que `test_retention_api.py`).
+- **12.4 (ampliación)** — Anti-abuso implementado el 2026-09-18: Cloudflare
+  Turnstile + bloqueo de dominios de email desechables/temporales en
+  `POST /clinics/signup`, sumados al rate limiting de 5/minute ya
+  existente desde el hito 12.1. Decisión tomada con Gerard el 2026-09-18
+  a partir de una auditoría entre fases (candidato 2 de 4): revierte el
+  aplazamiento explícito del 2026-09-15 documentado en la entrada de 12.4
+  de arriba. Backend: `app/integrations/domain/turnstile_verifier.py`
+  (puerto `TurnstileVerifier`), `MockTurnstileVerifier`/
+  `CloudflareTurnstileVerifier` (mismo patrón factory que
+  `email_provider`), `app/onboarding/domain/disposable_email_domains.py`
+  (lista curada de ~40 dominios). Comprobado en `OnboardingService.signup_clinic`
+  en este orden — barato/local primero, llamada de red después: dominio
+  desechable → `409 Conflict` (`field: admin_email`); Turnstile → `403
+  Forbidden` si falla. Frontend: `TurnstileWidget.tsx` (carga el script de
+  Cloudflare una sola vez, deduplicado vía promesa compartida),
+  integrado en `SignupPage`. Variables nuevas
+  (`TURNSTILE_PROVIDER`/`TURNSTILE_SECRET_KEY`/`TURNSTILE_BASE_URL`/
+  `VITE_TURNSTILE_SITE_KEY`) añadidas a `.env.example`, `docker-compose.yml`
+  y `.railway/railway.ts` (ambos servicios, producción y staging).
+  Suite ampliada: `test_cloudflare_turnstile_verifier.py`,
+  `test_disposable_email_domains.py`, casos nuevos en
+  `test_onboarding_service.py`/`test_onboarding_api.py`,
+  `TurnstileWidget.test.tsx`. Verificado en un entorno cruzado (venv +
+  Postgres nativo en contenedor aparte, Docker Hub bloqueado por la
+  política de red) antes de que Gerard lo desplegara. No requiere ninguna
+  entrada nueva en el DPA/RAT: Cloudflare ya figuraba como subencargado
+  por el CDN.
 - **Deuda documental de `docs/api-specification.md` — saldada el
-  2026-09-15**: la introducción del documento afirmaba "sin autenticación
-  real todavía" (desactualizada desde la Fase 9, hito 9.1) y no existía
-  ninguna sección para `/auth/login`, el onboarding self-service (hito
-  12.1) ni las invitaciones (hitos 12.2/12.3). Corregida la introducción
-  (describe ahora los dos `auth_mode`) y añadidas las secciones **Auth**,
-  **Onboarding (self-service)** e **Invitations**. También se corrigió la
-  nota "Estado de implementación", que seguía fijada en el estado de la
-  Fase 2 — en vez de repetir el estado de cada fase (fuente de la
-  divergencia original), ahora remite explícitamente a este documento
-  como única fuente de verdad sobre progreso, dejando
-  `api-specification.md` limitado a describir contratos.
+  2026-09-18** (corrección de esta misma entrada: quedó registrada por
+  error como saldada el 2026-09-15, fecha en la que solo se **decidió**
+  hacerlo, no se ejecutó — al revisar el archivo el 2026-09-18 seguía sin
+  ninguna mención de signup/onboarding/turnstile/invitaciones; la fecha
+  de abajo es la real). La introducción del documento afirmaba "sin
+  autenticación real todavía" (desactualizada desde la Fase 9, hito 9.1)
+  y no existía ninguna sección para `/auth/login`, el onboarding
+  self-service (hito 12.1) ni las invitaciones (hitos 12.2/12.3).
+  Corregida la introducción (describe ahora los dos `auth_mode`) y
+  añadidas las secciones **Auth** y **Onboarding (alta self-service y
+  colaboración, Fase 12)** (esta última cubre también invitaciones,
+  12.2/12.3). También se corrigió la nota "Estado de implementación", que
+  seguía fijada en el estado de la Fase 2 pese a que todas las secciones
+  del documento describen ya funcionalidad implementada (confirmado
+  contra el código: routers registrados, tests y actividad de git en
+  cada módulo) — se avisa además de que, si vuelve a quedar desactualizada,
+  debe corregirse ahí mismo en vez de dejarla arrastrar.
 
 ## Fuera de las fases del MVP
 
