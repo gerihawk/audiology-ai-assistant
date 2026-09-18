@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.patients.domain.entities import Patient, Sex
@@ -72,27 +72,56 @@ class SqlAlchemyPatientRepository:
         filters = [PatientORM.clinic_id == clinic_id]
         if not include_archived:
             filters.append(PatientORM.is_archived.is_(False))
-        if search:
-            pattern = f"%{search}%"
-            filters.append(
-                or_(
-                    PatientORM.internal_code.ilike(pattern),
-                    PatientORM.display_name.ilike(pattern),
-                )
+
+        if not search:
+            count_stmt = select(func.count()).select_from(PatientORM).where(*filters)
+            total = (await session.execute(count_stmt)).scalar_one()
+
+            list_stmt = (
+                select(PatientORM)
+                .where(*filters)
+                .order_by(PatientORM.created_at.asc(), PatientORM.id.asc())
+                .limit(limit)
+                .offset(offset)
             )
+            rows = (await session.execute(list_stmt)).scalars().all()
+            return [_to_domain(row) for row in rows], total
 
-        count_stmt = select(func.count()).select_from(PatientORM).where(*filters)
-        total = (await session.execute(count_stmt)).scalar_one()
-
-        list_stmt = (
+        # `display_name` está cifrado a nivel de aplicación desde
+        # 2026-09-18 (ver app/core/field_encryption.py) con un nonce
+        # aleatorio por valor: el ciphertext nunca es igual para el mismo
+        # texto en claro, así que un `ilike` de SQL sobre esa columna ya
+        # no puede funcionar (dejó de poder desde que se cifró, no es una
+        # regresión de esta función). `internal_code` sigue en claro y sí
+        # sería filtrable en SQL, pero como el término de búsqueda puede
+        # coincidir con cualquiera de los dos campos (mismo comportamiento
+        # que antes de cifrar nada — ver
+        # tests/test_patients_api.py::test_search_by_internal_code_and_display_name),
+        # el filtro combinado se resuelve en Python: se trae el conjunto
+        # ya acotado por clinic_id/is_archived (sigue siendo SQL, nunca
+        # toda la tabla) y se descifra/filtra en memoria, replicando el
+        # mismo criterio de "subcadena, insensible a mayúsculas, no a
+        # acentos" que ya tenía `ilike`. Coste proporcional al tamaño de
+        # una clínica, no de toda la base de datos — aceptable a la escala
+        # actual del producto; documentado como límite conocido en
+        # docs/privacy-and-security.md §4 si algún día una clínica crece
+        # lo bastante como para que esto deje de ser trivial.
+        pattern = search.lower()
+        all_stmt = (
             select(PatientORM)
             .where(*filters)
             .order_by(PatientORM.created_at.asc(), PatientORM.id.asc())
-            .limit(limit)
-            .offset(offset)
         )
-        rows = (await session.execute(list_stmt)).scalars().all()
-        return [_to_domain(row) for row in rows], total
+        all_rows = (await session.execute(all_stmt)).scalars().all()
+        matches = [
+            row
+            for row in all_rows
+            if pattern in row.internal_code.lower()
+            or (row.display_name is not None and pattern in row.display_name.lower())
+        ]
+        total = len(matches)
+        page = matches[offset : offset + limit]
+        return [_to_domain(row) for row in page], total
 
     async def add(self, session: AsyncSession, patient: Patient) -> Patient:
         row = PatientORM(

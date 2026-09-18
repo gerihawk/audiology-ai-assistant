@@ -42,6 +42,10 @@ dependencies = [
   # errores. Sin Performance/Tracing (traces_sample_rate=0), sin Session
   # Replay ni Profiling — ver app/core/sentry.py.
   "sentry-sdk[fastapi]>=2.0,<3.0",
+  # cryptography: AES-256-GCM (AESGCM) para el cifrado a nivel de campo de
+  # las columnas clínicas más sensibles (Fase 12, ver
+  # app/core/field_encryption.py y docs/privacy-and-security.md §4).
+  "cryptography>=50.0,<51.0",
 ]
 
 [project.optional-dependencies]

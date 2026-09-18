@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.core.field_encryption import EncryptedJSON, EncryptedString
 
 
 class AIArtifactORM(Base):
@@ -85,7 +86,14 @@ class AIArtifactVersionORM(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     ai_artifact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ai_artifacts.id"), nullable=False)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    content: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # Cifrado a nivel de aplicación desde 2026-09-18 (antes JSONB en
+    # claro) — es el contenido clínico más sensible del sistema:
+    # transcripción, resúmenes y anamnesis (ver
+    # docs/privacy-and-security.md §4). Al pasar a EncryptedJSON se pierde
+    # la posibilidad de consultar su estructura interna desde SQL —
+    # verificado que ningún código lo necesitaba, siempre se carga la fila
+    # completa y se accede al dict ya en Python.
+    content: Mapped[dict] = mapped_column(EncryptedJSON, nullable=False)
     confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_map: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     source: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -130,9 +138,16 @@ class AIGenerationRunORM(Base):
     estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     execution_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    rendered_system_prompt: Mapped[str | None] = mapped_column(String, nullable=True)
-    rendered_user_prompt: Mapped[str | None] = mapped_column(String, nullable=True)
-    raw_response: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Cifrados a nivel de aplicación desde 2026-09-18 (ver
+    # docs/privacy-and-security.md §4 y §6.1). rendered_system_prompt/
+    # rendered_user_prompt siguen sin uso real hoy (AIPipelineService los
+    # fija siempre a None — la opción ai_store_rendered_prompts descrita
+    # en §6.1 nunca llegó a implementarse), pero se cifran igualmente para
+    # que, si se activan en el futuro, ya nazcan protegidos sin tocar el
+    # esquema otra vez.
+    rendered_system_prompt: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    rendered_user_prompt: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    raw_response: Mapped[dict | None] = mapped_column(EncryptedJSON, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)

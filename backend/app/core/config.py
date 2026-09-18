@@ -9,6 +9,8 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.field_encryption import FieldEncryptionError, parse_keys_env
+
 # Contraseñas de ejemplo que nunca deben usarse fuera de desarrollo local.
 _INSECURE_DEFAULT_PASSWORDS = {"", "CHANGE_ME_LOCAL_ONLY", "postgres", "password"}
 
@@ -312,6 +314,22 @@ class Settings(BaseSettings):
     # app/onboarding/api/router.py).
     onboarding_cleanup_cron_secret: str
 
+    # --- Cifrado de campos a nivel de aplicación (Fase 12) — añadido 2026-09-18 ---
+    # Ver app/core/field_encryption.py y docs/privacy-and-security.md §4.
+    # Diseño con claves VERSIONADAS desde el principio, no una clave fija de
+    # "MVP": formato "key_id:base64key,key_id:base64key,..." — cada clave
+    # debe decodificar a exactamente 32 bytes (AES-256). Obligatorio en
+    # TODOS los entornos (igual que jwt_secret_key): ai_artifact_versions.
+    # content es NOT NULL y pasa por EncryptedJSON, así que ni siquiera
+    # development/test pueden arrancar sin esto configurado. Nunca se
+    # retira una clave de aquí hasta haber re-cifrado con ella todo lo que
+    # la usaba — ver app/core/field_encryption_cli.py.
+    field_encryption_keys: str
+    # Qué key_id de field_encryption_keys se usa para CIFRAR valores
+    # nuevos — las demás claves presentes siguen sirviendo para DESCIFRAR
+    # valores antiguos (rotación sin tiempo de inactividad).
+    field_encryption_active_key_id: str
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
@@ -356,6 +374,33 @@ class Settings(BaseSettings):
         if self.onboarding_cleanup_cron_secret in _INSECURE_DEFAULT_PASSWORDS:
             raise ValueError(
                 "ONBOARDING_CLEANUP_CRON_SECRET insegura para un entorno de production."
+            )
+        if (
+            self.field_encryption_keys in _INSECURE_DEFAULT_PASSWORDS
+            or not self.field_encryption_keys.strip()
+        ):
+            raise ValueError(
+                "FIELD_ENCRYPTION_KEYS insegura o vacía para un entorno de production: el "
+                "contenido clínico más sensible (ai_artifact_versions.content, entre otros) "
+                "depende de este cifrado — ver docs/privacy-and-security.md §4."
+            )
+        if (
+            self.field_encryption_active_key_id in _INSECURE_DEFAULT_PASSWORDS
+            or not self.field_encryption_active_key_id.strip()
+        ):
+            raise ValueError("FIELD_ENCRYPTION_ACTIVE_KEY_ID insegura o vacía en production.")
+        try:
+            field_encryption_keys_map = parse_keys_env(self.field_encryption_keys)
+        except FieldEncryptionError as exc:
+            raise ValueError(f"FIELD_ENCRYPTION_KEYS inválido en production: {exc}") from exc
+        if self.field_encryption_active_key_id not in field_encryption_keys_map:
+            raise ValueError(
+                "FIELD_ENCRYPTION_ACTIVE_KEY_ID no aparece dentro de FIELD_ENCRYPTION_KEYS."
+            )
+        if any(len(key_bytes) != 32 for key_bytes in field_encryption_keys_map.values()):
+            raise ValueError(
+                "Todas las claves de FIELD_ENCRYPTION_KEYS deben decodificar a 32 bytes "
+                "(AES-256)."
             )
         if self.auth_mode != "real":
             # Fase 9, hito 9.1: `FakeCurrentUserProvider` (X-Dev-User-Id)

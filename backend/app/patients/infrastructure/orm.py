@@ -9,6 +9,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Un
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.core.field_encryption import EncryptedInt, EncryptedString
 
 
 class PatientORM(Base):
@@ -24,8 +25,17 @@ class PatientORM(Base):
         ForeignKey("clinics.id"), nullable=False, index=True
     )
     internal_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Cifrados a nivel de aplicación desde 2026-09-18 (ver
+    # app/core/field_encryption.py y docs/privacy-and-security.md §4) —
+    # antes String(200)/Integer en claro. El límite de longitud de
+    # display_name ya no lo impone esta columna (el ciphertext siempre es
+    # más largo que el texto plano); la validación de negocio sigue
+    # viviendo en app/patients/api/schemas.py. NUNCA filtrar/ordenar por
+    # estas dos columnas en SQL (ilike, ==, etc.) — el cifrado no es
+    # determinista, cualquier búsqueda debe resolverse en Python después
+    # de leer la fila (ver SqlAlchemyPatientRepository.list).
+    display_name: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    birth_year: Mapped[int | None] = mapped_column(EncryptedInt, nullable=True)
     sex: Mapped[str | None] = mapped_column(String(20), nullable=True)
     preferred_language: Mapped[str] = mapped_column(
         String(5), nullable=False, default="es", server_default="es"

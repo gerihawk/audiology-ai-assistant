@@ -21,6 +21,14 @@ os.environ.setdefault("RETENTION_CRON_SECRET", "test-retention-cron-secret-not-f
 os.environ.setdefault(
     "ONBOARDING_CLEANUP_CRON_SECRET", "test-onboarding-cleanup-cron-secret-not-for-production"
 )
+# Fase 12, hito 12.5: FIELD_ENCRYPTION_KEYS/FIELD_ENCRYPTION_ACTIVE_KEY_ID
+# son obligatorios (mismo criterio que los secretos de arriba) — clave de
+# 32 bytes generada solo para tests, nunca usada fuera de esta suite. Un
+# único key_id activo es suficiente aquí: los tests de rotación
+# (test_field_encryption.py) fijan sus propias claves en el entorno antes
+# de invocar field_encryption_cli, no dependen de este valor por defecto.
+os.environ.setdefault("FIELD_ENCRYPTION_KEYS", "1:HEFvJucNIlytjAspyvBhWs58nGaFik96u9LFGlo6wMA=")
+os.environ.setdefault("FIELD_ENCRYPTION_ACTIVE_KEY_ID", "1")
 
 # Aislamiento de la suite frente a variables de entorno "ambiente" del
 # contenedor (Fase 6.3, corrección del punto 11): `docker compose run`

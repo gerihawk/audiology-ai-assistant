@@ -51,15 +51,42 @@ alerta, información ausente, anamnesis — ver
   (terminación TLS en el proxy/reverse proxy; HTTP interno solo en la red
   de contenedores). En desarrollo local sobre `docker compose` se documenta
   como excepción explícita, nunca como el modo de producción.
-- **En reposo**: se diseña para poder activar cifrado a nivel de disco/volumen
-  y, para campos especialmente sensibles (p. ej. `patients.display_name`,
-  `patients.birth_year`, `ai_artifact_versions.content` — contiene
-  transcripción, resúmenes y anamnesis, el contenido clínico-adyacente
-  más sensible del sistema — y, si se activa la opción de §6,
-  `ai_generation_runs.rendered_system_prompt`/`rendered_user_prompt`/`raw_response`),
-  se deja preparada la posibilidad de cifrado a nivel de aplicación
-  (columna) como mejora futura — **no implementado todavía en el MVP**,
-  documentado como deuda consciente.
+- **En reposo, a nivel de aplicación (columna) — implementado, Fase 12,
+  añadido 2026-09-18**: `patients.display_name`, `patients.birth_year`,
+  `ai_artifact_versions.content` (transcripción, resúmenes y anamnesis —
+  el contenido clínico-adyacente más sensible del sistema) y
+  `ai_generation_runs.rendered_system_prompt`/`rendered_user_prompt`/
+  `raw_response` se cifran con AES-256-GCM (cifrado autenticado: detecta
+  manipulación, no solo confidencialidad) antes de escribirse en la base
+  de datos, de forma transparente para el resto del código (ver
+  `app/core/field_encryption.py`). Esto cierra la "deuda consciente" que
+  este documento señalaba antes en este mismo punto, y resuelve el riesgo
+  R9 de la EIPD (`docs/eipd-dpia.md`).
+  - **Claves versionadas y rotables desde el principio**: cada valor
+    cifrado lleva incrustado el identificador de la clave que lo cifró
+    (`FIELD_ENCRYPTION_KEYS`, formato `"key_id:base64key,..."`); una sola
+    clave es la activa para escrituras nuevas (`FIELD_ENCRYPTION_ACTIVE_KEY_ID`),
+    pero cualquier clave conocida sigue pudiendo descifrar datos
+    antiguos. Esto permite rotar la clave activa sin tiempo de
+    inactividad — runbook completo de 5 pasos documentado en el docstring
+    de `app/core/field_encryption_cli.py` (el comando que re-cifra en
+    bloque todo lo que quedó con la clave vieja tras una rotación).
+  - **Coste asumido conscientemente**: el cifrado no es determinista
+    (nonce aleatorio en cada valor), así que ninguna de estas columnas
+    puede filtrarse/ordenarse a nivel de SQL. La búsqueda de pacientes
+    por `display_name` (`GET /patients?search=`) resuelve este filtro en
+    Python, tras descifrar el conjunto de filas ya acotado por clínica
+    (ver `SqlAlchemyPatientRepository.list`) — aceptable para el volumen
+    de pacientes por clínica de este producto, no pensado para
+    escalar a bases de miles de pacientes por clínica sin revisar el
+    enfoque.
+  - Migración: `backend/alembic/versions/729f6ad2ac76_encrypt_sensitive_columns.py`
+    cambia el tipo de columna (a `TEXT`) pero **no re-cifra datos
+    existentes por sí sola** — en producción no había ninguna fila en
+    estas tablas al aplicarla (verificado en vivo), así que no hubo dato
+    real que migrar; cualquier entorno con datos de prueba/seed previos
+    en `patients`/`ai_artifact_versions`/`ai_generation_runs` necesita
+    truncar esas tablas y volver a sembrarlas tras aplicar la migración.
 - Los ficheros de audio se almacenan fuera del control de versiones, en un
   volumen/almacenamiento dedicado con acceso restringido al backend.
 
@@ -157,23 +184,37 @@ una tabla distinta con un propósito distinto:
 | Contenido | Acción, actor, `entity_id`, nombres de campos modificados | Proveedor, modelo, latencia, tokens, coste, plantilla — nunca contenido |
 | Nunca contiene | Contenido clínico, valores de campos, secretos | Contenido clínico (salvo activación explícita, ver §6.1 más abajo), secretos |
 
-### 6.1 Prompt renderizado: almacenamiento configurable (Fase 4)
+### 6.1 Prompt renderizado: almacenamiento configurable (Fase 4) — corregido 2026-09-18
 
-**Decisión cerrada** (ver
-[ai-pipeline-architecture.md](ai-pipeline-architecture.md) §7.5): se
-soporta guardar el prompt completamente renderizado y la respuesta cruda
-del proveedor en `ai_generation_runs`, pero de forma **configurable y
-desactivada por defecto** (`ai_store_rendered_prompts: bool = False`).
+**Corrección respecto a una versión anterior de este documento**: aquí se
+describía un flag `ai_store_rendered_prompts: bool = False` en
+`Settings` que permitiría activar, por entorno, el guardado del prompt
+renderizado y la respuesta cruda del proveedor. Al revisar el código
+para la EIPD (`docs/eipd-dpia.md`) se comprobó que **ese flag nunca
+llegó a implementarse**: no existe ningún campo así en
+`app/core/config.py`, y `rendered_system_prompt`/`rendered_user_prompt`/
+`raw_response` están **hardcodeados a `None` en los tres puntos de
+`app/ai_pipeline/service.py`** donde se construye un `AIGenerationRun`
+(actualmente cada `AIGenerationRun` se crea con estos tres campos en
+`None`, no con el resultado de una comprobación de configuración). El
+resultado práctico coincide con lo que este documento prometía —el
+prompt renderizado y la respuesta cruda del proveedor nunca se
+almacenan hoy—, pero por ausencia total de la funcionalidad, no por un
+flag desactivado por defecto. Si en el futuro se implementa de verdad
+(activable por entorno), las tres columnas ya están preparadas para
+cifrado a nivel de aplicación (§4) — se añadieron a la lista de columnas
+cifradas junto con el resto en la Fase 12 precisamente para no dejar ese
+trabajo pendiente cuando se implemente.
 
-**Implicaciones de privacidad**: activar esta opción duplica en una
-segunda tabla el mismo contenido clínico-adyacente que ya vive, de forma
-versionada, en `ai_artifact_versions.content` — es la razón por la que el
-valor por defecto es `false` (minimización de datos, §2). Si se activa,
-las columnas correspondientes se añaden a la lista de columnas candidatas
-a cifrado de §4. Activarla es una decisión explícita por entorno, nunca
-el comportamiento por defecto — ni siquiera en desarrollo. **Nunca**, en
-ningún caso, se almacena una clave de API ni ningún otro secreto en estas
-columnas.
+**Implicaciones de privacidad**: si en algún momento se implementa esta
+función y se activa, duplicaría en una segunda tabla el mismo contenido
+clínico-adyacente que ya vive, de forma versionada, en
+`ai_artifact_versions.content` — el mismo motivo por el que, de
+implementarse, debería seguir naciendo desactivada por defecto
+(minimización de datos, §2). Activarla debería ser una decisión
+explícita por entorno, nunca el comportamiento por defecto — ni siquiera
+en desarrollo. **Nunca**, en ningún caso, debe almacenarse una clave de
+API ni ningún otro secreto en estas columnas.
 
 Registro previsto para fases futuras (diseño, no implementado):
 

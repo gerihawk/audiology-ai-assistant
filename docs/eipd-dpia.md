@@ -269,76 +269,80 @@ gestión del riesgo (véase §0).
 | R6 | `purge_patient_clinical_data()` (2026-09-18): purga física atómica, admin-only, doble confirmación, con entrada de auditoría que sobrevive al borrado | Bajo |
 | R7 | Lenguaje no diagnóstico obligatorio y validado por tests; aviso obligatorio en toda respuesta de API y exportación; aprobación humana explícita antes de exportar o considerar un artefacto parte del expediente; ninguna transición a `approved` puede depender de `confidence` | Medio — depende en última instancia de que el profesional respete el flujo de revisión; no hay control técnico que impida a un usuario ignorar el aviso |
 | R8 | Autenticación real por JWT + `bcrypt` obligatoria en producción (`RealCurrentUserProvider`), rate limiting en login (5/min), pantalla de login real en el frontend (`LoginForm.tsx`/`AuthContext.tsx`, hito 9.2) que bloquea todas las rutas sin token válido — **corregido 2026-09-18**: una versión anterior de esta EIPD daba esto por pendiente basándose en `privacy-and-security.md` §12, que estaba desactualizado; verificado directamente contra `frontend/src/App.tsx` (función `RealAuthApp`), el hito ya estaba implementado y mergeado | Medio — sin MFA, sin lista de revocación de tokens (logout solo del lado cliente), tokens de 8h de vida; pendiente confirmar que `VITE_AUTH_MODE` de producción esté en `real` en la configuración real de Railway (no verificable desde el código) — aunque la barrera real está en el backend, no en el frontend |
-| R9 | Diseño preparado para cifrado a nivel de columna en los campos más sensibles (`ai_artifact_versions.content`, entre otros) | **Medio-alto** — cifrado a nivel de aplicación **no implementado todavía**, documentado como deuda consciente; el contenido clínico depende del cifrado en reposo del proveedor de infraestructura (Railway) como única defensa |
+| R9 | Cifrado a nivel de aplicación (columna) implementado — **corregido 2026-09-18**: AES-256-GCM (autenticado) sobre `patients.display_name`/`birth_year`, `ai_artifact_versions.content` y `ai_generation_runs.rendered_system_prompt`/`rendered_user_prompt`/`raw_response`, con claves versionadas/rotables desde el diseño inicial (`app/core/field_encryption.py`, `docs/privacy-and-security.md` §4) | Bajo — el contenido clínico más sensible ya no depende únicamente del cifrado en reposo del proveedor de infraestructura; residual: las claves viven como variables de entorno en Railway, no en un HSM/KMS gestionado, lo cual es proporcional a la escala actual (un proveedor, sin equipo de seguridad dedicado) pero debería revisarse si el volumen de clínicas crece significativamente |
 | R10 | `SecurityHeadersMiddleware`, rate limiting con `slowapi`, límites de tamaño de subida | Bajo mientras el despliegue sea de una sola réplica (limitación conocida y aceptada, documentada) |
 | R11 | Checklist aislado detrás de una interfaz sustituible (`ClinicalFlagsGenerator`); doble aviso obligatorio ("checklist de demostración, no validado clínicamente, no apto para uso con pacientes reales") cuando exista; lenguaje no diagnóstico; ligado a fragmento de transcripción | Medio — la funcionalidad no está implementada todavía (§13 de [privacy-and-security.md](privacy-and-security.md)); si se implementa, no debe activarse para pacientes reales sin validación clínica y legal previa, tal y como ya reconoce el propio [clinical-safety.md](clinical-safety.md) §7 |
 
 ## 7. Riesgo residual y necesidad de consulta previa (art. 36 RGPD)
 
-Tras las medidas aplicadas, todos los riesgos identificados quedan en un
-nivel bajo o medio, con una excepción:
+Tras las medidas aplicadas, **todos los riesgos identificados quedan en
+un nivel bajo o medio** — a fecha 2026-09-18, ningún riesgo de los
+identificados en §5/§6 queda en residual alto.
 
-- **R9 (cifrado en reposo)**: el contenido clínico más sensible
-  (transcripciones, resúmenes, anamnesis) no tiene cifrado a nivel de
-  aplicación todavía, pese a que el diseño ya lo contempla como mejora
-  preparada — **riesgo residual alto**, y el único que, a criterio de
-  quien firma esta EIPD, debería resolverse antes de dar de alta
-  pacientes reales de forma sostenida, no solo antes de la primera
-  activación técnica.
+(Dos correcciones respecto a versiones anteriores de este documento,
+ambas por la misma causa — dar por pendiente algo que ya estaba resuelto
+en el código, basándose en documentación desactualizada, en vez de
+verificar contra el código real:
 
-(R8, autenticación, se consideraba también alto en una versión anterior
-de este documento por una lectura de `privacy-and-security.md` que
-resultó estar desactualizada — la pantalla de login real ya existe y
-está en producción; queda en riesgo medio por la falta de MFA y de
-revocación de tokens, no en alto.)
+- **R8 (autenticación)**: se consideraba alto por una lectura de
+  `privacy-and-security.md` que resultó estar desactualizada — la
+  pantalla de login real ya existe y está en producción; queda en
+  riesgo medio por la falta de MFA y de revocación de tokens, no en
+  alto.
+- **R9 (cifrado en reposo)**: se consideraba alto porque el cifrado a
+  nivel de columna todavía no estaba implementado. **Ya está
+  implementado** (ver §6 y `docs/privacy-and-security.md` §4) — queda en
+  riesgo bajo, con la salvedad de la gestión de claves vía variables de
+  entorno señalada en §6, no en alto.)
 
 Ninguno de los riesgos residuales identificados alcanza, a día de hoy,
 el umbral de "riesgo residual alto e ineludible" que obligaría a una
-consulta previa a la AEPD conforme al art. 36 RGPD — ambos son
-resolubles con medidas técnicas ya diseñadas o conocidas, no estructurales
-del modelo de negocio. **Esta conclusión debe confirmarla el abogado/DPO
-que revise este documento**, no darse por definitiva solo por constar
-aquí.
+consulta previa a la AEPD conforme al art. 36 RGPD. **Esta conclusión
+debe confirmarla el abogado/DPO que revise este documento**, no darse
+por definitiva solo por constar aquí.
 
 ## 8. Brechas y recomendaciones pendientes
 
-Por orden de prioridad, a criterio de quien redacta este borrador:
+Por orden de prioridad, a criterio de quien redacta este borrador. Dos
+elementos que figuraban aquí como #1 y #2 en versiones anteriores de
+este documento — cifrado a nivel de columna y confirmación de
+`VITE_AUTH_MODE` en producción — ya están resueltos (ver §6/§7) y se
+retiran de esta lista, no se dejan tachados: mantener resuelto en la
+lista de pendientes invitaría a confundir "ya resuelto" con "todavía por
+hacer" en una lectura rápida del documento.
 
-1. **Cifrado a nivel de columna** para `ai_artifact_versions.content` y
-   el resto de columnas candidatas identificadas en
-   [privacy-and-security.md](privacy-and-security.md) §4 — hoy es deuda
-   consciente, no implementada. Único riesgo alto que queda abierto tras
-   la corrección de §7.
-2. **Confirmar en Railway que `VITE_AUTH_MODE` de producción está en
-   `real`** — no verificable desde el código (es configuración de
-   despliegue, no del repositorio); baja prioridad porque el backend ya
-   impone `AUTH_MODE=real` de forma independiente, pero conviene
-   confirmarlo para que la experiencia de frontend coincida.
-3. **Confirmar el estado de DPA de Sentry** y la jurisdicción exacta del
+1. **Confirmar el estado de DPA de Sentry** y la jurisdicción exacta del
    DPA de Brevo (§2.2) para poder dar el registro de subencargados por
    completo y verificado.
-4. **Ejecutar de verdad el runbook de restore** de la copia de seguridad
+2. **Ejecutar de verdad el runbook de restore** de la copia de seguridad
    externa cifrada al menos una vez contra un dump real de producción
    (ya identificado como pendiente en
    [privacy-and-security.md](privacy-and-security.md) §8.1) — un backup
    no restaurado no es un backup verificado.
-5. **MFA y lista de revocación de tokens** para las cuentas de personal
+3. **MFA y lista de revocación de tokens** para las cuentas de personal
    de clínica — no bloqueante para el riesgo actual (bajo volumen,
    primer cliente), pero recomendable antes de escalar a varias clínicas.
-6. **No activar `clinical_flags`** para pacientes reales hasta contar con
+4. **No activar `clinical_flags`** para pacientes reales hasta contar con
    una validación clínica y legal del ruleset (ya reconocido en
    [clinical-safety.md](clinical-safety.md) §7); mientras tanto, la
    funcionalidad sigue sin implementar, lo cual es, en sí, la mitigación
    correcta.
-7. **Revisar el toggle "Rate chats" en Anthropic Console** (Organization
+5. **Revisar el toggle "Rate chats" en Anthropic Console** (Organization
    settings → Data and Privacy) como defensa en profundidad — acción
    pendiente de Gerard, no ejecutable desde el propio sistema (ya
    señalada en [privacy-and-security.md](privacy-and-security.md) §9.1).
-8. **Redactar el DPA/RAT/ToS propio de Audiology AI Assistant** hacia sus
+6. **Redactar el DPA/RAT/ToS propio de Audiology AI Assistant** hacia sus
    clínicas clientes, reflejando el reparto dual de proveedores de LLM
    con su alcance real (nunca como proveedor de respaldo) y la política
    de no entrenamiento — siguiente paso ya previsto en la hoja de ruta
    ([fase-13-rfc.md](fase-13-rfc.md)).
+7. **Rotar la clave de cifrado de campo de ejemplo** que vive en
+   `.env.example`/`backend/tests/conftest.py` si alguna vez se llega a
+   copiar tal cual a un entorno real — es una clave pública (está en el
+   repositorio), pensada solo para desarrollo y tests locales; Railway
+   debe tener siempre una `FIELD_ENCRYPTION_KEYS` generada aparte, nunca
+   esa (ver el runbook de `app/core/field_encryption_cli.py` si hiciera
+   falta rotarla).
 
 ## 9. Revisión de esta EIPD
 
