@@ -359,6 +359,35 @@ class Settings(BaseSettings):
     stripe_price_id_clinica_grande: str | None = None
     stripe_price_id_cadena_empresa: str | None = None
 
+    # --- Facturación / Stripe (Fase 13, hito 13.2) — resto de ciclo de vida,
+    # overage y reconciliación, ver docs/fase-13-rfc.md §3.2/§5 ---
+    # Price MEDIDO (metered, modo "set" de usage record) por nivel, usado
+    # por `BillingService.report_overage_usage` para cobrar el exceso sobre
+    # `estimated_cost_usd` cuando una clínica supera el tope incluido de
+    # sesiones/mes. Solo los niveles con tope definido lo tienen — ver
+    # `app/billing/domain/plans.py::PLAN_INCLUDED_SESSIONS` (Cadena/Empresa
+    # queda fuera a propósito, sin tope ni overage en este hito).
+    stripe_metered_price_id_basico: str | None = None
+    stripe_metered_price_id_profesional: str | None = None
+    stripe_metered_price_id_clinica_grande: str | None = None
+    # `event_name` del Stripe Billing Meter de cada nivel — objeto DISTINTO
+    # del Price medido de arriba (ver docstring de
+    # `PaymentGateway.report_overage_usage`): el Price se usa al crear la
+    # Checkout Session, el Meter al reportar uso. El Meter debe crearse en
+    # Stripe con fórmula de agregación "last", no "sum" — de lo contrario
+    # el overage reportado cada día por el cron de reconciliación se
+    # acumularía sobre sí mismo en vez de sustituir el total del periodo.
+    stripe_meter_event_name_basico: str | None = None
+    stripe_meter_event_name_profesional: str | None = None
+    stripe_meter_event_name_clinica_grande: str | None = None
+    # Autentica al LLAMADOR de POST /api/v1/billing/reconcile (un cron
+    # externo diario, ver ops/billing-reconciliation-cron/) — mismo patrón
+    # que `retention_cron_secret`/`onboarding_cleanup_cron_secret`:
+    # obligatorio, sin default, secreto propio (no reutiliza los otros dos:
+    # son tres trabajos de sistema independientes). El endpoint la compara
+    # con `secrets.compare_digest`, nunca `==`.
+    billing_reconcile_cron_secret: str
+
     # --- Cifrado de campos a nivel de aplicación (Fase 12) — añadido 2026-09-18 ---
     # Ver app/core/field_encryption.py y docs/privacy-and-security.md §4.
     # Diseño con claves VERSIONADAS desde el principio, no una clave fija de
@@ -419,6 +448,10 @@ class Settings(BaseSettings):
         if self.onboarding_cleanup_cron_secret in _INSECURE_DEFAULT_PASSWORDS:
             raise ValueError(
                 "ONBOARDING_CLEANUP_CRON_SECRET insegura para un entorno de production."
+            )
+        if self.billing_reconcile_cron_secret in _INSECURE_DEFAULT_PASSWORDS:
+            raise ValueError(
+                "BILLING_RECONCILE_CRON_SECRET insegura para un entorno de production."
             )
         if (
             self.field_encryption_keys in _INSECURE_DEFAULT_PASSWORDS

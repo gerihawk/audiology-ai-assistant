@@ -30,6 +30,19 @@ export default defineRailway(() => {
     deploy: { cronSchedule: "0 3 * * *", restartPolicyType: "NEVER" },
     env: { ONBOARDING_CLEANUP_CRON_SECRET: preserve(), ONBOARDING_CLEANUP_URL: preserve() },
   });
+  // Fase 13, hito 13.2: mismo patrón que onboardingCleanupCron/
+  // truthfulSolace de arriba, pero disparando
+  // POST /api/v1/billing/reconcile — ver
+  // ops/billing-reconciliation-cron/reconcile.py. BILLING_RECONCILE_URL
+  // debe apuntar a la URL pública de audiologyAiAssistant (p. ej.
+  // https://api.audiology-assistant.dev/api/v1/billing/reconcile).
+  const billingReconciliationCron = service("billing-reconciliation-cron", {
+    source: github("gerihawk/audiology-ai-assistant", { branch: "main", checkSuites: false, rootDirectory: "/ops/billing-reconciliation-cron" }),
+    build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "/ops/billing-reconciliation-cron/Dockerfile" },
+    replicas: { "ams": 1 },
+    deploy: { cronSchedule: "0 4 * * *", restartPolicyType: "NEVER" },
+    env: { BILLING_RECONCILE_CRON_SECRET: preserve(), BILLING_RECONCILE_URL: preserve() },
+  });
   const givingNourishment = service("giving-nourishment", {
     source: github("gerihawk/audiology-ai-assistant", { branch: "main", checkSuites: false, rootDirectory: "/frontend" }),
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "/frontend/Dockerfile.prod" },
@@ -45,10 +58,10 @@ export default defineRailway(() => {
     deploy: { preDeployCommand: ["alembic upgrade head"] },
     domains: [{ domain: "api.audiology-assistant.dev", port: 8000 }],
     volumeMounts: { "/app/storage": audiologyAiAssistantVolume },
-    env: { AI_PROCESSING_CONSENT_ENFORCED: preserve(), AI_PROCESSING_CONSENT_VERSION: preserve(), ANTHROPIC_API_KEY: preserve(), ASSEMBLYAI_API_KEY: preserve(), ASSEMBLYAI_LANGUAGE_CODE: preserve(), AUDIO_STORAGE_LOCAL_DIR: preserve(), AUTH_MODE: preserve(), BACKEND_CORS_ORIGINS: "https://app.audiology-assistant.dev", BACKEND_PORT: preserve(), BREVO_API_KEY: preserve(), BREVO_BASE_URL: preserve(), DEEPGRAM_API_KEY: preserve(), DEEPGRAM_BASE_URL: preserve(), DEEPGRAM_LANGUAGE_CODE: preserve(), DEEPGRAM_MODEL: preserve(), EMAIL_PROVIDER: preserve(), ENVIRONMENT: preserve(), FIELD_ENCRYPTION_ACTIVE_KEY_ID: preserve(), FIELD_ENCRYPTION_KEYS: preserve(), FRONTEND_PORT: preserve(), GENERATION_BENCHMARK_ENABLED: preserve(), JWT_SECRET_KEY: preserve(), LLM_COST_LIMIT_ENFORCED: preserve(), LLM_MODEL_MISSING_INFORMATION: preserve(), LLM_MODEL_PATIENT_SUMMARY: preserve(), LLM_MODEL_SUMMARY: preserve(), LLM_PROVIDER_MISSING_INFORMATION: preserve(), LLM_PROVIDER_PATIENT_SUMMARY: preserve(), LLM_PROVIDER_SUMMARY: preserve(), LOG_LEVEL: preserve(), MAX_LLM_COST_PER_SESSION_USD: preserve(), OPENAI_API_KEY: preserve(), OPENROUTER_API_KEY: preserve(), OPENROUTER_BASE_URL: preserve(), POSTGRES_DB: preserve(), POSTGRES_HOST: preserve(), POSTGRES_PASSWORD: preserve(), POSTGRES_PORT: preserve(), POSTGRES_USER: preserve(), ONBOARDING_CLEANUP_CRON_SECRET: preserve(), RETENTION_CRON_SECRET: preserve(), SENTRY_DSN: preserve(), TRANSCRIPTION_PROVIDER: preserve(), TURNSTILE_BASE_URL: preserve(), TURNSTILE_PROVIDER: preserve(), TURNSTILE_SECRET_KEY: preserve(), UNVERIFIED_CLINIC_TTL_DAYS: preserve(), VITE_API_BASE_URL: preserve(), VITE_AUTH_MODE: preserve(), PAYMENT_GATEWAY: preserve(), STRIPE_SECRET_KEY: preserve(), STRIPE_WEBHOOK_SECRET: preserve(), STRIPE_PRICE_ID_BASICO: preserve(), STRIPE_PRICE_ID_PROFESIONAL: preserve(), STRIPE_PRICE_ID_CLINICA_GRANDE: preserve(), STRIPE_PRICE_ID_CADENA_EMPRESA: preserve() },
+    env: { AI_PROCESSING_CONSENT_ENFORCED: preserve(), AI_PROCESSING_CONSENT_VERSION: preserve(), ANTHROPIC_API_KEY: preserve(), ASSEMBLYAI_API_KEY: preserve(), ASSEMBLYAI_LANGUAGE_CODE: preserve(), AUDIO_STORAGE_LOCAL_DIR: preserve(), AUTH_MODE: preserve(), BACKEND_CORS_ORIGINS: "https://app.audiology-assistant.dev", BACKEND_PORT: preserve(), BREVO_API_KEY: preserve(), BREVO_BASE_URL: preserve(), DEEPGRAM_API_KEY: preserve(), DEEPGRAM_BASE_URL: preserve(), DEEPGRAM_LANGUAGE_CODE: preserve(), DEEPGRAM_MODEL: preserve(), EMAIL_PROVIDER: preserve(), ENVIRONMENT: preserve(), FIELD_ENCRYPTION_ACTIVE_KEY_ID: preserve(), FIELD_ENCRYPTION_KEYS: preserve(), FRONTEND_PORT: preserve(), GENERATION_BENCHMARK_ENABLED: preserve(), JWT_SECRET_KEY: preserve(), LLM_COST_LIMIT_ENFORCED: preserve(), LLM_MODEL_MISSING_INFORMATION: preserve(), LLM_MODEL_PATIENT_SUMMARY: preserve(), LLM_MODEL_SUMMARY: preserve(), LLM_PROVIDER_MISSING_INFORMATION: preserve(), LLM_PROVIDER_PATIENT_SUMMARY: preserve(), LLM_PROVIDER_SUMMARY: preserve(), LOG_LEVEL: preserve(), MAX_LLM_COST_PER_SESSION_USD: preserve(), OPENAI_API_KEY: preserve(), OPENROUTER_API_KEY: preserve(), OPENROUTER_BASE_URL: preserve(), POSTGRES_DB: preserve(), POSTGRES_HOST: preserve(), POSTGRES_PASSWORD: preserve(), POSTGRES_PORT: preserve(), POSTGRES_USER: preserve(), ONBOARDING_CLEANUP_CRON_SECRET: preserve(), RETENTION_CRON_SECRET: preserve(), SENTRY_DSN: preserve(), TRANSCRIPTION_PROVIDER: preserve(), TURNSTILE_BASE_URL: preserve(), TURNSTILE_PROVIDER: preserve(), TURNSTILE_SECRET_KEY: preserve(), UNVERIFIED_CLINIC_TTL_DAYS: preserve(), VITE_API_BASE_URL: preserve(), VITE_AUTH_MODE: preserve(), PAYMENT_GATEWAY: preserve(), STRIPE_SECRET_KEY: preserve(), STRIPE_WEBHOOK_SECRET: preserve(), STRIPE_PRICE_ID_BASICO: preserve(), STRIPE_PRICE_ID_PROFESIONAL: preserve(), STRIPE_PRICE_ID_CLINICA_GRANDE: preserve(), STRIPE_PRICE_ID_CADENA_EMPRESA: preserve(), STRIPE_METERED_PRICE_ID_BASICO: preserve(), STRIPE_METERED_PRICE_ID_PROFESIONAL: preserve(), STRIPE_METERED_PRICE_ID_CLINICA_GRANDE: preserve(), STRIPE_METER_EVENT_NAME_BASICO: preserve(), STRIPE_METER_EVENT_NAME_PROFESIONAL: preserve(), STRIPE_METER_EVENT_NAME_CLINICA_GRANDE: preserve(), BILLING_RECONCILE_CRON_SECRET: preserve() },
   });
 
   return project("giving-friendship", {
-    resources: [fearlessHeart, truthfulSolace, onboardingCleanupCron, Postgres, givingNourishment, audiologyAiAssistant, postgresVolume, audiologyAiAssistantVolume, adaptableDrumEJAo],
+    resources: [fearlessHeart, truthfulSolace, onboardingCleanupCron, billingReconciliationCron, Postgres, givingNourishment, audiologyAiAssistant, postgresVolume, audiologyAiAssistantVolume, adaptableDrumEJAo],
   });
 });

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,4 +33,20 @@ class AIPipelineRunRepository(Protocol):
         llamarse después de `AIGenerationRunRepository.
         delete_for_sessions()` (que ya borró las filas que referencian
         `ai_pipeline_run_id`). Devuelve el nº de filas eliminadas."""
+        ...
+
+    async def list_completed_since_for_clinic(
+        self, session: AsyncSession, clinic_id: uuid.UUID, since: datetime
+    ) -> list[AIPipelineRun]:
+        """Fase 13, hito 13.2 — ejecuciones del pipeline de la clínica dada,
+        terminadas (`completed_at` no nulo, éxito o fallo — un intento
+        fallido igual consumió recursos) desde `since` (inicio del periodo
+        de facturación actual), ordenadas por `started_at`: el mismo orden
+        en que `AIPipelineService.run_pipeline` fue incrementando
+        `Clinic.sessions_used_this_period`, para que
+        `BillingService.report_overage_usage` pueda recortar exactamente
+        las que superan el tope incluido del nivel. No distingue
+        `run-pipeline` de `run-mock-pipeline` a nivel de esta consulta —
+        `AIPipelineService` es quien garantiza que el mock nunca incrementa
+        el contador ni, por tanto, aparece contado como overage."""
         ...

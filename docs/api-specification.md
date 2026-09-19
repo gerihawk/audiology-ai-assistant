@@ -600,18 +600,22 @@ devuelve `422` nativo.
 | GET | `/integrations` | admin | Estado de cada integración abstracta (proveedor activo, habilitada) |
 | PATCH | `/integrations/{integration_name}` | admin | Cambia proveedor activo (en el MVP, solo valores `mock`) |
 
-## Facturación (Fase 13, hito 13.1)
+## Facturación (Fase 13, hitos 13.1/13.2/13.3)
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
 | POST | `/billing/checkout-session` | admin | Crea una Stripe Checkout Session (modo `subscription`) para el nivel pedido y devuelve su URL |
-| POST | `/billing/webhook` | — (firma Stripe) | Recibe eventos de Stripe; en este hito solo aplica `checkout.session.completed` |
+| POST | `/billing/webhook` | — (firma Stripe) | Recibe eventos de Stripe: alta, actualización, cancelación, factura pagada/impagada (hitos 13.1/13.2) |
+| POST | `/billing/portal-session` | admin | Crea una sesión del Stripe Customer Portal (gestión de método de pago/facturas) y devuelve su URL (hito 13.3) |
+| GET | `/billing/status` | admin | Nivel, estado de suscripción, uso del periodo y topes de la clínica del usuario autenticado (hito 13.3) |
+| POST | `/billing/reconcile` | — (secreto de cron) | Reconciliación diaria Stripe↔`Clinic` + reporte de overage; cron externo, no pensado para llamarse desde el frontend (hito 13.2) |
 
 Ver [fase-13-rfc.md](fase-13-rfc.md) para el modelo de negocio completo
 (niveles, precios, overage, prueba gratuita) y
-[development-plan.md](development-plan.md) para el alcance exacto de este
-hito frente a 13.2/13.3 (todavía no implementados: gate de acceso por
-`subscription_status`, overage medido, Customer Portal).
+[development-plan.md](development-plan.md) para el detalle técnico
+completo de los tres hitos. Pendiente real, no resuelto en ningún hito de
+esta fase: un modelo de tope/overage para el nivel Cadena/Empresa (RFC
+§3.3) — el gate de acceso nunca bloquea por uso a ese nivel.
 
 ### Alta de suscripción (`POST /billing/checkout-session`)
 
@@ -635,17 +639,66 @@ hito frente a 13.2/13.3 (todavía no implementados: gate de acceso por
 - Idempotente por `id` de evento de Stripe (tabla `stripe_webhook_events`):
   un mismo evento reenviado más de una vez (Stripe no garantiza entrega
   única) se reconoce con `204` sin volver a aplicar el cambio.
-- `checkout.session.completed` (único tipo aplicado en este hito): localiza
-  la `Clinic` por `client_reference_id`/`metadata.clinic_id`, y fija
-  `stripe_customer_id`, `stripe_subscription_id`, `subscription_status =
-  "active"` y `plan` (de `metadata.plan`); reinicia
-  `sessions_used_this_period` a `0`.
+- `checkout.session.completed`: localiza la `Clinic` por
+  `client_reference_id`/`metadata.clinic_id`, y fija `stripe_customer_id`,
+  `stripe_subscription_id`, `subscription_status = "active"` y `plan` (de
+  `metadata.plan`); reinicia `sessions_used_this_period` a `0` y fija
+  `current_period_started_at`.
+- `customer.subscription.updated`/`customer.subscription.deleted` (hito
+  13.2): actualizan `subscription_status` en **todas** las `Clinic` que
+  comparten el `stripe_subscription_id` del evento (nivel Cadena/Empresa,
+  varias clínicas pueden compartir una misma suscripción).
+- `invoice.paid` (hito 13.2): inicia un nuevo periodo de facturación —
+  `subscription_status = "active"`, `sessions_used_this_period = 0`,
+  `current_period_started_at` a la hora del servidor en el momento de
+  procesar el evento (aproximación deliberada, no parsea los límites
+  exactos del periodo de la factura de Stripe).
+- `invoice.payment_failed` (hito 13.2): no cambia `subscription_status`
+  directamente — Stripe ya gestiona el ciclo de reintentos (dunning) y lo
+  reflejará con un posterior `customer.subscription.updated` a
+  `past_due`/`unpaid`; el gate de acceso nunca bloquea en el primer
+  `past_due` (ver `GET /billing/status` y el gate más abajo).
 - Cualquier otro tipo de evento se reconoce (`204`) sin aplicar ningún
-  cambio — evita que Stripe reintente indefinidamente un evento que este
-  hito todavía no interpreta (impago, cancelación, actualización: hito
-  13.2).
+  cambio — evita que Stripe lo reintente indefinidamente.
 - Respuesta siempre `204` salvo firma inválida (`400`) — nunca expone el
   resultado de la aplicación del evento en el cuerpo de la respuesta.
+
+### Gate de acceso por suscripción (hito 13.2)
+
+- `POST /clinical-sessions/{id}/ai-pipeline/run-pipeline` (el único
+  endpoint que ejecuta un pipeline real de LLM) exige una suscripción
+  utilizable: rechaza con `403` si `subscription_status` es
+  `unpaid`/`canceled`, o si `sessions_used_this_period` supera el techo de
+  seguridad del nivel (el doble del tope de sesiones incluidas).
+- Nunca bloquea: en el primer `past_due` (dunning en curso), en clínicas
+  gestionadas a mano (`subscription_status is None`, sin alta de Stripe),
+  ni por uso en el nivel Cadena/Empresa (sin tope definido).
+- `run-mock-pipeline` no lleva este gate — solo el pipeline real consume
+  presupuesto de IA.
+
+### Overage y reconciliación (hito 13.2)
+
+- Toda ejecución real del pipeline (`is_billable=True`) por encima del
+  tope incluido del periodo actual se reporta a Stripe como uso medido
+  (Billing Meters API, agregación "last") vía el cron diario de
+  reconciliación — nunca en tiempo real durante la petición.
+- `POST /billing/reconcile`: protegido por la cabecera
+  `X-Billing-Reconcile-Cron-Secret` (`BILLING_RECONCILE_CRON_SECRET`),
+  pensado exclusivamente para el cron externo
+  (`ops/billing-reconciliation-cron/`, diario a las 04:00 UTC) — mismo
+  patrón que `/retention/system-purge`/`/onboarding/system-cleanup`.
+
+### Customer Portal y estado (`POST /billing/portal-session`, `GET /billing/status`, hito 13.3)
+
+- `POST /billing/portal-session`: solo `admin`; `403` para el resto.
+  Requiere que la clínica ya tenga `stripe_customer_id` (alta previa vía
+  Checkout) — en caso contrario, `409`.
+- `GET /billing/status`: nivel (`null` si la clínica está gestionada a
+  mano), `subscription_status`, `sessions_used_this_period`,
+  `included_sessions`/`safety_cap_sessions` (`null` también para
+  Cadena/Empresa, sin tope), y si la clínica tiene ya un
+  `stripe_customer_id` (para habilitar el botón del portal en el
+  frontend).
 
 ## Retention (limpieza manual)
 

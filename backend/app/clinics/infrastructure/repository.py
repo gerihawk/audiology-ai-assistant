@@ -28,6 +28,7 @@ def _to_domain(row: ClinicORM) -> Clinic:
         subscription_status=row.subscription_status,
         plan=row.plan,
         sessions_used_this_period=row.sessions_used_this_period,
+        current_period_started_at=row.current_period_started_at,
     )
 
 
@@ -95,6 +96,90 @@ class SqlAlchemyClinicRepository:
                 subscription_status=subscription_status,
                 plan=plan,
                 sessions_used_this_period=0,
+                current_period_started_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+            .returning(ClinicORM)
+        )
+        row = result.scalar_one_or_none()
+        return _to_domain(row) if row is not None else None
+
+    async def list_by_stripe_subscription_id(
+        self, session: AsyncSession, stripe_subscription_id: str
+    ) -> list[Clinic]:
+        """Fase 13, hito 13.2 — resuelve a qué `Clinic`(s) aplicar un evento
+        de ciclo de vida de la suscripción (`customer.subscription.*`,
+        `invoice.*`). Devuelve una LISTA, no una sola `Clinic`: el nivel
+        Cadena/Empresa comparte el mismo `stripe_subscription_id` entre
+        varias filas (docs/fase-13-rfc.md §3.3) — el llamador debe aplicar
+        el mismo cambio a todas."""
+        result = await session.execute(
+            select(ClinicORM).where(ClinicORM.stripe_subscription_id == stripe_subscription_id)
+        )
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def list_with_stripe_subscription(self, session: AsyncSession) -> list[Clinic]:
+        """Fase 13, hito 13.2 — candidatas al cron de reconciliación diaria:
+        toda `Clinic` que ya completó el alta de facturación (tiene
+        `stripe_subscription_id`), sin filtrar por `subscription_status`:
+        la reconciliación existe precisamente para detectar cuándo ese
+        campo ya no refleja el estado real en Stripe."""
+        result = await session.execute(
+            select(ClinicORM).where(ClinicORM.stripe_subscription_id.is_not(None))
+        )
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def update_subscription_status(
+        self, session: AsyncSession, clinic_id: uuid.UUID, *, subscription_status: str
+    ) -> Clinic | None:
+        """Fase 13, hito 13.2 — aplica `customer.subscription.updated`/
+        `customer.subscription.deleted` (o una corrección de
+        `reconcile_subscriptions`): sincroniza solo el estado, sin tocar
+        `plan`/`sessions_used_this_period`/`current_period_started_at` (eso
+        es exclusivo de `set_billing_fields`/`start_new_billing_period`)."""
+        result = await session.execute(
+            update(ClinicORM)
+            .where(ClinicORM.id == clinic_id)
+            .values(subscription_status=subscription_status, updated_at=datetime.now(UTC))
+            .returning(ClinicORM)
+        )
+        row = result.scalar_one_or_none()
+        return _to_domain(row) if row is not None else None
+
+    async def start_new_billing_period(
+        self, session: AsyncSession, clinic_id: uuid.UUID, *, period_started_at: datetime
+    ) -> Clinic | None:
+        """Fase 13, hito 13.2 — aplica `invoice.paid`: cada factura pagada
+        marca el inicio de un nuevo periodo de facturación, así que el
+        contador de uso se reinicia (mismo criterio que `set_billing_fields`
+        en el alta) y el estado vuelve a `active` (una factura solo se paga
+        si la suscripción está al día)."""
+        result = await session.execute(
+            update(ClinicORM)
+            .where(ClinicORM.id == clinic_id)
+            .values(
+                subscription_status="active",
+                sessions_used_this_period=0,
+                current_period_started_at=period_started_at,
+                updated_at=datetime.now(UTC),
+            )
+            .returning(ClinicORM)
+        )
+        row = result.scalar_one_or_none()
+        return _to_domain(row) if row is not None else None
+
+    async def increment_sessions_used(
+        self, session: AsyncSession, clinic_id: uuid.UUID
+    ) -> Clinic | None:
+        """Fase 13, hito 13.2 — una unidad consumida del tope de
+        sesiones/mes: incremento atómico en SQL (`sessions_used_this_period
+        + 1`), nunca leer-modificar-escribir desde Python, para que dos
+        disparos concurrentes del pipeline no se pisen entre sí."""
+        result = await session.execute(
+            update(ClinicORM)
+            .where(ClinicORM.id == clinic_id)
+            .values(
+                sessions_used_this_period=ClinicORM.sessions_used_this_period + 1,
                 updated_at=datetime.now(UTC),
             )
             .returning(ClinicORM)

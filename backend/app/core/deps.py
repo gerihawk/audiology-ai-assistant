@@ -63,6 +63,7 @@ __all__ = [
     "get_invitation_service",
     "get_configured_payment_gateway",
     "get_billing_service",
+    "require_active_subscription",
 ]
 
 
@@ -214,3 +215,17 @@ async def get_billing_service(
     configured_payment_gateway: PaymentGateway = Depends(get_configured_payment_gateway),
 ) -> BillingService:
     return BillingService(session, payment_gateway=configured_payment_gateway)
+
+
+async def require_active_subscription(
+    current_user: CurrentUser = Depends(get_current_user),
+    billing_service: BillingService = Depends(get_billing_service),
+) -> None:
+    """Fase 13, hito 13.2 — gate de acceso por `subscription_status`
+    (docs/fase-13-rfc.md §5). Dependencia FastAPI, no una comprobación
+    dentro de un servicio: se aplica SOLO en la ruta
+    `POST .../run-pipeline` (ver app/ai_pipeline/api/router.py), nunca en
+    `run-mock-pipeline` ni en el resto de endpoints de negocio — alcance
+    deliberadamente acotado a la única operación que gasta dinero real,
+    ver `BillingService.check_active_subscription`."""
+    await billing_service.check_active_subscription(current_user)

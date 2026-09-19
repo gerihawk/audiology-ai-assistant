@@ -33,5 +33,13 @@ class Clinic:
     # (PLAN_BASICO/PLAN_PROFESIONAL/PLAN_CLINICA_GRANDE/PLAN_CADENA_EMPRESA).
     plan: str | None = None
     # Contador de sesiones del periodo de facturación en curso — usado por
-    # el overage medido (hito 13.2, no implementado todavía en este hito).
+    # el overage medido (hito 13.2, ver BillingService.report_overage_usage).
     sessions_used_this_period: int = 0
+    # --- Facturación / Stripe (Fase 13, hito 13.2) ---
+    # Inicio del periodo de facturación actual — fijado por
+    # `set_billing_fields` (alta) y por `start_new_billing_period`
+    # (renovación en cada `invoice.paid`). Es el límite temporal que usa
+    # `report_overage_usage` para saber desde cuándo contar ejecuciones del
+    # pipeline real: sin esto no habría forma de distinguir "uso de este
+    # periodo" de "uso de periodos anteriores ya facturados".
+    current_period_started_at: datetime | None = None

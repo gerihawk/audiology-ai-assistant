@@ -17,6 +17,7 @@ import { PatientClinicalRecordPage } from './features/patients/PatientClinicalRe
 import { RetentionPage } from './features/retention/RetentionPage'
 import { IntegrationsPage } from './features/integrations/IntegrationsPage'
 import { InvitationsPage } from './features/invitations/InvitationsPage'
+import { BillingPage } from './features/billing/BillingPage'
 import { SignupPage } from './features/onboarding/SignupPage'
 import { VerifyEmailPage } from './features/onboarding/VerifyEmailPage'
 import { PasswordResetRequestPage } from './features/onboarding/PasswordResetRequestPage'
@@ -47,6 +48,7 @@ function AppNav() {
       <NavLink to="/retention">Retención</NavLink>
       <NavLink to="/integrations">Integraciones</NavLink>
       <NavLink to="/invitations">Invitaciones</NavLink>
+      <NavLink to="/billing">Facturación</NavLink>
     </nav>
   )
 }
@@ -92,6 +94,7 @@ function AppRoutes() {
       <Route path="/retention" element={<RetentionPage />} />
       <Route path="/integrations" element={<IntegrationsPage />} />
       <Route path="/invitations" element={<InvitationsPage />} />
+      <Route path="/billing" element={<BillingPage />} />
 
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

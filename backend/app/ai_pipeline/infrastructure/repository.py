@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -106,6 +107,7 @@ def _pipeline_run_to_domain(row: AIPipelineRunORM) -> AIPipelineRun:
         started_at=row.started_at,
         completed_at=row.completed_at,
         request_id=row.request_id,
+        is_billable=row.is_billable,
     )
 
 
@@ -415,6 +417,18 @@ class SqlAlchemyAIGenerationRunRepository:
         )
         return result.scalar_one()
 
+    async def sum_estimated_cost_for_pipeline_runs(
+        self, session: AsyncSession, ai_pipeline_run_ids: list[uuid.UUID]
+    ) -> Decimal:
+        if not ai_pipeline_run_ids:
+            return Decimal("0")
+        result = await session.execute(
+            select(
+                func.coalesce(func.sum(AIGenerationRunORM.estimated_cost_usd), Decimal("0"))
+            ).where(AIGenerationRunORM.ai_pipeline_run_id.in_(ai_pipeline_run_ids))
+        )
+        return result.scalar_one()
+
     async def delete_for_sessions(
         self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
     ) -> int:
@@ -441,6 +455,7 @@ class SqlAlchemyAIPipelineRunRepository:
             started_at=run.started_at,
             completed_at=run.completed_at,
             request_id=run.request_id,
+            is_billable=run.is_billable,
         )
         session.add(row)
         await session.flush()
@@ -495,6 +510,24 @@ class SqlAlchemyAIPipelineRunRepository:
         )
         await session.flush()
         return result.rowcount or 0
+
+    async def list_completed_since_for_clinic(
+        self, session: AsyncSession, clinic_id: uuid.UUID, since: datetime
+    ) -> list[AIPipelineRun]:
+        from app.clinical_sessions.infrastructure.orm import ClinicalSessionORM
+
+        result = await session.execute(
+            select(AIPipelineRunORM)
+            .join(ClinicalSessionORM, AIPipelineRunORM.clinical_session_id == ClinicalSessionORM.id)
+            .where(
+                ClinicalSessionORM.clinic_id == clinic_id,
+                AIPipelineRunORM.is_billable.is_(True),
+                AIPipelineRunORM.completed_at.is_not(None),
+                AIPipelineRunORM.started_at >= since,
+            )
+            .order_by(AIPipelineRunORM.started_at)
+        )
+        return [_pipeline_run_to_domain(row) for row in result.scalars().all()]
 
 
 class SqlAlchemyPromptTemplateRepository:

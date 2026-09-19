@@ -142,15 +142,20 @@ async def test_webhook_unrecognized_event_type_is_noop(
 ) -> None:
     service = _service(db_session)
     clinic_id = clinic_with_users.clinic.id
+    # "customer.created" no tiene handler ni en el hito 13.1 ni en el 13.2
+    # (ver `_HANDLED_EVENT_TYPES`) — a diferencia de
+    # "customer.subscription.updated", que sí lo tiene desde 13.2 (ver
+    # tests/test_billing_lifecycle.py).
     payload = json.dumps(
         {
             "id": "evt_test_unhandled",
-            "type": "customer.subscription.updated",
-            "data": {"object": {"id": "sub_test_999"}},
+            "type": "customer.created",
+            "data": {"object": {"id": "cus_test_999"}},
         }
     ).encode("utf-8")
 
-    # No debe lanzar — el hito 13.2 gestiona este tipo de evento.
+    # No debe lanzar — un tipo de evento sin handler se registra como
+    # procesado sin aplicar ningún cambio (ver docstring del módulo).
     await service.handle_webhook_event(payload, _SIGNATURE_HEADER)
 
     unchanged = await SqlAlchemyClinicRepository().get_by_id(db_session, clinic_id)

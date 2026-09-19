@@ -7,12 +7,11 @@ interfaz agnóstica del proveedor real, resuelta por configuración vía
 regla no negociable de CLAUDE.md §6 (Stripe es, literalmente, una API de
 pago).
 
-Alcance de este hito: crear una Checkout Session y verificar/parsear un
-evento de webhook. `create_portal_session` (hito 13.3) y cualquier llamada
-de gestión de suscripción (cambiar de nivel, cancelar) no forman parte de
-este puerto todavía — se añaden cuando su hito correspondiente las necesite,
-mismo criterio de "no construir infraestructura antes de que un hito
-concreto la use" ya aplicado al resto del proyecto.
+Hito 13.1: crear una Checkout Session y verificar/parsear un evento de
+webhook. Hito 13.2 añade `report_overage_usage`/`get_subscription_status`
+(ciclo de vida de la suscripción y overage medido); hito 13.3 añade
+`create_portal_session` (Stripe Customer Portal) — ver docs/fase-13-rfc.md
+§4.2/§5.
 """
 
 from __future__ import annotations
@@ -31,6 +30,14 @@ class CheckoutSession:
     #: nunca se persiste (el webhook es la única fuente de verdad, ver
     #: docs/fase-13-rfc.md §4.1 punto 3).
     session_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class PortalSession:
+    #: URL alojada por Stripe (Customer Portal) — el admin gestiona su
+    #: propio método de pago, ve facturas pasadas y cancela/cambia de nivel
+    #: ahí, nunca en una UI propia (docs/fase-13-rfc.md §4.2).
+    url: str
 
 
 @dataclass(slots=True, frozen=True)
@@ -62,6 +69,7 @@ class PaymentGateway(Protocol):
         customer_email: str,
         success_url: str,
         cancel_url: str,
+        metered_price_id: str | None = None,
     ) -> CheckoutSession:
         """`clinic_id`/`plan` viajan como `client_reference_id`/`metadata`
         de la Checkout Session (redundante a propósito: distintos eventos
@@ -70,7 +78,14 @@ class PaymentGateway(Protocol):
         resultado, sin tener que volver a buscar nada por `customer_email`
         (§4.1 punto 4 de docs/fase-13-rfc.md: el estado real nunca se
         confía a lo que el propio cliente afirmó, solo al webhook — pero el
-        webhook necesita, aun así, saber qué se pidió)."""
+        webhook necesita, aun así, saber qué se pidió).
+
+        `metered_price_id` (hito 13.2, opcional): cuando el nivel tiene
+        overage definido (ver `app/billing/domain/plans.py`), se añade como
+        segunda línea SIN cantidad fija (Stripe la factura según el uso
+        reportado por `report_overage_usage`) — así la suscripción resultante
+        ya incluye el ítem medido desde el alta, sin tener que modificarla
+        más tarde."""
         ...
 
     def construct_webhook_event(self, payload: bytes, signature_header: str) -> WebhookEvent:
@@ -79,4 +94,40 @@ class PaymentGateway(Protocol):
         verifica. Síncrono a propósito: la verificación de firma HMAC no
         hace ninguna llamada de red (a diferencia de `create_checkout_session`),
         mismo criterio que el SDK oficial de Stripe."""
+        ...
+
+    async def get_subscription_status(self, stripe_subscription_id: str) -> str:
+        """Fase 13, hito 13.2 — consulta el `status` REAL de la Subscription
+        en Stripe ("active"/"trialing"/"past_due"/"unpaid"/"canceled"/...),
+        usado por `BillingService.reconcile_subscriptions` (cron diario,
+        docs/fase-13-rfc.md §6): el respaldo cuando un webhook se pierde y
+        `Clinic.subscription_status` queda desactualizado."""
+        ...
+
+    async def report_overage_usage(
+        self, *, stripe_customer_id: str, meter_event_name: str, quantity: int
+    ) -> None:
+        """Fase 13, hito 13.2 — reporta el overage acumulado del periodo
+        actual a un Stripe Billing Meter (API moderna de uso medido, no la
+        `UsageRecord` legacy de `SubscriptionItem`, retirada del SDK).
+        `quantity` son CÉNTIMOS de dólar
+        (`round(estimated_cost_usd_de_overage * 100)`) — convención
+        documentada en docs/fase-13-rfc.md §5. **Requisito de
+        configuración en Stripe, fuera del alcance de este código**: el
+        Meter (`STRIPE_METER_EVENT_NAME_<NIVEL>`) debe crearse con fórmula
+        de agregación "last" (no "sum"), para que reportar el total
+        acumulado del periodo cada día sea idempotente en vez de sumarse
+        sobre sí mismo — si se crea con "sum" por error, el overage
+        facturado quedará multiplicado. `meter_event_name` es el
+        `event_name` del Meter, NUNCA un id de Price: son objetos de
+        Stripe distintos aunque este RFC los configure para el mismo
+        nivel."""
+        ...
+
+    async def create_portal_session(
+        self, *, stripe_customer_id: str, return_url: str
+    ) -> PortalSession:
+        """Fase 13, hito 13.3 — Stripe Customer Portal: el admin gestiona su
+        propio método de pago, ve facturas pasadas y cancela/cambia de
+        nivel ahí, nunca en una UI propia (docs/fase-13-rfc.md §4.2)."""
         ...

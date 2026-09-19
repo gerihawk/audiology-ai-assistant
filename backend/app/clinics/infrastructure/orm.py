@@ -37,3 +37,7 @@ class ClinicORM(Base):
     subscription_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     plan: Mapped[str | None] = mapped_column(String(32), nullable=True)
     sessions_used_this_period: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Fase 13, hito 13.2 — ver docstring de Clinic.current_period_started_at.
+    current_period_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

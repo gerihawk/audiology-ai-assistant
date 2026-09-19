@@ -167,6 +167,8 @@ class AIPipelineRunORM(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Fase 13, hito 13.2 — ver docstring de AIPipelineRun.is_billable.
+    is_billable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class PromptTemplateORM(Base):

@@ -32,6 +32,17 @@ class AIGenerationRunRepository(Protocol):
         arrancar una nueva ejecución (ver docs/fase-6-rfc.md §6.3)."""
         ...
 
+    async def sum_estimated_cost_for_pipeline_runs(
+        self, session: AsyncSession, ai_pipeline_run_ids: list[uuid.UUID]
+    ) -> Decimal:
+        """Fase 13, hito 13.2 — coste agregado de las `AIGenerationRun` de
+        los `AIPipelineRun` dados (típicamente los que superan el tope
+        incluido del nivel, ver
+        `AIPipelineRunRepository.list_completed_since_for_clinic`), base de
+        `BillingService.report_overage_usage`. Lista vacía devuelve 0 sin
+        consultar la base de datos."""
+        ...
+
     async def delete_for_sessions(
         self, session: AsyncSession, clinical_session_ids: list[uuid.UUID]
     ) -> int:

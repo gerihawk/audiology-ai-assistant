@@ -77,6 +77,7 @@ from app.audit_log.infrastructure.repository import SqlAlchemyAuditLogRepository
 from app.clinical_sessions.domain.entities import ClinicalSession
 from app.clinical_sessions.domain.repository import ClinicalSessionRepository
 from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSessionRepository
+from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.consents.domain.entities import ConsentType
 from app.consents.domain.repository import ConsentRepository
 from app.consents.infrastructure.repository import SqlAlchemyConsentRepository
@@ -203,11 +204,16 @@ class AIPipelineService:
         configured_transcription_provider: TranscriptionProvider | None = None,
         consent_repository: ConsentRepository | None = None,
         prompt_template_repository: PromptTemplateRepository | None = None,
+        clinic_repository: SqlAlchemyClinicRepository | None = None,
     ) -> None:
         self._session = session
         self._artifacts = artifact_repository or SqlAlchemyAIArtifactRepository()
         self._generation_runs = generation_run_repository or SqlAlchemyAIGenerationRunRepository()
         self._pipeline_runs = pipeline_run_repository or SqlAlchemyAIPipelineRunRepository()
+        # Fase 13, hito 13.2: solo para incrementar
+        # `Clinic.sessions_used_this_period` tras un `run_pipeline` real
+        # (nunca `run_mock_pipeline`) — ver `_execute_pipeline_run`.
+        self._clinics = clinic_repository or SqlAlchemyClinicRepository()
         # Activado vía DI desde el hito 6.1; usado desde el hito 6.3.3/6.3.7
         # por `_require_prompt_template()`/`_build_*_step()` para resolver
         # la plantilla activa de cada artifact_type con routing real — los
@@ -292,7 +298,9 @@ class AIPipelineService:
         de producción está activo. Expuesto por `POST .../run-pipeline`."""
         clinical_session = await self._authorize_trigger(current_user, clinical_session_id)
         steps = await self._build_steps()
-        return await self._execute_pipeline_run(current_user, clinical_session, request_id, steps)
+        return await self._execute_pipeline_run(
+            current_user, clinical_session, request_id, steps, is_billable=True
+        )
 
     async def run_mock_pipeline(
         self, current_user: CurrentUser, clinical_session_id: uuid.UUID, request_id: str
@@ -304,7 +312,9 @@ class AIPipelineService:
         `POST .../run-mock-pipeline`."""
         clinical_session = await self._authorize_trigger(current_user, clinical_session_id)
         steps = self._build_mock_steps()
-        return await self._execute_pipeline_run(current_user, clinical_session, request_id, steps)
+        return await self._execute_pipeline_run(
+            current_user, clinical_session, request_id, steps, is_billable=False
+        )
 
     async def _authorize_trigger(
         self, current_user: CurrentUser, clinical_session_id: uuid.UUID
@@ -324,6 +334,8 @@ class AIPipelineService:
         clinical_session: ClinicalSession,
         request_id: str,
         steps: list[PipelineStep],
+        *,
+        is_billable: bool,
     ) -> PipelineRunOutcome:
         clinical_session_id = clinical_session.id
         existing_active = await self._pipeline_runs.get_active_for_session(
@@ -341,6 +353,7 @@ class AIPipelineService:
             started_at=now,
             completed_at=None,
             request_id=request_id,
+            is_billable=is_billable,
         )
 
         try:
@@ -436,6 +449,25 @@ class AIPipelineService:
                     }
                 },
             )
+
+            if is_billable:
+                # Fase 13, hito 13.2: una unidad consumida del tope de
+                # sesiones/mes — solo si la clínica ya tiene un `plan`
+                # contratado (`Clinic.plan` no nulo). Una clínica gestionada
+                # a mano todavía (sin alta de Stripe, ver
+                # docs/fase-13-rfc.md §0.2) no tiene tope que contar contra
+                # ella; el gate de acceso (`require_active_subscription`)
+                # tampoco la bloquea nunca, mismo criterio. Falla o no
+                # importa poco (el commit de abajo es lo crítico) — pero se
+                # hace dentro de la misma transacción para que un fallo real
+                # revierta también el incremento, nunca deje el contador
+                # avanzado sin la ejecución que lo causó.
+                clinic = await self._clinics.get_by_id(self._session, current_user.clinic_id)
+                if clinic is not None and clinic.plan is not None:
+                    await self._clinics.increment_sessions_used(
+                        self._session, current_user.clinic_id
+                    )
+
             await self._session.commit()
         except Exception:
             await self._session.rollback()

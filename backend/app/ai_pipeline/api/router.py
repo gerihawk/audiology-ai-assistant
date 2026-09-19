@@ -36,7 +36,7 @@ from app.ai_pipeline.api.schemas import (
 from app.ai_pipeline.service import AIPipelineService
 from app.core.context import get_request_id
 from app.core.current_user import CurrentUser
-from app.core.deps import get_ai_pipeline_service, get_current_user
+from app.core.deps import get_ai_pipeline_service, get_current_user, require_active_subscription
 
 router = APIRouter(tags=["ai-pipeline"])
 
@@ -62,6 +62,7 @@ async def run_mock_pipeline(
     "/clinical-sessions/{session_id}/run-pipeline",
     response_model=RunPipelineResponse,
     status_code=201,
+    dependencies=[Depends(require_active_subscription)],
 )
 async def run_pipeline(
     session_id: uuid.UUID,
@@ -71,7 +72,10 @@ async def run_pipeline(
 ) -> RunPipelineResponse:
     """Configurado — respeta el routing real por artifact_type; puede
     invocar Anthropic/OpenAI/Google y gastar dinero real si `Settings` lo
-    indica (ver `AIPipelineService.run_pipeline`)."""
+    indica (ver `AIPipelineService.run_pipeline`). Único endpoint con el
+    gate de suscripción (Fase 13, hito 13.2,
+    `require_active_subscription`) — `run-mock-pipeline` nunca lo lleva,
+    ver docstring del módulo."""
     outcome = await service.run_pipeline(current_user, session_id, request_id)
     return RunPipelineResponse.from_outcome(outcome)
 

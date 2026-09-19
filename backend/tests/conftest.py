@@ -21,6 +21,12 @@ os.environ.setdefault("RETENTION_CRON_SECRET", "test-retention-cron-secret-not-f
 os.environ.setdefault(
     "ONBOARDING_CLEANUP_CRON_SECRET", "test-onboarding-cleanup-cron-secret-not-for-production"
 )
+# Fase 13, hito 13.2: BILLING_RECONCILE_CRON_SECRET es obligatorio (mismo
+# criterio que los dos anteriores) — autentica al cron externo de
+# POST /api/v1/billing/reconcile, no cubierto por dev_headers().
+os.environ.setdefault(
+    "BILLING_RECONCILE_CRON_SECRET", "test-billing-reconcile-cron-secret-not-for-production"
+)
 # Fase 12, hito 12.5: FIELD_ENCRYPTION_KEYS/FIELD_ENCRYPTION_ACTIVE_KEY_ID
 # son obligatorios (mismo criterio que los secretos de arriba) — clave de
 # 32 bytes generada solo para tests, nunca usada fuera de esta suite. Un

@@ -174,6 +174,17 @@ class AIPipelineRun:
     started_at: datetime
     completed_at: datetime | None
     request_id: str | None
+    # Fase 13, hito 13.2: `True` solo para `AIPipelineService.run_pipeline`
+    # (pipeline CONFIGURADO, puede gastar dinero real) — `run_mock_pipeline`
+    # siempre crea `is_billable=False`. Es lo único que distingue de forma
+    # fiable, a nivel de fila, un disparo real de uno mock: el routing de
+    # `Settings.llm_provider_*` puede ser "mock" incluso para un disparo
+    # real (development/test), así que `AIGenerationRun.provider_name` NO
+    # sirve para esta distinción. Usado por
+    # `Clinic.sessions_used_this_period` (solo se incrementa si
+    # `is_billable`) y por `report_overage_usage`
+    # (`list_completed_since_for_clinic` solo cuenta `is_billable=True`).
+    is_billable: bool = False
 
 
 @dataclass(slots=True)

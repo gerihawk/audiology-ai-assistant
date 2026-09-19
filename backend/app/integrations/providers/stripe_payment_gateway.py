@@ -14,6 +14,7 @@ import stripe
 
 from app.integrations.domain.payment_gateway import (
     CheckoutSession,
+    PortalSession,
     WebhookEvent,
     WebhookSignatureError,
 )
@@ -44,11 +45,19 @@ class StripePaymentGateway:
         customer_email: str,
         success_url: str,
         cancel_url: str,
+        metered_price_id: str | None = None,
     ) -> CheckoutSession:
+        line_items: list[dict[str, object]] = [{"price": price_id, "quantity": 1}]
+        if metered_price_id:
+            # Fase 13, hito 13.2 — línea de overage SIN `quantity`: un Price
+            # con `recurring.usage_type=metered` la rechaza si se envía
+            # cantidad fija (Stripe la deriva del uso reportado, ver
+            # `report_overage_usage`).
+            line_items.append({"price": metered_price_id})
         session = await stripe.checkout.Session.create_async(
             api_key=self._api_key,
             mode="subscription",
-            line_items=[{"price": price_id, "quantity": 1}],
+            line_items=line_items,
             customer_email=customer_email,
             success_url=success_url,
             cancel_url=cancel_url,
@@ -70,3 +79,31 @@ class StripePaymentGateway:
         except (ValueError, stripe.SignatureVerificationError) as exc:
             raise WebhookSignatureError(str(exc)) from exc
         return WebhookEvent(id=event["id"], type=event["type"], data=event["data"]["object"])
+
+    async def get_subscription_status(self, stripe_subscription_id: str) -> str:
+        subscription = await stripe.Subscription.retrieve_async(
+            stripe_subscription_id, api_key=self._api_key
+        )
+        return subscription.status
+
+    async def report_overage_usage(
+        self, *, stripe_customer_id: str, meter_event_name: str, quantity: int
+    ) -> None:
+        # API moderna de Stripe Billing Meters (la `UsageRecord` legacy de
+        # `SubscriptionItem` ya no existe en este SDK) — ver docstring del
+        # Protocol sobre el requisito de agregación "last" en el Meter.
+        await stripe.billing.MeterEvent.create_async(
+            api_key=self._api_key,
+            event_name=meter_event_name,
+            payload={"stripe_customer_id": stripe_customer_id, "value": str(quantity)},
+        )
+
+    async def create_portal_session(
+        self, *, stripe_customer_id: str, return_url: str
+    ) -> PortalSession:
+        portal_session = await stripe.billing_portal.Session.create_async(
+            api_key=self._api_key,
+            customer=stripe_customer_id,
+            return_url=return_url,
+        )
+        return PortalSession(url=portal_session.url)

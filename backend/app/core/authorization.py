@@ -430,12 +430,19 @@ INVITATION_PERMISSIONS: dict[Role, frozenset[InvitationAction]] = {
 
 class BillingAction(StrEnum):
     CREATE_CHECKOUT_SESSION = "create_checkout_session"
+    #: Fase 13, hito 13.3 — abrir el Stripe Customer Portal (gestionar
+    #: método de pago, ver facturas, cancelar/cambiar de nivel).
+    CREATE_PORTAL_SESSION = "create_portal_session"
+    #: Fase 13, hito 13.3 — consultar plan/estado de suscripción/uso del
+    #: periodo de la propia clínica (apartado "Facturación" del frontend).
+    READ_STATUS = "read_status"
 
 
-#: Fase 13, hito 13.1 (docs/fase-13-rfc.md §5). Mismo patrón "admin
+#: Fase 13, hitos 13.1/13.3 (docs/fase-13-rfc.md §5). Mismo patrón "admin
 #: únicamente" que `RetentionAction`/`IntegrationConfigAction`/
-#: `InvitationAction`: dar de alta la facturación de la clínica es una
-#: tarea administrativa, ni siquiera `audiologist` puede hacerlo.
+#: `InvitationAction`: dar de alta o gestionar la facturación de la
+#: clínica es una tarea administrativa, ni siquiera `audiologist` puede
+#: hacerlo.
 BILLING_PERMISSIONS: dict[Role, frozenset[BillingAction]] = {
     Role.ADMIN: frozenset(BillingAction),
     Role.AUDIOLOGIST: frozenset(),

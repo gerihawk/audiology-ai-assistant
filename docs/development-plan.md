@@ -1711,7 +1711,7 @@ clínica quedan aplazados.
   cada módulo) — se avisa además de que, si vuelve a quedar desactualizada,
   debe corregirse ahí mismo en vez de dejarla arrastrar.
 
-## Fase 13 — Facturación / Stripe (RFC cerrado, hito 13.1 implementado)
+## Fase 13 — Facturación / Stripe (RFC cerrado, hitos 13.1/13.2/13.3 implementados)
 
 Ver [fase-13-rfc.md](fase-13-rfc.md) para el RFC completo (cerrado el
 2026-09-18: modelo D híbrido, niveles y precios, IVA manual al principio,
@@ -1763,27 +1763,117 @@ implementados):
   aplicación e idempotencia del webhook) y `tests/test_billing_api.py`
   (superficie HTTP, 401/403/422/400 incluidos).
 
-**Pendiente, hitos 13.2/13.3 (no implementados todavía, ver
-docs/fase-13-rfc.md §7)**: resto del ciclo de vida del webhook (impago,
-cancelación, actualización), gate de acceso por `subscription_status`
-(403 cuando la suscripción no está `active`/`trialing`, o por encima del
-techo de overage), `report_overage_usage` (metered billing sobre
-`estimated_cost_usd`), cron de reconciliación diaria Stripe↔`Clinic`,
-`POST /billing/portal-session` (Customer Portal) y el apartado
-"Facturación" del frontend. Hasta que el hito 13.2 exista, ninguna
-suscripción se bloquea automáticamente por impago o cancelación —
-`Clinic.subscription_status` se actualiza en el alta pero todavía no lo
-lee ningún guardarraíl de acceso.
+**Hito 13.2 (implementado el 2026-09-18)**: resto del ciclo de vida del
+webhook, gate de acceso y overage, ver docs/fase-13-rfc.md §7 para el
+alcance exacto de este hito:
+
+- `Clinic` extendida con `current_period_started_at`
+  (`app/clinics/domain/entities.py`, `app/clinics/infrastructure/orm.py`,
+  migración `8b1e2f7c4a63_add_billing_period_start_to_clinics.py`) —
+  frontera temporal para las consultas de overage; se fija en el alta
+  (`checkout.session.completed`) y en cada reconciliación de un periodo
+  nuevo.
+- `AIPipelineRun` extendida con `is_billable`
+  (`app/ai_pipeline/domain/entities.py`,
+  `app/ai_pipeline/infrastructure/orm.py`, migración
+  `c7a4d9e21f08_add_is_billable_to_ai_pipeline_runs.py`) — único indicador
+  fiable a nivel de BD de si una ejecución fue real (`run_pipeline`,
+  `is_billable=True`) o simulada (`run_mock_pipeline`,
+  `is_billable=False`); no puede inferirse de `Settings.llm_provider_*`
+  porque ese routing puede ser "mock" para el propio endpoint real.
+  `AIPipelineService._execute_pipeline_run` incrementa
+  `Clinic.sessions_used_this_period` una vez por cada ejecución real
+  facturable de una clínica con `plan` asignado (las clínicas con
+  suscripción gestionada a mano, `plan is None`, nunca cuentan sesiones).
+- `BillingService.handle_webhook_event` añade handlers para
+  `customer.subscription.updated`, `customer.subscription.deleted`,
+  `invoice.paid` e `invoice.payment_failed`, todos resolviendo **todas**
+  las `Clinic` que comparten un mismo `stripe_subscription_id` (nivel
+  Cadena/Empresa, RFC §3.3) — nunca solo la primera encontrada.
+  `invoice.paid` aproxima el inicio del nuevo periodo a la hora del
+  servidor en el momento de procesar el evento (no parsea los límites
+  exactos del periodo de la factura de Stripe) — simplificación deliberada,
+  a revisar si en producción se observa deriva frente a los periodos
+  reales de Stripe.
+- `require_active_subscription` (`app/core/deps.py`), dependencia FastAPI
+  respaldada por `BillingService.check_active_subscription`: 403 si
+  `subscription_status` es `unpaid`/`canceled`, o si el uso del periodo
+  supera el techo de seguridad (`safety_cap_sessions`, el doble del tope
+  incluido del nivel — `app/billing/domain/plans.py`). Nunca bloquea en el
+  primer `past_due` (Stripe todavía reintentando el cobro, dunning),
+  nunca bloquea una clínica gestionada a mano (`subscription_status is
+  None`), y nunca bloquea por uso al nivel Cadena/Empresa (sin tope
+  definido, ver más abajo). Aplicada únicamente a
+  `POST .../run-pipeline` (`app/ai_pipeline/api/router.py`) — decisión de
+  alcance: el RFC habla en general de "los endpoints que cuestan dinero",
+  pero el único que ejecuta un pipeline real de LLM es este; el resto de
+  endpoints de `ai_pipeline` no vuelven a invocar al proveedor.
+- `BillingService.report_overage_usage`: suma `estimated_cost_usd` de las
+  ejecuciones facturables por encima del tope incluido del periodo actual
+  y lo reporta a Stripe vía la **Billing Meters API** moderna
+  (`stripe.billing.MeterEvent.create_async`, no la `UsageRecord` legada,
+  ya retirada del SDK instalado). Requiere que el Meter de Stripe esté
+  configurado con agregación **"last"** (no "sum") para que reportar de
+  nuevo el acumulado del periodo sea idempotente — **esto no puede
+  verificarse desde el código, Gerard debe confirmarlo en su cuenta real
+  de Stripe antes de pasar a producción**. Nuevas variables
+  `STRIPE_METER_EVENT_NAME_<NIVEL>` (nombre del evento del Meter, distinto
+  del `STRIPE_METERED_PRICE_ID_<NIVEL>` usado como línea de Checkout).
+- `BillingService.reconcile_subscriptions` + cron diario idempotente
+  (`app/billing/reconcile_cli.py`,
+  `ops/billing-reconciliation-cron/reconcile.py`, `0 4 * * *` en
+  `.railway/railway.ts`) — mismo patrón que los cron de retención/limpieza
+  de onboarding: `POST /api/v1/billing/reconcile` protegido por
+  `X-Billing-Reconcile-Cron-Secret` (`BILLING_RECONCILE_CRON_SECRET`).
+  Corrige la deriva de `subscription_status` comparando contra el estado
+  real en Stripe y dispara `report_overage_usage` para cada clínica con
+  suscripción activa; cachea la consulta a Stripe por
+  `stripe_subscription_id` para no repetirla en clínicas Cadena/Empresa
+  que comparten suscripción.
+- Nivel Cadena/Empresa: sin tope de sesiones ni overage definidos en este
+  hito (`PLAN_INCLUDED_SESSIONS` no lo incluye deliberadamente) — hueco
+  real del RFC, no un olvido; el gate nunca bloquea por uso a este nivel
+  hasta que se decida un modelo de facturación consolidada.
+- `sessions_used_this_period` cuenta cada ejecución real del pipeline sin
+  deduplicar reintentos sobre la misma sesión clínica — simplificación
+  deliberada (RFC no especifica qué hacer con reintentos).
+
+**Hito 13.3 (implementado el 2026-09-18)**: Customer Portal + apartado
+"Facturación" del frontend:
+
+- `PaymentGateway.create_portal_session` (`MockPaymentGateway`/
+  `StripePaymentGateway`) y `POST /api/v1/billing/portal-session`
+  (`app/billing/api/router.py`) — `ADMIN` únicamente, redirige al Stripe
+  Customer Portal (gestión de método de pago/facturas, sin construir
+  ninguna UI de pago propia).
+- `GET /api/v1/billing/status` (`BillingService.get_status`) — nivel,
+  `subscription_status`, uso del periodo, tope incluido y techo de
+  seguridad; `null` en los campos de nivel cuando la clínica está
+  gestionada a mano.
+- Frontend: `frontend/src/features/billing/` — `BillingPage.tsx` (gate de
+  acceso, `ADMIN` únicamente, mismo patrón que
+  `IntegrationsPage`/`InvitationsPage`) delega en `BillingPanel.tsx`
+  (estado actual + botón al portal + botones de contratación por nivel,
+  recibe `devUserId`/`role` por props para ser testeable igual que
+  `IntegrationsList`/`InvitationsList`). Nueva entrada "Facturación" en la
+  navegación (`App.tsx`).
+- Tests: `tests/test_billing_lifecycle.py` (gate, ciclo de vida del
+  webhook, overage, reconciliación, portal-session, get_status — 24
+  tests) y `frontend/src/features/billing/BillingPanel.test.tsx` (9
+  tests).
 
 ## Fuera de las fases del MVP
 
-**Facturación/Stripe — RFC cerrado el 2026-09-18, hito 13.1 implementado el
-mismo día**: ver [fase-13-rfc.md](fase-13-rfc.md) y la sección "Fase 13 —
-Facturación / Stripe" más arriba en este mismo documento para el detalle
-técnico. Corrección respecto a la nota anterior de este mismo párrafo
-("RFC abierto, pendiente de decisiones comerciales") — quedó
-desactualizada en cuanto Gerard cerró esas decisiones (niveles, precios,
-IVA, modelo D) el 2026-09-18, el mismo día en que se abrió.
+**Facturación/Stripe — RFC cerrado el 2026-09-18, hitos 13.1/13.2/13.3
+implementados el mismo día**: ver [fase-13-rfc.md](fase-13-rfc.md) y la
+sección "Fase 13 — Facturación / Stripe" más arriba en este mismo
+documento para el detalle técnico. Corrección respecto a la nota anterior
+de este mismo párrafo ("RFC abierto, pendiente de decisiones
+comerciales") — quedó desactualizada en cuanto Gerard cerró esas
+decisiones (niveles, precios, IVA, modelo D) el 2026-09-18, el mismo día
+en que se abrió. Pendiente real que sí queda fuera de este RFC: un modelo
+de facturación consolidada (tope/overage) para el nivel Cadena/Empresa —
+ver hito 13.2 más arriba.
 
 Cualquier integración real (Noah, calendario), selector de idioma en
 tiempo de ejecución (más allá de centralizar textos para prepararlo, ver

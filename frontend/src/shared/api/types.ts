@@ -395,6 +395,37 @@ export interface ClinicSignupInput {
   turnstile_token: string
 }
 
+/** `Plan` (`app/billing/domain/plans.py`, Fase 13) — un `StrEnum` usado
+ * directamente como tipo de campo Pydantic en el backend; aquí, el mismo
+ * conjunto de literales. */
+export type Plan = 'basico' | 'profesional' | 'clinica_grande' | 'cadena_empresa'
+
+/** `CheckoutSessionResponse` (`app/billing/api/schemas.py`, Fase 13, hito
+ * 13.1). */
+export interface CheckoutSessionResponse {
+  checkout_url: string
+}
+
+/** `PortalSessionResponse` (`app/billing/api/schemas.py`, Fase 13, hito
+ * 13.3). */
+export interface PortalSessionResponse {
+  portal_url: string
+}
+
+/** `BillingStatusResponse` (`app/billing/api/schemas.py`, Fase 13, hito
+ * 13.3) — `plan`/`subscription_status` `null` significa "gestionada a
+ * mano, sin alta de Stripe todavía" (ver docs/fase-13-rfc.md §0.2).
+ * `included_sessions`/`safety_cap_sessions` `null` tanto sin plan como
+ * para Cadena/Empresa (sin tope definido). */
+export interface BillingStatus {
+  plan: Plan | null
+  subscription_status: string | null
+  sessions_used_this_period: number
+  included_sessions: number | null
+  safety_cap_sessions: number | null
+  has_stripe_customer: boolean
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string
