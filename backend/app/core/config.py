@@ -380,6 +380,17 @@ class Settings(BaseSettings):
     stripe_meter_event_name_basico: str | None = None
     stripe_meter_event_name_profesional: str | None = None
     stripe_meter_event_name_clinica_grande: str | None = None
+    # `estimated_cost_usd` (lo que cobran las APIs de LLM/transcripción,
+    # ver Fase 6) está siempre en USD, pero la Price MEDIDA de Stripe de
+    # Gerard está denominada en EUR (mismo criterio que el resto de Prices
+    # del catálogo — ver `stripe_price_id_<nivel>`). Sin esta conversión,
+    # `report_overage_usage` reportaría el mismo número de céntimos pero
+    # Stripe los facturaría como céntimos de EUR, no de USD. Tipo de cambio
+    # ESTÁTICO fijado a mano (sin integración con ninguna API de divisas en
+    # este hito) — aproximado a propósito, Gerard debe revisarlo y
+    # actualizarlo periódicamente; ver docs/development-plan.md, Fase 13,
+    # hito 13.2.
+    usd_to_eur_exchange_rate: Decimal = Decimal("0.92")
     # Autentica al LLAMADOR de POST /api/v1/billing/reconcile (un cron
     # externo diario, ver ops/billing-reconciliation-cron/) — mismo patrón
     # que `retention_cron_secret`/`onboarding_cleanup_cron_secret`:

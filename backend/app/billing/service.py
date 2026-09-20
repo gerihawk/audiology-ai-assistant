@@ -537,14 +537,19 @@ class BillingService:
         """Fase 13, hito 13.2 (docs/fase-13-rfc.md §4.3/§5) — reporta a
         Stripe el coste de las ejecuciones del pipeline real que superan el
         tope incluido del nivel en el periodo actual. Devuelve el importe
-        en USD reportado, o `None` si no había nada que reportar (clínica
-        sin plan/periodo, nivel sin overage definido, dentro de tope, coste
-        cero, o overage sin Meter configurado todavía en este entorno) —
-        usado por `reconcile_subscriptions` para resumir qué se reportó.
-        Sin escritura en base de datos: es idempotente por diseño en el
-        lado de Stripe (ver docstring de
-        `PaymentGateway.report_overage_usage`), así que llamarlo más de una
-        vez al día (p. ej. tras una reconciliación manual) es seguro."""
+        en USD detectado (antes de convertir a EUR — ver más abajo), o
+        `None` si no había nada que reportar (clínica sin plan/periodo,
+        nivel sin overage definido, dentro de tope, coste cero, o overage
+        sin Meter configurado todavía en este entorno) — usado por
+        `reconcile_subscriptions` para resumir qué se reportó. La cantidad
+        que de verdad se envía a Stripe (`quantity`, en céntimos) se
+        convierte de USD a EUR con `Settings.usd_to_eur_exchange_rate`
+        antes de calcularse, porque la Price MEDIDA está denominada en EUR
+        mientras que `estimated_cost_usd` siempre está en USD. Sin
+        escritura en base de datos: es idempotente por diseño en el lado
+        de Stripe (ver docstring de `PaymentGateway.report_overage_usage`),
+        así que llamarlo más de una vez al día (p. ej. tras una
+        reconciliación manual) es seguro."""
         clinic = await self._clinics.get_by_id(self._session, clinic_id)
         if clinic is None or clinic.plan is None or clinic.stripe_customer_id is None:
             return None
@@ -589,8 +594,14 @@ class BillingService:
             )
             return None
 
+        # La Price MEDIDA de Stripe está en EUR (ver
+        # `Settings.usd_to_eur_exchange_rate`), pero `overage_cost` viene en
+        # USD — se convierte aquí, justo antes de pasar a céntimos, para
+        # que el importe que de verdad se factura sea el correcto y no un
+        # número de céntimos de USD facturado como si fuesen de EUR.
+        overage_cost_eur = overage_cost * self._settings.usd_to_eur_exchange_rate
         quantity_cents = int(
-            (overage_cost * Decimal(100)).to_integral_value(rounding=ROUND_HALF_UP)
+            (overage_cost_eur * Decimal(100)).to_integral_value(rounding=ROUND_HALF_UP)
         )
         if quantity_cents <= 0:
             return None
@@ -608,6 +619,8 @@ class BillingService:
                     "plan": plan.value,
                     "overage_sessions": len(runs) - included,
                     "overage_cost_usd": str(overage_cost),
+                    "usd_to_eur_exchange_rate": str(self._settings.usd_to_eur_exchange_rate),
+                    "overage_cost_eur": str(overage_cost_eur),
                     "quantity_cents": quantity_cents,
                 }
             },

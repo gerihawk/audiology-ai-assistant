@@ -78,7 +78,24 @@ class StripePaymentGateway:
             event = stripe.Webhook.construct_event(payload, signature_header, self._webhook_secret)
         except (ValueError, stripe.SignatureVerificationError) as exc:
             raise WebhookSignatureError(str(exc)) from exc
-        return WebhookEvent(id=event["id"], type=event["type"], data=event["data"]["object"])
+        # `event["data"]["object"]` en el SDK moderno de `stripe` (>=15, ver
+        # pyproject.toml) no es un dict plano sino un recurso tipado (p. ej.
+        # `stripe.checkout.Session`) que bloquea deliberadamente los métodos
+        # de dict accedidos como atributo (`.get(...)` lanza AttributeError:
+        # "'get' is a dict method, but a Session is not a dict. Use
+        # .to_dict() to convert it.") — `WebhookEvent.data` se declara como
+        # `dict[str, Any]` (ver app/integrations/domain/payment_gateway.py)
+        # precisamente para que `BillingService` pueda usar `.get(...)` sin
+        # conocer el SDK de Stripe, así que hay que convertirlo aquí, en el
+        # límite de la integración, con `.to_dict()` (recursivo: también
+        # convierte objetos anidados como `metadata`). Sin esto, cualquier
+        # webhook real de Stripe (los mocks de test siempre fueron dicts
+        # planos vía `json.loads`, ver MockPaymentGateway) revienta con un
+        # 500 en el primer `.get(...)` de `_apply_*` — descubierto en vivo
+        # el 2026-09-20 probando el webhook real por primera vez.
+        return WebhookEvent(
+            id=event["id"], type=event["type"], data=event["data"]["object"].to_dict()
+        )
 
     async def get_subscription_status(self, stripe_subscription_id: str) -> str:
         subscription = await stripe.Subscription.retrieve_async(

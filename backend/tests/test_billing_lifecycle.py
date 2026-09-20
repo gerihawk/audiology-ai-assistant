@@ -51,6 +51,11 @@ def _settings_with_overage() -> object:
             "stripe_price_id_basico": "price_test_basico",
             "stripe_metered_price_id_basico": "price_test_basico_overage",
             "stripe_meter_event_name_basico": "overage_basico",
+            # Tipo de cambio fijo y "redondo" (no el default de
+            # `Settings`) para que el test de `report_overage_usage` sea
+            # una aritmética verificable a mano, no dependa del valor real
+            # de mercado.
+            "usd_to_eur_exchange_rate": Decimal("0.8"),
         }
     )
 
@@ -394,9 +399,13 @@ async def test_report_overage_usage_reports_cost_beyond_included_cap(
 
         reported = await service.report_overage_usage(clinic.id)
 
-        # Tope=2: las dos últimas ejecuciones (0.05 + 0.10 = 0.15 USD) son overage.
+        # Tope=2: las dos últimas ejecuciones (0.05 + 0.10 = 0.15 USD) son
+        # overage. `reported` es el coste detectado en USD (sin convertir);
+        # lo que se reporta de verdad a Stripe (céntimos de EUR, Price
+        # medida denominada en EUR) pasa por `usd_to_eur_exchange_rate`
+        # (0.8 en este test) — 0.15 USD * 0.8 = 0.12 EUR = 12 céntimos.
         assert reported == Decimal("0.15")
-        assert gateway.reported_usage.get("cus_test") == 15  # céntimos
+        assert gateway.reported_usage.get("cus_test") == 12  # céntimos de EUR
     finally:
         plans_module.PLAN_INCLUDED_SESSIONS.clear()
         plans_module.PLAN_INCLUDED_SESSIONS.update(original_caps)
