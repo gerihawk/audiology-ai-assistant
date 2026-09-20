@@ -7,6 +7,7 @@ concreta con SQLAlchemy vive en infrastructure/repository.py.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -141,6 +142,23 @@ class AIArtifactRepository(Protocol):
         `AIGenerationRunRepository.delete_for_sessions`) — esa
         dependencia cruzada entre repositorios la resuelve el
         orquestador (`RetentionCleanupService`), no este método."""
+        ...
+
+    async def count_by_status_for_clinic(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        *,
+        created_since: datetime,
+        professional_id: uuid.UUID | None = None,
+    ) -> dict[str, int]:
+        """Fase 15 (analítica/reporting) — agregación por
+        `AIArtifactStatus.value` de los artefactos creados desde
+        `created_since` (join con `clinical_sessions` para filtrar por
+        `clinic_id`/`professional_id`, igual que `get_by_id`/
+        `list_by_session`). Excluye siempre los que tienen soft-delete.
+        `professional_id` acota a la vista "own" de un `audiologist` —
+        `None` agrega toda la clínica (vista de `admin`)."""
         ...
 
     async def finish_purge(self, session: AsyncSession, artifact_ids: list[uuid.UUID]) -> int:

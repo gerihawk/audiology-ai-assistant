@@ -204,6 +204,32 @@ class SqlAlchemyAIArtifactRepository:
         row = result.scalar_one_or_none()
         return _artifact_to_domain(row) if row is not None else None
 
+    async def count_by_status_for_clinic(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        *,
+        created_since: datetime,
+        professional_id: uuid.UUID | None = None,
+    ) -> dict[str, int]:
+        from app.clinical_sessions.infrastructure.orm import ClinicalSessionORM
+
+        filters = [
+            ClinicalSessionORM.clinic_id == clinic_id,
+            AIArtifactORM.deleted_at.is_(None),
+            AIArtifactORM.created_at >= created_since,
+        ]
+        if professional_id is not None:
+            filters.append(ClinicalSessionORM.professional_id == professional_id)
+        stmt = (
+            select(AIArtifactORM.status, func.count())
+            .join(ClinicalSessionORM, AIArtifactORM.clinical_session_id == ClinicalSessionORM.id)
+            .where(*filters)
+            .group_by(AIArtifactORM.status)
+        )
+        rows = (await session.execute(stmt)).all()
+        return {status: count for status, count in rows}
+
     async def list_by_session(
         self, session: AsyncSession, clinic_id: uuid.UUID, clinical_session_id: uuid.UUID
     ) -> list[AIArtifact]:
@@ -512,19 +538,32 @@ class SqlAlchemyAIPipelineRunRepository:
         return result.rowcount or 0
 
     async def list_completed_since_for_clinic(
-        self, session: AsyncSession, clinic_id: uuid.UUID, since: datetime
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        since: datetime,
+        *,
+        professional_id: uuid.UUID | None = None,
     ) -> list[AIPipelineRun]:
         from app.clinical_sessions.infrastructure.orm import ClinicalSessionORM
 
+        filters = [
+            ClinicalSessionORM.clinic_id == clinic_id,
+            AIPipelineRunORM.is_billable.is_(True),
+            AIPipelineRunORM.completed_at.is_not(None),
+            AIPipelineRunORM.started_at >= since,
+        ]
+        # Fase 15 (analítica/reporting) — `professional_id` acota a la
+        # vista "own" de un `audiologist` (sus propias ejecuciones
+        # facturables). `None` (comportamiento original, Fase 13) agrega
+        # toda la clínica — `BillingService.report_overage_usage` sigue
+        # llamando sin este parámetro.
+        if professional_id is not None:
+            filters.append(ClinicalSessionORM.professional_id == professional_id)
         result = await session.execute(
             select(AIPipelineRunORM)
             .join(ClinicalSessionORM, AIPipelineRunORM.clinical_session_id == ClinicalSessionORM.id)
-            .where(
-                ClinicalSessionORM.clinic_id == clinic_id,
-                AIPipelineRunORM.is_billable.is_(True),
-                AIPipelineRunORM.completed_at.is_not(None),
-                AIPipelineRunORM.started_at >= since,
-            )
+            .where(*filters)
             .order_by(AIPipelineRunORM.started_at)
         )
         return [_pipeline_run_to_domain(row) for row in result.scalars().all()]

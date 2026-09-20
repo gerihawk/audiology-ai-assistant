@@ -7,6 +7,7 @@ concreta con SQLAlchemy vive en infrastructure/repository.py.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +41,20 @@ class PatientRepository(Protocol):
     ) -> tuple[list[Patient], int]: ...
 
     async def add(self, session: AsyncSession, patient: Patient) -> Patient: ...
+
+    async def count_for_clinic(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        *,
+        created_since: datetime | None = None,
+        include_archived: bool = False,
+    ) -> int:
+        """Fase 15 (analítica/reporting) — conteo agregado, sin traer
+        filas: `created_since=None` da el total; con fecha, los pacientes
+        nuevos desde esa fecha. `include_archived=False` por defecto,
+        mismo criterio por defecto que `list()`."""
+        ...
 
     async def update_fields(
         self,

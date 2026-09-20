@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -143,6 +144,22 @@ class SqlAlchemyPatientRepository:
         # created_at/updated_at los fija PostgreSQL (server_default); se
         # leen de vuelta para que la entidad devuelta refleje el valor real.
         return _to_domain(row)
+
+    async def count_for_clinic(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        *,
+        created_since: datetime | None = None,
+        include_archived: bool = False,
+    ) -> int:
+        filters = [PatientORM.clinic_id == clinic_id]
+        if not include_archived:
+            filters.append(PatientORM.is_archived.is_(False))
+        if created_since is not None:
+            filters.append(PatientORM.created_at >= created_since)
+        stmt = select(func.count()).select_from(PatientORM).where(*filters)
+        return (await session.execute(stmt)).scalar_one()
 
     async def update_fields(
         self,

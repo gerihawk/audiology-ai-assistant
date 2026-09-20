@@ -458,6 +458,36 @@ def authorize_billing_action(current_user: CurrentUser, action: BillingAction) -
         )
 
 
+class AnalyticsAction(StrEnum):
+    READ = "read"
+
+
+#: Fase 15 — panel de analítica/reporting para la clínica (candidato de
+#: la auditoría posterior a la Fase 14). A diferencia del resto de
+#: matrices con ownership (`ClinicalSessionAction`, `AIArtifactAction`),
+#: aquí no hay ningún recurso concreto sobre el que comprobar
+#: `professional_id == current_user.id`: el alcance ("clinic" para admin,
+#: agregado de toda la clínica; "own" para audiologist, solo su propia
+#: actividad) lo decide `AnalyticsService.get_summary` según el rol, no
+#: esta función — que solo comprueba si el rol tiene acceso al panel en
+#: absoluto. `VIEWER` sin acceso, mismo criterio que
+#: `BillingAction`/`RetentionAction`/`IntegrationConfigAction`: no es una
+#: tarea asistencial ni de gestión que le corresponda a ese rol.
+ANALYTICS_PERMISSIONS: dict[Role, frozenset[AnalyticsAction]] = {
+    Role.ADMIN: frozenset(AnalyticsAction),
+    Role.AUDIOLOGIST: frozenset(AnalyticsAction),
+    Role.VIEWER: frozenset(),
+}
+
+
+def authorize_analytics_action(current_user: CurrentUser, action: AnalyticsAction) -> None:
+    if action not in ANALYTICS_PERMISSIONS[current_user.role]:
+        raise ForbiddenError(
+            f"El rol '{current_user.role.value}' no tiene permiso para "
+            f"'{action.value}' sobre la analítica de la clínica."
+        )
+
+
 def authorize_invitation_action(
     current_user: CurrentUser, action: InvitationAction, *, clinic_id: uuid.UUID
 ) -> None:

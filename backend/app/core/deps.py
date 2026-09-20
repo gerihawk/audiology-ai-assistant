@@ -9,6 +9,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_pipeline.service import AIPipelineService
+from app.analytics.service import AnalyticsService
 from app.audio.service import AudioRecordingService
 from app.auth.service import AuthService
 from app.billing.service import BillingService
@@ -67,6 +68,7 @@ __all__ = [
     "get_configured_payment_gateway",
     "get_billing_service",
     "require_active_subscription",
+    "get_analytics_service",
 ]
 
 
@@ -260,3 +262,9 @@ async def require_active_subscription(
     deliberadamente acotado a la única operación que gasta dinero real,
     ver `BillingService.check_active_subscription`."""
     await billing_service.check_active_subscription(current_user)
+
+
+async def get_analytics_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> AnalyticsService:
+    return AnalyticsService(session)

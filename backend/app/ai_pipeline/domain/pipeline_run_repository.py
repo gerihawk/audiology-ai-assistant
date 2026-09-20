@@ -36,7 +36,12 @@ class AIPipelineRunRepository(Protocol):
         ...
 
     async def list_completed_since_for_clinic(
-        self, session: AsyncSession, clinic_id: uuid.UUID, since: datetime
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        since: datetime,
+        *,
+        professional_id: uuid.UUID | None = None,
     ) -> list[AIPipelineRun]:
         """Fase 13, hito 13.2 — ejecuciones del pipeline de la clínica dada,
         terminadas (`completed_at` no nulo, éxito o fallo — un intento
@@ -48,5 +53,9 @@ class AIPipelineRunRepository(Protocol):
         las que superan el tope incluido del nivel. No distingue
         `run-pipeline` de `run-mock-pipeline` a nivel de esta consulta —
         `AIPipelineService` es quien garantiza que el mock nunca incrementa
-        el contador ni, por tanto, aparece contado como overage."""
+        el contador ni, por tanto, aparece contado como overage.
+
+        `professional_id` (Fase 15, analítica/reporting) acota a las
+        ejecuciones de las sesiones de un único profesional — `None`
+        (comportamiento original) agrega toda la clínica."""
         ...

@@ -189,3 +189,78 @@ class SqlAlchemyClinicalSessionRepository:
         )
         await session.flush()
         return result.rowcount or 0
+
+    def _analytics_filters(
+        self,
+        clinic_id: uuid.UUID,
+        *,
+        created_since: datetime,
+        professional_id: uuid.UUID | None,
+    ) -> list[Any]:
+        """Filtros compartidos por las tres agregaciones de la Fase 15
+        (analítica/reporting) — mismo criterio en las tres: no
+        archivadas, creadas desde `created_since`, opcionalmente acotadas
+        a un profesional."""
+        filters: list[Any] = [
+            ClinicalSessionORM.clinic_id == clinic_id,
+            ClinicalSessionORM.is_archived.is_(False),
+            ClinicalSessionORM.created_at >= created_since,
+        ]
+        if professional_id is not None:
+            filters.append(ClinicalSessionORM.professional_id == professional_id)
+        return filters
+
+    async def count_by_status_for_clinic(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        *,
+        created_since: datetime,
+        professional_id: uuid.UUID | None = None,
+    ) -> dict[str, int]:
+        filters = self._analytics_filters(
+            clinic_id, created_since=created_since, professional_id=professional_id
+        )
+        stmt = (
+            select(ClinicalSessionORM.status, func.count())
+            .where(*filters)
+            .group_by(ClinicalSessionORM.status)
+        )
+        rows = (await session.execute(stmt)).all()
+        return {status: count for status, count in rows}
+
+    async def count_per_day_for_clinic(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        *,
+        created_since: datetime,
+        professional_id: uuid.UUID | None = None,
+    ) -> list[tuple[date, int]]:
+        filters = self._analytics_filters(
+            clinic_id, created_since=created_since, professional_id=professional_id
+        )
+        day_col = func.date_trunc("day", ClinicalSessionORM.created_at)
+        stmt = (
+            select(day_col.label("day"), func.count())
+            .where(*filters)
+            .group_by(day_col)
+            .order_by(day_col)
+        )
+        rows = (await session.execute(stmt)).all()
+        return [(row[0].date(), row[1]) for row in rows]
+
+    async def count_by_professional_for_clinic(
+        self, session: AsyncSession, clinic_id: uuid.UUID, *, created_since: datetime
+    ) -> list[tuple[uuid.UUID, int]]:
+        filters = self._analytics_filters(
+            clinic_id, created_since=created_since, professional_id=None
+        )
+        stmt = (
+            select(ClinicalSessionORM.professional_id, func.count())
+            .where(*filters)
+            .group_by(ClinicalSessionORM.professional_id)
+            .order_by(func.count().desc())
+        )
+        rows = (await session.execute(stmt)).all()
+        return [(row[0], row[1]) for row in rows]

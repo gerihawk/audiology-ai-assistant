@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.ai_pipeline.api.router import router as ai_pipeline_router
+from app.analytics.api.router import router as analytics_router
 from app.api.schemas import CurrentUserResponse
 from app.audio.api.router import router as audio_router
 from app.auth.api.router import router as auth_router
@@ -38,6 +39,7 @@ v1_router.include_router(retention_router)
 v1_router.include_router(integrations_router)
 v1_router.include_router(billing_router)
 v1_router.include_router(platform_admin_router)
+v1_router.include_router(analytics_router)
 
 
 @v1_router.get("/me", response_model=CurrentUserResponse, tags=["dev-tools"])
