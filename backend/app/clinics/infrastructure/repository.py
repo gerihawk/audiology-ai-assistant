@@ -43,6 +43,32 @@ class SqlAlchemyClinicRepository:
         row = result.scalar_one_or_none()
         return _to_domain(row) if row is not None else None
 
+    async def list_all(self, session: AsyncSession) -> list[Clinic]:
+        """Fase 14 — panel de gestión de clínicas del operador de la
+        plataforma (`app.platform_admin`). Único método de este
+        repositorio sin ningún filtro de propiedad/clínica: uso
+        exclusivo de ese módulo, nunca de un endpoint alcanzable por un
+        usuario normal de una clínica."""
+        result = await session.execute(select(ClinicORM).order_by(ClinicORM.created_at))
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def set_active(
+        self, session: AsyncSession, clinic_id: uuid.UUID, *, is_active: bool
+    ) -> Clinic | None:
+        """Fase 14 — activar/desactivar una clínica desde el panel del
+        operador de la plataforma. `is_active=False` bloquea el acceso de
+        TODOS los usuarios de la clínica en el siguiente `get_current_user`
+        (ver `app/core/deps.py`); reversible con la llamada inversa, nunca
+        borra ni toca ningún otro dato de la clínica."""
+        result = await session.execute(
+            update(ClinicORM)
+            .where(ClinicORM.id == clinic_id)
+            .values(is_active=is_active, updated_at=datetime.now(UTC))
+            .returning(ClinicORM)
+        )
+        row = result.scalar_one_or_none()
+        return _to_domain(row) if row is not None else None
+
     async def add(self, session: AsyncSession, clinic: Clinic) -> None:
         session.add(
             ClinicORM(

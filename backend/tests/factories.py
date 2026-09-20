@@ -42,6 +42,8 @@ from app.integrations.domain.integration_config import IntegrationConfig, Integr
 from app.integrations.infrastructure.orm import IntegrationConfigORM
 from app.patients.domain.entities import Patient
 from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
+from app.platform_admin.domain.entities import PlatformOperator
+from app.platform_admin.infrastructure.repository import SqlAlchemyPlatformOperatorRepository
 from app.users.domain.entities import Role, User
 from app.users.infrastructure.repository import SqlAlchemyUserRepository
 
@@ -384,6 +386,31 @@ async def create_ai_artifact_with_version(
     await session.commit()
     assert updated is not None
     return updated
+
+
+async def create_platform_operator(
+    session: AsyncSession,
+    *,
+    email: str | None = None,
+    display_name: str = "Operador de test",
+    is_active: bool = True,
+    password: str | None = None,
+) -> PlatformOperator:
+    """Helper de la Fase 14 (panel de gestión de clínicas del operador de
+    la plataforma) — mismo patrón que `create_user`, pero sobre
+    `platform_operators`, tabla completamente aparte de `users`."""
+    operator = PlatformOperator(
+        id=uuid.uuid4(),
+        email=email or f"operador-{uuid.uuid4().hex[:8]}@test.local",
+        display_name=display_name,
+        is_active=is_active,
+        created_at=_now(),
+        updated_at=_now(),
+        password_hash=hash_password(password) if password is not None else None,
+    )
+    await SqlAlchemyPlatformOperatorRepository().add(session, operator)
+    await session.commit()
+    return operator
 
 
 def dev_headers(user: User) -> dict[str, str]:

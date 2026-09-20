@@ -21,4 +21,5 @@ from app.consents.infrastructure import orm as _consents_orm  # noqa: F401
 from app.integrations.infrastructure import orm as _integrations_orm  # noqa: F401
 from app.onboarding.infrastructure import orm as _onboarding_orm  # noqa: F401
 from app.patients.infrastructure import orm as _patients_orm  # noqa: F401
+from app.platform_admin.infrastructure import orm as _platform_admin_orm  # noqa: F401
 from app.users.infrastructure import orm as _users_orm  # noqa: F401

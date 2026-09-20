@@ -23,6 +23,7 @@ import { VerifyEmailPage } from './features/onboarding/VerifyEmailPage'
 import { PasswordResetRequestPage } from './features/onboarding/PasswordResetRequestPage'
 import { PasswordResetConfirmPage } from './features/onboarding/PasswordResetConfirmPage'
 import { AcceptInvitationPage } from './features/onboarding/AcceptInvitationPage'
+import { PlatformAdminPage } from './features/platformAdmin/PlatformAdminPage'
 
 /** Cabecera compartida por los dos modos de autenticación (Fase 9, hito
  * 9.2) — extraída para que fake/real no puedan divergir accidentalmente. */
@@ -175,6 +176,11 @@ function App() {
       <Route path="/forgot-password" element={<PasswordResetRequestPage />} />
       <Route path="/reset-password" element={<PasswordResetConfirmPage />} />
       <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
+      {/* Fase 14: panel de gestión de clínicas del operador de la
+       * plataforma — identidad separada de `AuthProvider`/`DevUserProvider`
+       * (ver `PlatformAdminPage.tsx`), así que va aquí, no dentro de
+       * `AppRoutes`/`FakeAuthApp`/`RealAuthApp`. */}
+      <Route path="/platform" element={<PlatformAdminPage />} />
       <Route
         path="*"
         element={

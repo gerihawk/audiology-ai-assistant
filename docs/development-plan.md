@@ -1916,6 +1916,101 @@ alcance exacto de este hito:
   tests) y `frontend/src/features/billing/BillingPanel.test.tsx` (9
   tests).
 
+## Fase 14 — Panel de gestión de clínicas del operador de la plataforma (implementada el 2026-09-20)
+
+Candidato 1 de la auditoría entre fases posterior a la Fase 12.5: un panel
+para que Gerard, como operador de la plataforma (no como usuario de
+ninguna clínica), vea todas las clínicas dadas de alta y pueda dar de baja
+(reversible) la que haga falta. Tres decisiones de diseño resueltas con
+Gerard antes de escribir código (vía `AskUserQuestion`, ninguna decidida
+unilateralmente por tratarse de arquitectura/seguridad):
+
+1. **Autenticación**: mecanismo completamente aparte del modelo de
+   usuarios de clínica (opción recomendada, elegida) — nunca extendiendo
+   `users`/`Role`/`CurrentUser`, que en todas partes asumen que todo
+   usuario pertenece a exactamente una clínica (`clinic_id` no nulo).
+2. **Alcance de "dar de baja"**: baja reversible (soft) que bloquea acceso
+   — nunca borrado de datos estilo GDPR.
+3. **Superficie**: panel web real con su propia pantalla en el frontend
+   (Gerard eligió esta opción explícitamente, no la recomendada, que era
+   un CLI).
+
+**Backend — módulo `app/platform_admin` (aislado del resto de la app)**:
+
+- `platform_operators`: tabla nueva y completamente separada de `users`
+  (`id`, `email` único, `display_name`, `password_hash` nullable,
+  `is_active`, `created_at`/`updated_at`) — migración
+  `d4f7c8e2a915_create_platform_operators.py`. Sin `clinic_id` ni FK a
+  ninguna otra tabla: un operador de plataforma no es un usuario de
+  ninguna clínica.
+- `PlatformAdminAuthService.login` (`app/platform_admin/service.py`):
+  mismo patrón que `AuthService.login` (bcrypt, mitigación de timing con
+  `_DUMMY_PASSWORD_HASH`), pero firma un JWT con claim `"typ":
+  "platform_operator"` — el claim distintivo que hace estructuralmente
+  imposible (no solo improbable) que un token de un mundo sirva en el
+  otro. TTL de 2h (`PLATFORM_ACCESS_TOKEN_TTL`), más corto que las 8h de
+  un usuario de clínica por ser una identidad de más privilegio.
+  `get_current_platform_operator` (`app/platform_admin/api/deps.py`)
+  comprueba ese claim explícitamente y nunca pasa por
+  `CurrentUserProvider`/`FakeCurrentUserProvider`/`RealCurrentUserProvider`.
+- Sin alta por self-service: la única forma de crear un operador es el
+  CLI manual `python -m app.platform_admin.cli create-operator/
+  reset-password` (mismo patrón de invocación que `app.seed`/
+  `app.core.field_encryption_cli`), con la contraseña siempre pedida por
+  `getpass` (nunca como argumento de línea de comandos).
+- Endpoints (`app/platform_admin/api/router.py`, prefijo `/platform`):
+  `POST /platform/auth/login` (público, `5/minute`, mismo motivo que el
+  login de clínica), `GET /platform/me` (identidad del operador, para que
+  el frontend valide un token persistido en un refresh de página, igual
+  que `GET /api/v1/me`), `GET /platform/clinics` y
+  `PATCH /platform/clinics/{clinic_id}` (activar/desactivar).
+  `SqlAlchemyClinicRepository.list_all`/`set_active`
+  (`app/clinics/infrastructure/repository.py`) son los únicos métodos de
+  ese repositorio sin ningún filtro de propiedad — uso exclusivo de este
+  módulo.
+- **Gate de acceso por `Clinic.is_active`**: columna que existía desde la
+  Fase 2 pero nunca se aplicaba en ningún sitio. Ahora centralizado en
+  `app/core/deps.py::get_current_user` (`_ensure_clinic_is_active`), así
+  que bloquea TODA la superficie autenticada de golpe, no solo un
+  endpoint concreto — a diferencia del gate de suscripción de la Fase 13,
+  hito 13.2 (`require_active_subscription`), deliberadamente acotado solo
+  a `run-pipeline`. `ForbiddenError` (403), no `UnauthenticatedError`
+  (401): las credenciales del usuario siguen siendo válidas, lo que falta
+  es autorización mientras su clínica esté desactivada.
+- Tests: `tests/test_platform_admin.py` (13 tests) — login aislado,
+  aislamiento de tokens en ambas direcciones, listado/activación de
+  clínicas, y el efecto real del gate (desactivar una clínica bloquea con
+  403 un endpoint no relacionado, `GET /api/v1/me`, para su propio admin).
+
+**Frontend — `frontend/src/features/platformAdmin/`**: pantalla `/platform`
+completamente independiente de `VITE_AUTH_MODE`/`FakeAuthApp`/`RealAuthApp`
+(añadida al `<Routes>` exterior de `App.tsx`, junto a `/signup` y
+similares) — mismo motivo que el backend: el operador de plataforma no es
+un usuario de ninguna clínica.
+
+- `tokenStore.ts`: almacén de JWT propio (clave de `sessionStorage`
+  distinta, `audiology.platformAuthToken`), nunca comparte estado con
+  `shared/auth/tokenStore.ts`.
+- `api.ts`: cliente HTTP propio para `/api/v1/platform/*` — adjunta
+  `Authorization: Bearer` siempre que hay token, sin depender de
+  `VITE_AUTH_MODE` (a diferencia de `shared/api/client.ts::authHeaders`,
+  que solo lo hace en modo real).
+- `PlatformAuthContext.tsx`/`PlatformLoginForm.tsx`: mismo patrón que
+  `AuthContext`/`LoginForm`, validando un token persistido contra
+  `GET /platform/me` al montar.
+- `PlatformClinicsPanel.tsx`: tabla de todas las clínicas con botón
+  activar/desactivar por fila (patrón Page/Panel, como `BillingPanel`).
+- `PlatformAdminPage.tsx`: envuelve el `Provider` y decide login vs. panel,
+  con botón de cerrar sesión.
+- Tests: `PlatformClinicsPanel.test.tsx` y `PlatformAdminPage.test.tsx` (6
+  tests) — login correcto/incorrecto, listado y toggle de clínicas, y que
+  un 401 a media sesión devuelve al login.
+
+Verificado end-to-end por Gerard en su entorno real (Docker + Postgres):
+backend 13/13 tests, frontend 47 ficheros / 280 tests, y prueba manual
+completa en el navegador (login, listado, desactivar/reactivar una
+clínica, persistencia de sesión tras recargar la página).
+
 ## Fuera de las fases del MVP
 
 **Facturación/Stripe — RFC cerrado el 2026-09-18, hitos 13.1/13.2/13.3

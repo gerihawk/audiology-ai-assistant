@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from functools import lru_cache
 
 from fastapi import Depends, Request
@@ -13,6 +14,7 @@ from app.auth.service import AuthService
 from app.billing.service import BillingService
 from app.clinical_record.service import ClinicalRecordService
 from app.clinical_sessions.service import ClinicalSessionService
+from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.consents.service import ConsentService
 from app.core.config import get_settings
 from app.core.context import get_request_id
@@ -23,6 +25,7 @@ from app.core.current_user import (
     RealCurrentUserProvider,
 )
 from app.core.db import get_db_session
+from app.core.exceptions import ForbiddenError
 from app.core.sentry import tag_current_user
 from app.export.service import ExportService
 from app.integrations.domain.email_sender import EmailSender
@@ -127,10 +130,38 @@ async def get_current_user(
     provider: CurrentUserProvider = Depends(get_current_user_provider),
 ) -> CurrentUser:
     current_user = await provider.get_current_user(request, session)
+    await _ensure_clinic_is_active(session, current_user.clinic_id)
     # Solo `.id` (UUID opaco) — nunca `.email`/`.display_name`, aunque
     # `CurrentUser` los exponga a los dos (ver core/current_user.py).
     tag_current_user(current_user.id)
     return current_user
+
+
+async def _ensure_clinic_is_active(session: AsyncSession, clinic_id: uuid.UUID) -> None:
+    """Fase 14 — gate de acceso por `Clinic.is_active` (panel de gestión
+    de clínicas del operador de la plataforma, `app.platform_admin`).
+    Antes de esta fase, `is_active` existía en la tabla pero no bloqueaba
+    nada (ver `SqlAlchemyClinicRepository.list_unverified_older_than`,
+    único uso previo, que comprueba usuarios activos, no la propia
+    clínica). Centralizado aquí (no en cada `authorize_*`): así se aplica
+    a TODA la superficie autenticada de la app de una sola vez, igual que
+    ya hace la comprobación de `user.is_active` dentro de cada
+    `CurrentUserProvider`. Es una consulta extra por petición autenticada
+    — coste aceptado a cambio de un único punto de verdad; si en el
+    futuro pesa, se puede fusionar con la consulta de `User` mediante un
+    join, pero no antes de que haga falta.
+
+    `ForbiddenError` (403), no `UnauthenticatedError` (401): las
+    credenciales del usuario siguen siendo válidas, lo que falta es
+    autorización para operar mientras su clínica esté desactivada — igual
+    que ya distingue el resto de `authorize_*` en app/core/authorization.py.
+    Si la clínica no existiera (no debería pasar nunca: `clinic_id` es una
+    FK NOT NULL), se trata igual que desactivada, nunca se deja pasar."""
+    clinic = await SqlAlchemyClinicRepository().get_by_id(session, clinic_id)
+    if clinic is None or not clinic.is_active:
+        raise ForbiddenError(
+            "Esta clínica está desactivada. Contacta con el soporte de la plataforma."
+        )
 
 
 async def get_patient_service(

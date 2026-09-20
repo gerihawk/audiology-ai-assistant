@@ -20,6 +20,7 @@ from app.integrations.api.router import router as integrations_router
 from app.onboarding.api.invitation_router import router as invitations_router
 from app.onboarding.api.router import router as onboarding_router
 from app.patients.api.router import router as patients_router
+from app.platform_admin.api.router import router as platform_admin_router
 from app.retention.api.router import router as retention_router
 
 v1_router = APIRouter(prefix="/api/v1")
@@ -36,6 +37,7 @@ v1_router.include_router(consents_router)
 v1_router.include_router(retention_router)
 v1_router.include_router(integrations_router)
 v1_router.include_router(billing_router)
+v1_router.include_router(platform_admin_router)
 
 
 @v1_router.get("/me", response_model=CurrentUserResponse, tags=["dev-tools"])

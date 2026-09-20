@@ -426,6 +426,43 @@ export interface BillingStatus {
   has_stripe_customer: boolean
 }
 
+/** `PlatformOperatorResponse` (`app/platform_admin/api/schemas.py`, Fase
+ * 14) — identidad del operador de la plataforma, resuelta vía
+ * `GET /api/v1/platform/me`. Nunca se mezcla con `CurrentUser`: son dos
+ * mundos de autenticación completamente separados (ver
+ * `features/platformAdmin/PlatformAuthContext.tsx`). */
+export interface PlatformOperator {
+  id: string
+  email: string
+  display_name: string
+}
+
+/** `PlatformLoginResponse` (`app/platform_admin/api/schemas.py`, Fase 14). */
+export interface PlatformLoginResponse {
+  access_token: string
+  token_type: string
+}
+
+/** `PlatformClinicResponse` (`app/platform_admin/api/schemas.py`, Fase 14)
+ * — vista de una clínica para el operador de la plataforma. `plan`/
+ * `subscription_status` van sin traducir a etiqueta comercial (decisión
+ * de Gerard: "de momento mostrar el estado me sirve"). */
+export interface PlatformClinic {
+  id: string
+  name: string
+  code: string
+  is_active: boolean
+  plan: Plan | null
+  subscription_status: string | null
+  sessions_used_this_period: number
+  current_period_started_at: string | null
+  created_at: string
+}
+
+export interface PlatformClinicListResponse {
+  items: PlatformClinic[]
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string
