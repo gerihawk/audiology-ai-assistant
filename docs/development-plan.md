@@ -1526,7 +1526,7 @@ dashboard el 2026-09-14), 11.2 (PITR activo desde el 2026-08-31 19:39,
 verificado en el dashboard el 2026-09-14), 11.3 (código + tests) y 11.4
 (restore verificado el 2026-09-14, ver arriba). **Fase 11 cerrada.**
 
-## Fase 12 — Onboarding self-service multi-clínica (alcance en definición)
+## Fase 12 — Onboarding self-service multi-clínica (hitos 12.0-12.5 implementados)
 
 **Ampliación explícita de alcance** (mismo patrón que Fase 6 y Fase 5.3):
 supera lo que "Fuera de las fases del MVP" (más abajo) decía sobre
@@ -1710,6 +1710,60 @@ clínica quedan aplazados.
   contra el código: routers registrados, tests y actividad de git en
   cada módulo) — se avisa además de que, si vuelve a quedar desactualizada,
   debe corregirse ahí mismo en vez de dejarla arrastrar.
+- **12.5** — Cifrado de campos a nivel de aplicación, implementado el
+  2026-09-18: **entrada añadida el 2026-09-20**, en la auditoría entre
+  fases posterior al cierre del hito 13.2/13.3 — el código, la migración
+  y el runbook de rotación llevaban dos días implementados sin que este
+  documento tuviera ninguna sección propia; era pura deuda documental,
+  ya cerrada en [privacy-and-security.md](privacy-and-security.md) §4
+  desde el mismo día de la implementación, solo ausente aquí.
+  `patients.display_name`, `patients.birth_year`,
+  `ai_artifact_versions.content` y
+  `ai_generation_runs.rendered_system_prompt`/`rendered_user_prompt`/
+  `raw_response` se cifran con AES-256-GCM (cifrado autenticado) antes de
+  escribirse en la base de datos, de forma transparente para el resto del
+  código (`app/core/field_encryption.py`: `EncryptedString`/`EncryptedInt`/
+  `EncryptedJSON`, `TypeDecorator` de SQLAlchemy). Resuelve el riesgo R9
+  de la EIPD ([eipd-dpia.md](eipd-dpia.md) §5/§7, "alto" → "bajo") y cierra
+  la deuda consciente que `privacy-and-security.md` §4 señalaba en ese
+  mismo punto — detalle técnico completo (formato exacto del valor
+  cifrado, coste de no poder filtrar/ordenar estas columnas en SQL,
+  migración `729f6ad2ac76_encrypt_sensitive_columns.py`) ya documentado
+  ahí, no repetido aquí.
+  **Claves versionadas desde el principio** (`FIELD_ENCRYPTION_KEYS`/
+  `FIELD_ENCRYPTION_ACTIVE_KEY_ID`, formato `"key_id:base64key,..."`):
+  cualquier clave conocida sigue descifrando datos antiguos aunque deje de
+  ser la activa, lo que permite rotar sin tiempo de inactividad — runbook
+  de 5 pasos en el docstring de `app/core/field_encryption_cli.py` (el
+  comando que re-cifra en bloque todo lo que quedó con la clave vieja tras
+  una rotación). Guardarraíl en `Settings._validate_production_safety()`:
+  ambas variables obligatorias y validadas (32 bytes por clave, formato
+  correcto, la clave activa debe existir en el mapa) en production: de
+  hecho ni siquiera development/test pueden arrancar sin esto configurado,
+  porque `ai_artifact_versions.content` es `NOT NULL` y pasa por
+  `EncryptedJSON`.
+  **Advertencia operativa real, confirmada el 2026-09-20**: la migración
+  `729f6ad2ac76` cambia el tipo de columna pero no re-cifra filas ya
+  existentes — tal y como avisa su propio docstring, cualquier entorno con
+  datos de prueba/seed sembrados antes de aplicarla se queda con texto
+  plano en columnas que la aplicación espera descifrar
+  (`FieldEncryptionError: falta el separador 'key_id:'`). Ocurrió en el
+  entorno local de Gerard al ejecutar por fin `alembic upgrade head` tras
+  varios días sin actualizar su base de datos de desarrollo; solución
+  aplicada: truncar `patients`/`clinical_sessions`/`ai_generation_runs`/
+  `ai_artifact_versions` y volver a ejecutar `app/seed.py` — el mismo
+  procedimiento que ya recomendaba la migración, solo que nadie lo había
+  necesitado hasta esta fecha porque `staging`/`production` no tenían
+  datos de prueba previos en esas tablas cuando se aplicó allí.
+
+**Fase 12 completa (12.0-12.5).** Alta de clínica self-service,
+verificación de email, recuperación de contraseña, invitaciones entre
+compañeros de clínica (con revocación), limpieza de clínicas fantasma,
+anti-abuso (Turnstile + dominios desechables) y cifrado de campos a nivel
+de aplicación. Deuda ya identificada y explícitamente aplazada, sin
+resolver todavía: panel de administración global (visión cross-clínica
+para Gerard como operador de la plataforma) y baja/desactivación de una
+clínica — ver candidato 1 de la auditoría entre fases del 2026-09-20.
 
 ## Fase 13 — Facturación / Stripe (RFC cerrado, hitos 13.1/13.2/13.3 implementados)
 
