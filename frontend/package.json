@@ -17,7 +17,8 @@
     "@sentry/react": "^10.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.18.2"
+    "react-router-dom": "^7.18.2",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

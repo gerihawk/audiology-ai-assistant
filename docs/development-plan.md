@@ -2011,6 +2011,94 @@ backend 13/13 tests, frontend 47 ficheros / 280 tests, y prueba manual
 completa en el navegador (login, listado, desactivar/reactivar una
 clínica, persistencia de sesión tras recargar la página).
 
+## Fase 15 — Analítica/reporting para la clínica (implementada el 2026-09-21)
+
+Candidato de la auditoría entre fases posterior a la Fase 14: un panel de
+analítica agregada para que la clínica vea de un vistazo su actividad
+reciente (sesiones, artefactos de IA, ejecuciones facturables), sin tener
+que recorrer listados uno a uno. Tres decisiones de diseño resueltas antes
+de escribir código:
+
+1. **Vista por rol, no por propiedad de recurso**: a diferencia de
+   `authorize_clinical_session_action` y similares (que comprueban la
+   propiedad de un recurso concreto), aquí el alcance lo decide
+   `AnalyticsService.get_summary` según `current_user.role` antes de
+   lanzar ninguna consulta — `ADMIN` ve datos agregados de TODA la
+   clínica (incluye recuento de pacientes y actividad por profesional);
+   `AUDIOLOGIST` ve EXCLUSIVAMENTE su propia actividad; `VIEWER` no tiene
+   acceso en absoluto.
+2. **Ventana de periodo deslizante, independiente del ciclo de
+   facturación**: `period_days` (1-365, por defecto 30) cuenta hacia
+   atrás desde el momento de la petición — un concepto distinto del
+   periodo de facturación de la clínica (`Clinic.current_period_started_at`,
+   Fase 13), aunque comparta el mismo orden de magnitud por defecto.
+3. **Librería de gráficos del frontend**: evaluadas Recharts, Chart.js,
+   Nivo y visx contra las características reales de este proyecto (sin
+   framework de UI/CSS, TypeScript `strict`, volúmenes de datos pequeños
+   por clínica, un desarrollador junior/autodidacta manteniendo el
+   código) — elegida **Recharts** por su API JSX-nativa de curva de
+   aprendizaje más baja y su documentación/tutoriales más abundantes,
+   descartando la ventaja de rendimiento en canvas de Chart.js por
+   irrelevante a este volumen de datos.
+
+**Backend — módulo `app/analytics` (servicio de solo lectura, sin
+efectos secundarios, nunca hace `commit` ni `flush`)**:
+
+- `app/analytics/domain/entities.py`: dataclasses congeladas
+  (`PatientStats`, `SessionStatusCounts`, `ArtifactStatusCounts`,
+  `SessionsTrendPoint`, `ProfessionalActivityEntry`,
+  `ClinicAnalyticsSummary`) — `patients` y `professional_activity` son
+  `None` en la vista `"own"` (`AUDIOLOGIST`), nunca `None` en la vista
+  `"clinic"`.
+- `app/analytics/service.py::AnalyticsService.get_summary`: agrega
+  sesiones por estado, tendencia diaria de sesiones, artefactos de IA por
+  estado y ejecuciones de IA facturables en el periodo, reutilizando los
+  repositorios ya existentes de `clinical_sessions`/`ai_pipeline`/
+  `patients`/`users` — sin tablas ni migraciones nuevas, es puro
+  agregado de datos que ya existían.
+- `GET /api/v1/analytics/clinic-summary` (`app/analytics/api/router.py`,
+  `app/analytics/api/schemas.py`): único endpoint, `period_days` como
+  query param (`ge=1, le=365`), `Depends(get_current_user)` +
+  `Depends(get_analytics_service)`. Esquemas Pydantic con `from_domain`
+  clásico del proyecto.
+- Tests: `backend/tests/test_analytics.py` (5 tests) — requiere
+  autenticación, rechaza `VIEWER` con 403, `ADMIN` ve el alcance completo
+  de la clínica, `AUDIOLOGIST` ve solo su propia actividad, y los límites
+  de `period_days` se aplican.
+
+**Frontend — `frontend/src/features/analytics/`**: mismo patrón
+Page/Panel/`permissions.ts`/`shared/api/<feature>.ts` que `features/billing`.
+
+- `shared/api/analytics.ts::getClinicAnalyticsSummary` y los tipos
+  correspondientes en `shared/api/types.ts` (mismos nombres de campo en
+  snake_case que el backend, sin capa de traducción a camelCase).
+- `permissions.ts::canViewAnalytics`, `AnalyticsPage.tsx` (gate),
+  `AnalyticsPanel.tsx` (composición: selector de periodo con presets
+  7/30/90 días, fila de tarjetas KPI, tendencia de sesiones, sesiones por
+  estado, artefactos de IA por estado, actividad por profesional solo
+  para `admin`).
+- Gráficos con **Recharts**: `SessionsTrendChart.tsx` (área, un solo hue
+  secuencial) y `HorizontalBarChart.tsx` (barra horizontal reutilizable
+  para sesiones-por-estado y actividad-por-profesional) — diseño y
+  paleta siguiendo la guía del skill de dataviz (`chartTheme.ts`: paleta
+  secuencial azul + paleta de estado fija good/warning/critical para los
+  artefactos de IA).
+- `setupTests.ts`: añadido un stub mínimo de `ResizeObserver` (jsdom no
+  lo implementa; lo necesita `ResponsiveContainer` de Recharts para medir
+  su contenedor).
+- Tests: `AnalyticsPanel.test.tsx` (5 tests) — un `viewer` no ve nada ni
+  llama a la API, `admin` ve el resumen completo de clínica, `audiologist`
+  no ve pacientes ni actividad por profesional, cambiar de periodo
+  vuelve a pedir el resumen con el `period_days` nuevo, y un error del
+  backend se muestra correctamente.
+
+Verificado end-to-end por Gerard en su entorno real (Docker + Postgres):
+backend 5/5 tests nuevos (resto de la suite sin regresiones), frontend 48
+ficheros / 285 tests, `npm run build` sin errores, y prueba manual
+completa en el navegador (login como `admin` y como `audiologist`,
+selector de periodo, los cinco bloques del panel renderizando datos
+reales de la clínica de desarrollo).
+
 ## Fuera de las fases del MVP
 
 **Facturación/Stripe — RFC cerrado el 2026-09-18, hitos 13.1/13.2/13.3

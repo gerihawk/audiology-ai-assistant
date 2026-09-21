@@ -463,6 +463,70 @@ export interface PlatformClinicListResponse {
   items: PlatformClinic[]
 }
 
+/** `AnalyticsScope` (`app/analytics/domain/entities.py`, Fase 15) —
+ * "clinic": vista de `admin` (agregado de toda la clínica); "own": vista
+ * de `audiologist` (exclusivamente su propia actividad). */
+export type AnalyticsScope = 'clinic' | 'own'
+
+/** `PatientStatsResponse` (`app/analytics/api/schemas.py`, Fase 15). */
+export interface PatientStats {
+  total: number
+  new_in_period: number
+}
+
+/** `SessionStatusCountsResponse` (`app/analytics/api/schemas.py`, Fase
+ * 15) — mismos valores que `ClinicalSessionStatus`, siempre los seis
+ * presentes (0 cuando no hay ninguna sesión en ese estado). */
+export interface SessionStatusCounts {
+  scheduled: number
+  in_progress: number
+  completed: number
+  review_pending: number
+  reviewed: number
+  cancelled: number
+}
+
+/** `ArtifactStatusCountsResponse` (`app/analytics/api/schemas.py`, Fase
+ * 15) — mismos valores que `AIArtifactStatus`. */
+export interface ArtifactStatusCounts {
+  review_pending: number
+  approved: number
+  rejected: number
+}
+
+/** `SessionsTrendPointResponse` (`app/analytics/api/schemas.py`, Fase
+ * 15) — `day` en formato `YYYY-MM-DD` (fecha, sin hora). */
+export interface SessionsTrendPoint {
+  day: string
+  count: number
+}
+
+/** `ProfessionalActivityEntryResponse` (`app/analytics/api/schemas.py`,
+ * Fase 15) — solo presente en la vista "clinic" (`admin`). */
+export interface ProfessionalActivityEntry {
+  professional_id: string
+  display_name: string
+  sessions_in_period: number
+}
+
+/** `ClinicAnalyticsSummaryResponse` (`app/analytics/api/schemas.py`,
+ * Fase 15) — respuesta de `GET /analytics/clinic-summary`. `patients` y
+ * `professional_activity` son `null` en la vista "own" (`audiologist`) —
+ * ver `AnalyticsService.get_summary` en el backend. */
+export interface ClinicAnalyticsSummary {
+  scope: AnalyticsScope
+  period_days: number
+  period_start: string
+  period_end: string
+  patients: PatientStats | null
+  sessions_total_in_period: number
+  sessions_by_status: SessionStatusCounts
+  sessions_trend: SessionsTrendPoint[]
+  ai_billable_runs_in_period: number
+  ai_artifacts_by_status: ArtifactStatusCounts
+  professional_activity: ProfessionalActivityEntry[] | null
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[]
   msg: string

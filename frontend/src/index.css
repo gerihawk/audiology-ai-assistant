@@ -215,3 +215,39 @@ form label {
   font-weight: 700;
   text-decoration: underline;
 }
+
+.analytics-period-selector {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.analytics-period-selector button[aria-pressed='true'] {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.analytics-kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.analytics-stat-tile {
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  min-width: 160px;
+}
+
+.analytics-stat-tile__label {
+  margin: 0;
+  font-size: 0.85em;
+  color: #52514e;
+}
+
+.analytics-stat-tile__value {
+  margin: 0.25rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
