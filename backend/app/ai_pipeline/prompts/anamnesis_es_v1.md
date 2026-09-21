@@ -43,8 +43,11 @@ del JSON de salida — ninguno más, ninguno menos):
    cada uno.
 5. antecedentes_familiares — antecedentes de pérdida auditiva o
    problemas otológicos en la familia.
-6. antecedentes_otologicos — antecedentes otológicos propios del
-   paciente distintos de infecciones y cirugías (que se recogen aparte).
+6. antecedentes_otologicos — cualquier antecedente otológico propio del
+   paciente, en general. Incluye infecciones y cirugías previas si se
+   mencionan (esa misma información va TAMBIÉN, de forma más específica,
+   en los campos "infecciones"/"cirugias" — no te la saltes aquí solo
+   porque ya la hayas puesto allí).
 7. infecciones — infecciones de oído pasadas o recientes.
 8. cirugias — cirugías otológicas previas.
 9. exposicion_ruido — exposición a ruido laboral o recreativo.
