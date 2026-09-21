@@ -53,6 +53,10 @@ services:
       LLM_MODEL_MISSING_INFORMATION: ${LLM_MODEL_MISSING_INFORMATION:-}
       LLM_COST_LIMIT_ENFORCED: ${LLM_COST_LIMIT_ENFORCED:-false}
       MAX_LLM_COST_PER_SESSION_USD: ${MAX_LLM_COST_PER_SESSION_USD:-}
+      # Antes solo existía como default de Settings (2000, app/core/config.py)
+      # sin pasarela docker-compose/.env — hito 6.4.4 lo descubrió al
+      # truncar la salida de ANAMNESIS (20 campos) en varios modelos.
+      LLM_MAX_OUTPUT_TOKENS_ESTIMATE: ${LLM_MAX_OUTPUT_TOKENS_ESTIMATE:-2000}
       AI_PROCESSING_CONSENT_ENFORCED: ${AI_PROCESSING_CONSENT_ENFORCED:-false}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
