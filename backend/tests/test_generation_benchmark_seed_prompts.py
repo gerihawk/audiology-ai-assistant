@@ -11,7 +11,7 @@ from benchmark.generation.prompts import PROMPT_CANDIDATES, seed_prompt_template
 from tests.factories import ClinicWithUsers
 
 
-async def test_primera_ejecucion_crea_las_3_plantillas(
+async def test_primera_ejecucion_crea_las_5_plantillas(
     db_session: AsyncSession, clinic_with_users: ClinicWithUsers
 ):
     repository = SqlAlchemyPromptTemplateRepository()
@@ -21,11 +21,17 @@ async def test_primera_ejecucion_crea_las_3_plantillas(
     )
     await db_session.commit()
 
-    assert len(created) == 3
+    # hito 6.4.4: anamnesis_es_v1/session_notes_es_v1 se siembran igual que
+    # las 3 anteriores — sembrar la plantilla nunca la activa en
+    # producción, eso lo decide `service.py` (sigue en Mock hasta tener un
+    # ganador del benchmark con datos).
+    assert len(created) == 5
     assert {t.artifact_type for t in created} == {
         AIArtifactType.SUMMARY,
         AIArtifactType.MISSING_INFORMATION,
         AIArtifactType.PATIENT_SUMMARY,
+        AIArtifactType.ANAMNESIS,
+        AIArtifactType.SESSION_NOTES,
     }
     assert all(t.is_active for t in created)
     assert all(t.version == 1 for t in created)
@@ -62,7 +68,7 @@ async def test_nunca_sobreescribe_una_plantilla_activa_existente(
     assert active_after.version == 1
 
 
-def test_las_3_plantillas_declaran_transcript_o_summary_text_correctamente():
+def test_las_5_plantillas_declaran_sus_variables_correctamente():
     # Regresión del bug corregido en runner.py: `missing_information`
     # nunca debe declarar "transcript" (no lo usa su plantilla).
     by_type = {spec.artifact_type: spec for spec in PROMPT_CANDIDATES}
@@ -78,3 +84,15 @@ def test_las_3_plantillas_declaran_transcript_o_summary_text_correctamente():
 
     patient_summary_vars = set(by_type[AIArtifactType.PATIENT_SUMMARY].variables_schema["required"])
     assert patient_summary_vars == {"transcript", "summary_text"}
+
+    # hito 6.4.4 — anamnesis solo necesita transcript (mismo criterio que
+    # missing_information con `target`: no se añade una variable que el
+    # dataset de 2 casos todavía no necesita, ver anamnesis_es_v1.md).
+    anamnesis_vars = set(by_type[AIArtifactType.ANAMNESIS].variables_schema["required"])
+    assert anamnesis_vars == {"transcript"}
+
+    # session_notes exige previous_anamnesis_context siempre presente
+    # (nunca opcional): PromptRenderer usa Template.substitute, que falla
+    # si el placeholder no está en variables — ver session_notes_es_v1.md.
+    session_notes_vars = set(by_type[AIArtifactType.SESSION_NOTES].variables_schema["required"])
+    assert session_notes_vars == {"transcript", "previous_anamnesis_context"}

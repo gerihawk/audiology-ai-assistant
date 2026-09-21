@@ -161,6 +161,27 @@ def _metrics_block(outcome: GenerationBenchmarkOutcome) -> dict[str, Any]:
                 ],
             }
         ),
+        "field_status": (
+            None
+            if metrics.field_status is None
+            else {
+                "critical_escalations": metrics.field_status.critical_escalations,
+                "critical_downgrades": metrics.field_status.critical_downgrades,
+                "noncritical_escalations": metrics.field_status.noncritical_escalations,
+                "noncritical_downgrades": metrics.field_status.noncritical_downgrades,
+                "mismatches": metrics.field_status.mismatches,
+                "details": [
+                    {
+                        "field": d.field,
+                        "critical": d.critical,
+                        "reference_status": d.reference_status,
+                        "generated_status": d.generated_status,
+                        "outcome": d.outcome,
+                    }
+                    for d in metrics.field_status.details
+                ],
+            }
+        ),
     }
 
 

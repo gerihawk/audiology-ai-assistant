@@ -113,6 +113,28 @@ PROMPT_SOURCES: tuple[PromptSourceSpec, ...] = (
         description="Resumen en lenguaje llano para el paciente — candidata a producción (6.3).",
         variables_schema={"required": ["transcript", "summary_text"], "optional": []},
     ),
+    _load(
+        "anamnesis_es_v1.md",
+        name="anamnesis_es_v1",
+        artifact_type=AIArtifactType.ANAMNESIS,
+        language=_LANGUAGE_ES,
+        description=(
+            "Anamnesis estructurada (20 campos) — candidata del benchmark del hito 6.4.4, "
+            "ANAMNESIS sigue en Mock en producción hasta tener un ganador con datos."
+        ),
+        variables_schema={"required": ["transcript"], "optional": []},
+    ),
+    _load(
+        "session_notes_es_v1.md",
+        name="session_notes_es_v1",
+        artifact_type=AIArtifactType.SESSION_NOTES,
+        language=_LANGUAGE_ES,
+        description=(
+            "Notas de sesión de seguimiento (4 bloques) — candidata del benchmark del hito "
+            "6.4.4, SESSION_NOTES sigue en Mock en producción hasta tener un ganador con datos."
+        ),
+        variables_schema={"required": ["transcript", "previous_anamnesis_context"], "optional": []},
+    ),
 )
 
 

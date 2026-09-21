@@ -35,6 +35,7 @@ from app.ai_pipeline.domain.errors import AIGenerationFailureReason
 from app.ai_pipeline.domain.validation_pipeline import ValidationOutcome
 from benchmark.generation.metrics import (
     FactPreservationReport,
+    FieldMatchReport,
     HallucinationReport,
     MissingInformationCompletenessReport,
     NumericReport,
@@ -58,23 +59,42 @@ class GateResult:
     blocking_gate: str | None
 
 
+def _combine_gate(*values: bool | None) -> bool | None:
+    """`None` si ninguno de los checks pasados aplica a este caso; si al
+    menos uno aplica, el gate exige que TODOS los que aplican pasen — nunca
+    `True` solo porque los demás sean `None` (no declarados)."""
+    applicable = [value for value in values if value is not None]
+    return all(applicable) if applicable else None
+
+
 def evaluate_gates(
     *,
     validation: ValidationOutcome,
     hallucination: HallucinationReport | None,
     negations: NegationReport | None,
     laterality: LateralityReport | None,
+    field_status: FieldMatchReport | None = None,
 ) -> GateResult:
     schema_gate = validation.failure_reason != AIGenerationFailureReason.SCHEMA_VALIDATION_FAILED
     safety_gate = validation.failure_reason != AIGenerationFailureReason.SAFETY_POLICY_FAILED
-    hallucination_gate = None if hallucination is None else hallucination.forbidden_found == 0
+
+    hallucination_ok = None if hallucination is None else hallucination.forbidden_found == 0
+    # ANAMNESIS/SESSION_NOTES (hito 6.4.4, docs/fase-6-4-4-anamnesis-benchmark-rfc.md
+    # §3 GATE 2, confirmado por Gerard 2026-09-21): 0 `status_escalation`
+    # sobre un campo crítico ocupa el mismo slot que `hallucination` — es la
+    # misma idea (afirmar algo fabricado), aquí sobre un `status` de
+    # anamnesis en vez de una frase libre.
+    escalation_ok = None if field_status is None else field_status.critical_escalations == 0
+    hallucination_gate = _combine_gate(hallucination_ok, escalation_ok)
 
     negation_ok = None if negations is None else negations.failed == 0
     laterality_ok = None if laterality is None else laterality.failed == 0
-    if negation_ok is None and laterality_ok is None:
-        negation_laterality_gate = None
-    else:
-        negation_laterality_gate = (negation_ok is not False) and (laterality_ok is not False)
+    # GATE 4 nuevo (§3, confirmado como gate — no solo finding MAJOR): 0
+    # `status_downgrade` sobre un campo crítico ocupa el mismo slot que
+    # `negation_laterality` — omitir un síntoma real reportado es tan grave
+    # como invertir una negación o una lateralidad.
+    downgrade_ok = None if field_status is None else field_status.critical_downgrades == 0
+    negation_laterality_gate = _combine_gate(negation_ok, laterality_ok, downgrade_ok)
 
     ordered_gates: list[tuple[str, bool | None]] = [
         ("safety", safety_gate),
@@ -112,6 +132,7 @@ def classify_findings(
     terminology: TerminologyReport | None,
     missing_information_completeness: MissingInformationCompletenessReport | None,
     missing_topic_false_positives: HallucinationReport | None = None,
+    field_status: FieldMatchReport | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
 
@@ -199,6 +220,74 @@ def classify_findings(
             )
             for d in missing_topic_false_positives.details
             if d.matched
+        ]
+
+    # CRITICAL — hito 6.4.4 (docs/fase-6-4-4-anamnesis-benchmark-rfc.md §3
+    # GATE 2, confirmado por Gerard 2026-09-21): status fabricado sobre un
+    # campo crítico — mismo nivel que `hallucination`.
+    if field_status is not None:
+        findings += [
+            Finding(
+                "critical",
+                "status_escalation",
+                f"Estado fabricado en campo crítico '{d.field}': la referencia "
+                f"dice '{d.reference_status}', el modelo marcó '{d.generated_status}'.",
+            )
+            for d in field_status.details
+            if d.critical and d.outcome == "status_escalation"
+        ]
+        # CRITICAL — GATE 4 nuevo (§3): omitir un campo crítico que el
+        # paciente sí aportó es tan grave como fabricar un dato — un síntoma
+        # real que desaparece del borrador nunca llega al profesional.
+        findings += [
+            Finding(
+                "critical",
+                "status_downgrade",
+                f"Información omitida en campo crítico '{d.field}': la "
+                f"referencia dice '{d.reference_status}', el modelo marcó "
+                f"'{d.generated_status}'.",
+            )
+            for d in field_status.details
+            if d.critical and d.outcome == "status_downgrade"
+        ]
+        # MAJOR — mismo tipo de error sobre un campo no crítico (§3): penaliza
+        # el ranking sin descalificar al modelo.
+        findings += [
+            Finding(
+                "major",
+                "status_escalation",
+                f"Estado fabricado en campo no crítico '{d.field}': la "
+                f"referencia dice '{d.reference_status}', el modelo marcó "
+                f"'{d.generated_status}'.",
+            )
+            for d in field_status.details
+            if not d.critical and d.outcome == "status_escalation"
+        ]
+        findings += [
+            Finding(
+                "major",
+                "status_downgrade",
+                f"Información omitida en campo no crítico '{d.field}': la "
+                f"referencia dice '{d.reference_status}', el modelo marcó "
+                f"'{d.generated_status}'.",
+            )
+            for d in field_status.details
+            if not d.critical and d.outcome == "status_downgrade"
+        ]
+        # MAJOR — el modelo confunde dos estados del mismo grupo de evidencia
+        # (p. ej. informado <-> negado_explicitamente): nunca evaluado por
+        # Gerard como gate en este RFC (fase-6-4-4-anamnesis-benchmark-rfc.md
+        # no lo menciona), así que queda MAJOR por defecto, nunca CRITICAL,
+        # hasta que se decida explícitamente lo contrario.
+        findings += [
+            Finding(
+                "major",
+                "status_mismatch",
+                f"Estado inconsistente en '{d.field}': la referencia dice "
+                f"'{d.reference_status}', el modelo marcó '{d.generated_status}'.",
+            )
+            for d in field_status.details
+            if d.outcome == "status_mismatch"
         ]
 
     # MINOR — "diferencias sin impacto semántico" (RFC §22): terminología no

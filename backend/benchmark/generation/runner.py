@@ -38,14 +38,17 @@ from app.ai_pipeline.domain.retry_policy import backoff_seconds, max_retries_for
 from app.ai_pipeline.domain.validation_pipeline import ValidationOutcome, validate_generated_content
 from app.core.config import Settings
 from benchmark.generation.dataset import GenerationDatasetCase
+from benchmark.generation.field_criticality import CRITICAL_FIELDS_BY_ARTIFACT_TYPE
 from benchmark.generation.gates import Finding, GateResult, classify_findings, evaluate_gates
 from benchmark.generation.metrics import (
     EvidenceCoverageReport,
     FactPreservationReport,
+    FieldMatchReport,
     HallucinationReport,
     MissingInformationCompletenessReport,
     NumericReport,
     evaluate_evidence_coverage,
+    evaluate_field_status_match,
     evaluate_forbidden_facts,
     evaluate_missing_information_completeness,
     evaluate_numeric,
@@ -88,6 +91,10 @@ class MetricsBundle:
     #: clínica, así que nunca comparte gate/severidad con `hallucination`
     #: — ver `classify_findings` y docs/generation-benchmark.md.
     missing_topic_false_positives: HallucinationReport | None
+    #: ANAMNESIS/SESSION_NOTES únicamente (hito 6.4.4) — comparación de
+    #: `status` campo a campo/bloque a bloque contra `reference.json`. `None`
+    #: para el resto de `artifact_type` (ver `evaluate_field_status_match`).
+    field_status: FieldMatchReport | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -302,6 +309,7 @@ class GenerationBenchmarkRunner:
         required_facts = hallucination = negations = laterality = numeric = None
         terminology = missing_information_completeness = None
         missing_topic_false_positives = None
+        field_status = None
         evidence_coverage = evaluate_evidence_coverage(validation.content, validation.source_map)
 
         if validation.ok and case.metadata is not None:
@@ -351,11 +359,29 @@ class GenerationBenchmarkRunner:
                     validation.content, case.metadata.expected_missing_topics
                 )
 
+        # ANAMNESIS/SESSION_NOTES (hito 6.4.4) — `case.reference` siempre
+        # existe en este punto: `run_one` exige `reference.json` con
+        # contenido antes de invocar un modelo real (ver
+        # `GenerationReferenceRequiredError` más arriba), así que nunca hace
+        # falta `case.metadata` para esta comparación.
+        if (
+            validation.ok
+            and case.reference is not None
+            and case.input.artifact_type in CRITICAL_FIELDS_BY_ARTIFACT_TYPE
+        ):
+            field_status = evaluate_field_status_match(
+                artifact_type=case.input.artifact_type,
+                generated_content=validation.content,
+                reference_content=case.reference.content,
+                critical_fields=CRITICAL_FIELDS_BY_ARTIFACT_TYPE[case.input.artifact_type],
+            )
+
         gates = evaluate_gates(
             validation=validation,
             hallucination=hallucination,
             negations=negations,
             laterality=laterality,
+            field_status=field_status,
         )
         findings = classify_findings(
             validation=validation,
@@ -367,6 +393,7 @@ class GenerationBenchmarkRunner:
             terminology=terminology,
             missing_information_completeness=missing_information_completeness,
             missing_topic_false_positives=missing_topic_false_positives,
+            field_status=field_status,
         )
 
         return GenerationBenchmarkOutcome(
@@ -390,6 +417,7 @@ class GenerationBenchmarkRunner:
                 missing_information_completeness=missing_information_completeness,
                 evidence_coverage=evidence_coverage,
                 missing_topic_false_positives=missing_topic_false_positives,
+                field_status=field_status,
             ),
             gates=gates,
             findings=findings,

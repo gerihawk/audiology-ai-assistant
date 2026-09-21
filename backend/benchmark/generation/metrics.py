@@ -25,7 +25,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from app.ai_pipeline.domain.content_walk import iter_dict_nodes, iter_string_leaves
+from app.ai_pipeline.domain.entities import AIArtifactType
 from app.core.text_normalize import normalize_text
+from app.integrations.domain.anamnesis_generator import ANAMNESIS_FIELDS
+from app.integrations.domain.session_notes_generator import SESSION_NOTES_BLOCKS
 from benchmark.generation.case_metadata import FactCase, NumericCase
 
 
@@ -236,3 +239,140 @@ def evaluate_evidence_coverage(
     return EvidenceCoverageReport(
         fields_declaring_evidence=declared, fields_with_valid_evidence=valid
     )
+
+
+# --- Coincidencia de status por campo (ANAMNESIS/SESSION_NOTES) ------------
+#
+# hito 6.4.4 (docs/fase-6-4-4-anamnesis-benchmark-rfc.md §2): el grounding
+# estructural (`_build_source_map`) y la consistencia evidencia/estado
+# (`schemas.py::_check_*_evidence_consistency`) ya bloquean que un modelo
+# invente una cita para un campo — lo que NO detectan es que la cita sea
+# real pero irrelevante para ese campo concreto (`status_escalation`, el
+# modelo "se inventa" haber recibido información) o que el modelo omita
+# información que la referencia dice que sí se aportó (`status_downgrade`).
+# Comparación exacta de un enum cerrado — nunca heurística de texto libre.
+
+FieldStatusOutcome = Literal["match", "status_escalation", "status_downgrade", "status_mismatch"]
+
+#: SESSION_NOTES no tiene un enum de `status` explícito (ver
+#: `SessionNotesBlock`) — `reported`/`not_reported` es un status derivado
+#: de `text` vacío o no, pero cae en la misma partición evidencia/sin-
+#: evidencia que los 4 estados de ANAMNESIS.
+_EVIDENCE_STATUSES = frozenset({"informado", "negado_explicitamente", "reported"})
+_NO_EVIDENCE_STATUSES = frozenset({"no_preguntado", "no_determinado", "not_reported"})
+
+
+@dataclass(slots=True, frozen=True)
+class FieldStatusDetail:
+    field: str
+    critical: bool
+    reference_status: str
+    generated_status: str
+    outcome: FieldStatusOutcome
+
+
+@dataclass(slots=True, frozen=True)
+class FieldMatchReport:
+    details: list[FieldStatusDetail]
+
+    @property
+    def critical_escalations(self) -> int:
+        return sum(1 for d in self.details if d.critical and d.outcome == "status_escalation")
+
+    @property
+    def critical_downgrades(self) -> int:
+        return sum(1 for d in self.details if d.critical and d.outcome == "status_downgrade")
+
+    @property
+    def noncritical_escalations(self) -> int:
+        return sum(1 for d in self.details if not d.critical and d.outcome == "status_escalation")
+
+    @property
+    def noncritical_downgrades(self) -> int:
+        return sum(1 for d in self.details if not d.critical and d.outcome == "status_downgrade")
+
+    @property
+    def mismatches(self) -> int:
+        return sum(1 for d in self.details if d.outcome == "status_mismatch")
+
+
+def _status_group(status: str) -> Literal["evidence", "no_evidence"]:
+    return "evidence" if status in _EVIDENCE_STATUSES else "no_evidence"
+
+
+def _classify_status_pair(reference_status: str, generated_status: str) -> FieldStatusOutcome:
+    if reference_status == generated_status:
+        return "match"
+    reference_group = _status_group(reference_status)
+    generated_group = _status_group(generated_status)
+    if reference_group == generated_group:
+        # Mismo grupo, valor distinto (p. ej. informado <-> negado_explicitamente,
+        # o no_preguntado <-> no_determinado): ni fabrica ni omite desde cero,
+        # invierte el sentido dentro del mismo nivel de evidencia.
+        return "status_mismatch"
+    if reference_group == "no_evidence" and generated_group == "evidence":
+        return "status_escalation"
+    return "status_downgrade"
+
+
+def _anamnesis_field_statuses(content: Any) -> dict[str, str]:
+    if not isinstance(content, dict):
+        return {}
+    statuses: dict[str, str] = {}
+    for field_name in ANAMNESIS_FIELDS:
+        field_value = content.get(field_name)
+        status = field_value.get("status") if isinstance(field_value, dict) else None
+        if isinstance(status, str):
+            statuses[field_name] = status
+    return statuses
+
+
+def _session_notes_block_statuses(content: Any) -> dict[str, str]:
+    if not isinstance(content, dict):
+        return {}
+    statuses: dict[str, str] = {}
+    for block_name in SESSION_NOTES_BLOCKS:
+        block = content.get(block_name)
+        if not isinstance(block, dict):
+            continue
+        text = block.get("text")
+        statuses[block_name] = (
+            "reported" if isinstance(text, str) and text.strip() else "not_reported"
+        )
+    return statuses
+
+
+def evaluate_field_status_match(
+    *,
+    artifact_type: AIArtifactType,
+    generated_content: Any,
+    reference_content: Any,
+    critical_fields: frozenset[str],
+) -> FieldMatchReport | None:
+    """`None` para cualquier `artifact_type` distinto de ANAMNESIS/
+    SESSION_NOTES (hito 6.4.4, exclusivo de estos dos — ver
+    docs/fase-6-4-4-anamnesis-benchmark-rfc.md §2). Solo compara campos
+    presentes en AMBOS contenidos: un campo ausente por fallo estructural ya
+    lo captura `schema_gate`, nunca este metric."""
+    if artifact_type is AIArtifactType.ANAMNESIS:
+        reference_statuses = _anamnesis_field_statuses(reference_content)
+        generated_statuses = _anamnesis_field_statuses(generated_content)
+    elif artifact_type is AIArtifactType.SESSION_NOTES:
+        reference_statuses = _session_notes_block_statuses(reference_content)
+        generated_statuses = _session_notes_block_statuses(generated_content)
+    else:
+        return None
+
+    details = [
+        FieldStatusDetail(
+            field=field_name,
+            critical=field_name in critical_fields,
+            reference_status=reference_statuses[field_name],
+            generated_status=generated_statuses[field_name],
+            outcome=_classify_status_pair(
+                reference_statuses[field_name], generated_statuses[field_name]
+            ),
+        )
+        for field_name in sorted(set(reference_statuses) & set(generated_statuses))
+    ]
+    return FieldMatchReport(details=details)
