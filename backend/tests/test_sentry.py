@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import sentry_sdk
@@ -186,7 +186,15 @@ def test_scope_user_tagged_with_only_uuid_id_on_authenticated_request() -> None:
         raise ValueError("kaboom")
 
     client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/boom")
+    # Fase 14 añadió el gate de `Clinic.is_active` dentro de
+    # `get_current_user`, entre la resolución del usuario y
+    # `tag_current_user` — hace una consulta real con `session`, que aquí
+    # es `None` (este test no monta base de datos, ver el resto del
+    # fichero). Se sustituye por un no-op: lo que este test verifica es el
+    # etiquetado de Sentry, no el gate de clínica activa (que ya tiene sus
+    # propios tests en `test_platform_admin.py`).
+    with patch("app.core.deps._ensure_clinic_is_active", AsyncMock(return_value=None)):
+        response = client.get("/boom")
 
     assert response.status_code == 500
     assert len(captured) == 1
