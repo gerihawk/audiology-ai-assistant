@@ -149,10 +149,15 @@ class TestDatasetLoader:
         assert case.reference is not None
         assert case.reference.content is not None
 
-    def test_los_3_casos_reales_listados(self):
+    def test_los_5_casos_reales_listados(self):
+        # Hito 6.4.4 añadió los 2 casos ANAMNESIS (rica/pobre) al mismo
+        # directorio de dataset — este test verifica el listado completo,
+        # no solo los 3 casos originales de la Fase 6.2.
         ids = list_generation_case_ids(_REAL_DATASET_DIR)
         assert set(ids) == {
             "consulta_ficticia_01__summary",
             "consulta_ficticia_01__missing_information",
             "consulta_ficticia_01__patient_summary",
+            "consulta_ficticia_anamnesis_rica__anamnesis",
+            "consulta_ficticia_anamnesis_pobre__anamnesis",
         }
