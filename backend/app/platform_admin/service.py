@@ -115,3 +115,20 @@ class PlatformAdminService:
             raise NotFoundError("La clínica no existe.")
         await self._session.commit()
         return clinic
+
+    async def set_clinic_negotiated_included_sessions(
+        self, clinic_id: uuid.UUID, *, negotiated_included_sessions: int | None
+    ) -> Clinic:
+        """Ampliación 2026-09-21 (auditoría entre fases) — fija el tope de
+        sesiones negociado individualmente para una `Clinic` del nivel
+        Cadena/Empresa (docs/fase-13-rfc.md §3.3). La validación del
+        rango (entero positivo o `None`) ya la hace
+        `PlatformClinicUpdateRequest`; aquí solo se resuelve la clínica y
+        se aplica, mismo criterio que `set_clinic_active`."""
+        clinic = await self._clinics.set_negotiated_included_sessions(
+            self._session, clinic_id, negotiated_included_sessions=negotiated_included_sessions
+        )
+        if clinic is None:
+            raise NotFoundError("La clínica no existe.")
+        await self._session.commit()
+        return clinic

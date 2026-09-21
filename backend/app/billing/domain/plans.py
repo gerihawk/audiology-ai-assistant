@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from app.clinics.domain.entities import Clinic
 from app.core.config import Settings
 
 
@@ -50,15 +51,19 @@ def resolve_price_id(settings: Settings, plan: Plan) -> str:
 
 #: Tope de sesiones/mes incluido en cada nivel (docs/fase-13-rfc.md §3.2).
 #: Cadena/Empresa NO tiene entrada a propósito: su precio es por volumen
-#: negociado directamente (§3.3), sin un tope de sesiones por clínica
-#: definido en el RFC — `included_sessions()`/`safety_cap_sessions()`
-#: devuelven `None` para este nivel, y tanto el gate de acceso
-#: (`BillingService.check_active_subscription`) como el reporte de
-#: overage (`BillingService.report_overage_usage`) lo omiten sin aplicar
-#: ningún bloqueo ni cobro de exceso. Señalado explícitamente a Gerard:
-#: si en el futuro se quiere un tope también para Cadena/Empresa, hace
-#: falta una decisión de producto (¿por clínica? ¿agregado de la cadena?)
-#: que este RFC no cierra.
+#: negociado directamente (§3.3), sin un tope de sesiones global válido
+#: para todas sus clínicas. **Ampliación 2026-09-21** (auditoría entre
+#: fases): en vez de eso, cada `Clinic` de este nivel puede llevar su
+#: propio tope en `Clinic.negotiated_included_sessions`, fijado a mano
+#: por Gerard al negociar el contrato (panel `app.platform_admin`) — ver
+#: `included_sessions()`/`safety_cap_sessions()` más abajo, que ahora
+#: aceptan la `Clinic` para resolverlo. Mientras esa clínica no tenga un
+#: tope negociado todavía, el comportamiento sigue siendo el de antes de
+#: esta ampliación: `None`, sin bloqueo por uso. El reporte de overage
+#: medido (`BillingService.report_overage_usage`) sigue sin aplicar a
+#: este nivel en ningún caso — el tope negociado alimenta solo el gate
+#: de acceso, nunca un cobro automático de exceso a Stripe (no hay
+#: mecanismo de Price medido por clínica individual, solo por nivel).
 PLAN_INCLUDED_SESSIONS: dict[Plan, int] = {
     Plan.BASICO: 40,
     Plan.PROFESIONAL: 150,
@@ -67,19 +72,31 @@ PLAN_INCLUDED_SESSIONS: dict[Plan, int] = {
 
 #: Múltiplo del tope incluido a partir del cual se bloquea el acceso, no
 #: solo se cobra overage (docs/fase-13-rfc.md §3.2: "hasta un techo de
-#: seguridad fijado en el doble del tope incluido").
+#: seguridad fijado en el doble del tope incluido"). Se aplica igual al
+#: tope negociado de Cadena/Empresa (ampliación 2026-09-21) — mismo
+#: criterio para todos los niveles, nunca uno especial para ese nivel.
 SAFETY_CAP_MULTIPLIER = 2
 
 
-def included_sessions(plan: Plan) -> int | None:
-    """`None` para Cadena/Empresa — ver docstring de `PLAN_INCLUDED_SESSIONS`."""
+def included_sessions(plan: Plan, clinic: Clinic | None = None) -> int | None:
+    """Tope de sesiones incluidas del nivel. Para todos los niveles salvo
+    Cadena/Empresa es el valor global de `PLAN_INCLUDED_SESSIONS`, igual
+    para cualquier clínica de ese nivel — `clinic` se ignora en ese caso.
+    Para Cadena/Empresa (§3.3, ampliación 2026-09-21) devuelve en su
+    lugar `clinic.negotiated_included_sessions`: `None` si no se pasa
+    `clinic` (para no romper una llamada que solo conocía el `plan`) o si
+    esa clínica concreta todavía no tiene un tope negociado."""
+    if plan is Plan.CADENA_EMPRESA:
+        return clinic.negotiated_included_sessions if clinic is not None else None
     return PLAN_INCLUDED_SESSIONS.get(plan)
 
 
-def safety_cap_sessions(plan: Plan) -> int | None:
-    """`None` para Cadena/Empresa — sin techo de seguridad definido, el
-    gate de acceso nunca bloquea por uso a este nivel (§3.2/§5)."""
-    included = PLAN_INCLUDED_SESSIONS.get(plan)
+def safety_cap_sessions(plan: Plan, clinic: Clinic | None = None) -> int | None:
+    """Techo de seguridad = `SAFETY_CAP_MULTIPLIER` × tope incluido —
+    misma resolución que `included_sessions()`, incluida la ampliación de
+    Cadena/Empresa vía `clinic`. `None` si `included_sessions()` ya
+    devuelve `None` (sin tope definido, no se bloquea nunca por uso)."""
+    included = included_sessions(plan, clinic)
     return included * SAFETY_CAP_MULTIPLIER if included is not None else None
 
 

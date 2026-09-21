@@ -169,13 +169,56 @@ async def test_gate_allows_under_safety_cap(
 async def test_gate_never_blocks_cadena_empresa_by_usage(
     db_session: AsyncSession, clinic_with_users: ClinicWithUsers
 ) -> None:
-    """Cadena/Empresa no tiene tope/techo definidos (§3.3) — nunca se
-    bloquea por uso a ese nivel, por muchas sesiones que acumule."""
+    """Cadena/Empresa sin tope negociado todavía (`negotiated_included_
+    sessions` a None) nunca se bloquea por uso, por muchas sesiones que
+    acumule — mismo comportamiento que antes de la ampliación del
+    2026-09-21 (docs/fase-13-rfc.md §3.3)."""
     service, _ = _service(db_session)
     clinic_id = clinic_with_users.clinic.id
     await _activate_clinic(db_session, clinic_id, plan="cadena_empresa")
     repo = SqlAlchemyClinicRepository()
     for _ in range(500):
+        await repo.increment_sessions_used(db_session, clinic_id)
+    await db_session.commit()
+
+    await service.check_active_subscription(current_user_from(clinic_with_users.admin))
+
+
+async def test_gate_blocks_cadena_empresa_over_negotiated_cap(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    """Ampliación 2026-09-21 (auditoría entre fases): una clínica Cadena/
+    Empresa CON tope negociado sí se bloquea al superar su techo de
+    seguridad (tope negociado × SAFETY_CAP_MULTIPLIER), igual que
+    cualquier otro nivel."""
+    service, _ = _service(db_session)
+    clinic_id = clinic_with_users.clinic.id
+    await _activate_clinic(db_session, clinic_id, plan="cadena_empresa")
+    repo = SqlAlchemyClinicRepository()
+    await repo.set_negotiated_included_sessions(
+        db_session, clinic_id, negotiated_included_sessions=10
+    )
+    await db_session.commit()
+    for _ in range(21):  # techo = 10 * 2 = 20
+        await repo.increment_sessions_used(db_session, clinic_id)
+    await db_session.commit()
+
+    with pytest.raises(ForbiddenError):
+        await service.check_active_subscription(current_user_from(clinic_with_users.admin))
+
+
+async def test_gate_allows_cadena_empresa_under_negotiated_cap(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, _ = _service(db_session)
+    clinic_id = clinic_with_users.clinic.id
+    await _activate_clinic(db_session, clinic_id, plan="cadena_empresa")
+    repo = SqlAlchemyClinicRepository()
+    await repo.set_negotiated_included_sessions(
+        db_session, clinic_id, negotiated_included_sessions=10
+    )
+    await db_session.commit()
+    for _ in range(15):  # por encima del tope (10) pero por debajo del techo (20)
         await repo.increment_sessions_used(db_session, clinic_id)
     await db_session.commit()
 
@@ -442,6 +485,26 @@ async def test_report_overage_usage_skips_cadena_empresa(
     assert await service.report_overage_usage(clinic.id) is None
 
 
+async def test_report_overage_usage_skips_cadena_empresa_even_with_negotiated_cap(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    """Ampliación 2026-09-21: el tope negociado alimenta el gate de
+    acceso, nunca el overage medido de Stripe — ver docstring de
+    `BillingService.report_overage_usage`."""
+    service, _ = _service(db_session)
+    clinic = clinic_with_users.clinic
+    await _activate_clinic(db_session, clinic.id, plan="cadena_empresa")
+    await SqlAlchemyClinicRepository().set_negotiated_included_sessions(
+        db_session, clinic.id, negotiated_included_sessions=10
+    )
+    await SqlAlchemyClinicRepository().start_new_billing_period(
+        db_session, clinic.id, period_started_at=datetime.now(UTC) - timedelta(days=1)
+    )
+    await db_session.commit()
+
+    assert await service.report_overage_usage(clinic.id) is None
+
+
 # --- reconcile_subscriptions -------------------------------------------------
 
 
@@ -518,6 +581,24 @@ async def test_get_status_with_active_plan(
     assert result.plan == "basico"
     assert result.included_sessions == 40
     assert result.safety_cap_sessions == 80
+
+
+async def test_get_status_cadena_empresa_reflects_negotiated_cap(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    service, _ = _service(db_session)
+    clinic_id = clinic_with_users.clinic.id
+    await _activate_clinic(db_session, clinic_id, plan="cadena_empresa")
+    await SqlAlchemyClinicRepository().set_negotiated_included_sessions(
+        db_session, clinic_id, negotiated_included_sessions=10
+    )
+    await db_session.commit()
+
+    result = await service.get_status(current_user_from(clinic_with_users.admin))
+
+    assert result.plan == "cadena_empresa"
+    assert result.included_sessions == 10
+    assert result.safety_cap_sessions == 20
 
 
 @pytest.mark.parametrize("role_attr", ["audiologist", "viewer"])

@@ -37,15 +37,23 @@ os.environ.setdefault("FIELD_ENCRYPTION_KEYS", "1:HEFvJucNIlytjAspyvBhWs58nGaFik
 os.environ.setdefault("FIELD_ENCRYPTION_ACTIVE_KEY_ID", "1")
 
 # Aislamiento de la suite frente a variables de entorno "ambiente" del
-# contenedor (Fase 6.3, corrección del punto 11): `docker compose run`
-# hereda el mismo bloque `environment:` que `docker compose up`, así que
-# valores reales de `.env` del usuario (routing LLM, API keys, límites de
-# coste, para el experimento de llamada real autorizado) llegarían a
-# `Settings()` en cualquier test que no los pase explícitamente, haciendo
-# que ese test dependa silenciosamente de la máquina en la que se ejecuta.
-# Se limpian aquí, antes de cualquier import que pueda construir
-# `Settings()` (p. ej. `app.main`) — nunca se toca el fichero `.env` real
-# del usuario, solo el entorno del proceso de test.
+# contenedor (Fase 6.3, corrección del punto 11; ampliado 2026-09-21 con
+# las variables de Stripe): `docker compose run` hereda el mismo bloque
+# `environment:` que `docker compose up`, así que valores reales de
+# `.env` del usuario (routing LLM, API keys, límites de coste, y ahora
+# también la cuenta de Stripe en modo test que Gerard fue configurando)
+# llegarían a `Settings()` en cualquier test que no los pase
+# explícitamente, haciendo que ese test dependa silenciosamente de la
+# máquina en la que se ejecuta. Caso real detectado el 2026-09-21: al
+# rellenar `.env` con `PAYMENT_GATEWAY=stripe` y las claves/Price IDs de
+# Stripe reales, `test_webhook_activates_clinic_subscription` empezó a
+# ejecutar la verificación de firma real de Stripe en vez de
+# `MockPaymentGateway` (la suite siempre asume `PAYMENT_GATEWAY=mock`), y
+# `test_create_checkout_session_with_unconfigured_plan_is_conflict` dejó
+# de ver "Clínica grande" como un plan sin configurar. Se limpian aquí,
+# antes de cualquier import que pueda construir `Settings()` (p. ej.
+# `app.main`) — nunca se toca el fichero `.env` real del usuario, solo el
+# entorno del proceso de test.
 for _leaking_var in (
     "GOOGLE_API_KEY",
     "OPENAI_API_KEY",
@@ -59,6 +67,19 @@ for _leaking_var in (
     "LLM_COST_LIMIT_ENFORCED",
     "MAX_LLM_COST_PER_SESSION_USD",
     "AI_PROCESSING_CONSENT_ENFORCED",
+    "PAYMENT_GATEWAY",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_PRICE_ID_BASICO",
+    "STRIPE_PRICE_ID_PROFESIONAL",
+    "STRIPE_PRICE_ID_CLINICA_GRANDE",
+    "STRIPE_PRICE_ID_CADENA_EMPRESA",
+    "STRIPE_METERED_PRICE_ID_BASICO",
+    "STRIPE_METERED_PRICE_ID_PROFESIONAL",
+    "STRIPE_METERED_PRICE_ID_CLINICA_GRANDE",
+    "STRIPE_METER_EVENT_NAME_BASICO",
+    "STRIPE_METER_EVENT_NAME_PROFESIONAL",
+    "STRIPE_METER_EVENT_NAME_CLINICA_GRANDE",
 ):
     os.environ.pop(_leaking_var, None)
 del _leaking_var
@@ -106,18 +127,37 @@ def _test_db_url(settings) -> str:
 
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_test_database() -> None:
-    """Crea la base de datos de test (si no existe) y su esquema, una sola
-    vez por sesión de pytest. Deliberadamente síncrono (sin asyncio) para
-    no depender del loop de eventos de ningún test concreto."""
+    """Recrea la base de datos de test desde cero (drop + create + esquema
+    actual de los modelos ORM), una sola vez por sesión de pytest.
+    Deliberadamente síncrono (sin asyncio) para no depender del loop de
+    eventos de ningún test concreto.
+
+    Ampliación 2026-09-21: antes esta fixture solo creaba la base de datos
+    si no existía y construía su esquema con `Base.metadata.create_all()`,
+    que ÚNICAMENTE crea tablas nuevas — nunca altera una tabla ya existente
+    para añadir una columna nueva. Como `postgres_data` es un volumen
+    Docker persistente (ver docker-compose.yml), la base de datos de test
+    sobrevivía sin cambios entre ejecuciones, así que cualquier migración
+    que añadiera una columna a una tabla ya creada en un run anterior
+    (p. ej. `negotiated_included_sessions` en `clinics`) dejaba el ORM y
+    el esquema real de test desincronizados, con errores
+    `psycopg.errors.UndefinedColumn` en gran parte de la suite. Se
+    soluciona recreando la base de datos de test por completo en cada
+    sesión de pytest: es barato (solo esquema, sin datos reales que
+    conservar entre runs — cada test ya trunca sus propias tablas en
+    `test_engine`) y garantiza que el esquema de test siempre coincide con
+    los modelos ORM actuales, sin depender de que alguien recuerde borrar
+    el volumen a mano tras cada migración nueva."""
     settings = get_settings()
 
     admin_engine = create_engine(_sync_admin_url(settings), isolation_level="AUTOCOMMIT")
     with admin_engine.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": TEST_DB_NAME}
-        ).scalar()
-        if not exists:
-            conn.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
+        # `WITH (FORCE)` (Postgres >= 13) desconecta a la fuerza cualquier
+        # conexión residual a la base de datos de test (p. ej. de un run
+        # anterior que no cerró limpio) para que el DROP no falle con
+        # "database is being accessed by other users".
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB_NAME}" WITH (FORCE)'))
+        conn.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
     admin_engine.dispose()
 
     schema_engine = create_engine(_test_db_url(settings))

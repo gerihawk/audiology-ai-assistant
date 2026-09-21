@@ -43,3 +43,15 @@ class Clinic:
     # pipeline real: sin esto no habría forma de distinguir "uso de este
     # periodo" de "uso de periodos anteriores ya facturados".
     current_period_started_at: datetime | None = None
+    # --- Facturación / Stripe (ampliación 2026-09-21, auditoría entre
+    # fases tras el hito 13.3) --- Tope de sesiones incluidas negociado
+    # INDIVIDUALMENTE para esta clínica — exclusivo del nivel Cadena/
+    # Empresa (docs/fase-13-rfc.md §3.3: precio y condiciones por
+    # volumen, negociados caso a caso, nunca un valor global como
+    # `PLAN_INCLUDED_SESSIONS` en el resto de niveles). `None` mientras
+    # esa clínica no tenga un tope negociado todavía (comportamiento
+    # igual que antes de esta ampliación: sin techo, nunca bloquea por
+    # uso). Se fija a mano desde el panel de operador de la plataforma
+    # (`app.platform_admin`) al negociar el contrato — ver
+    # `app/billing/domain/plans.py` para cómo se usa.
+    negotiated_included_sessions: int | None = None

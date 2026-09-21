@@ -41,3 +41,6 @@ class ClinicORM(Base):
     current_period_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Ampliación 2026-09-21 — ver docstring de
+    # Clinic.negotiated_included_sessions.
+    negotiated_included_sessions: Mapped[int | None] = mapped_column(Integer, nullable=True)

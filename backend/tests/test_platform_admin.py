@@ -266,3 +266,87 @@ async def test_update_nonexistent_clinic_returns_404(
     )
 
     assert response.status_code == 404
+
+
+# --- negotiated_included_sessions (Cadena/Empresa) — ampliación 2026-09-21 --
+
+
+async def test_set_negotiated_included_sessions(
+    api_client: AsyncClient, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    headers = await _operator_headers(api_client, db_session)
+
+    response = await api_client.patch(
+        f"/api/v1/platform/clinics/{clinic_with_users.clinic.id}",
+        json={"negotiated_included_sessions": 250},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["negotiated_included_sessions"] == 250
+    # is_active no venía en el payload — no se toca.
+    assert response.json()["is_active"] is True
+
+
+async def test_clear_negotiated_included_sessions_with_explicit_null(
+    api_client: AsyncClient, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    headers = await _operator_headers(api_client, db_session)
+    await api_client.patch(
+        f"/api/v1/platform/clinics/{clinic_with_users.clinic.id}",
+        json={"negotiated_included_sessions": 250},
+        headers=headers,
+    )
+
+    response = await api_client.patch(
+        f"/api/v1/platform/clinics/{clinic_with_users.clinic.id}",
+        json={"negotiated_included_sessions": None},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["negotiated_included_sessions"] is None
+
+
+async def test_negotiated_included_sessions_must_be_positive(
+    api_client: AsyncClient, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    headers = await _operator_headers(api_client, db_session)
+
+    response = await api_client.patch(
+        f"/api/v1/platform/clinics/{clinic_with_users.clinic.id}",
+        json={"negotiated_included_sessions": 0},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+async def test_update_clinic_requires_at_least_one_field(
+    api_client: AsyncClient, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    headers = await _operator_headers(api_client, db_session)
+
+    response = await api_client.patch(
+        f"/api/v1/platform/clinics/{clinic_with_users.clinic.id}",
+        json={},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+async def test_can_update_is_active_and_negotiated_included_sessions_together(
+    api_client: AsyncClient, db_session: AsyncSession, clinic_with_users: ClinicWithUsers
+) -> None:
+    headers = await _operator_headers(api_client, db_session)
+
+    response = await api_client.patch(
+        f"/api/v1/platform/clinics/{clinic_with_users.clinic.id}",
+        json={"is_active": False, "negotiated_included_sessions": 100},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["is_active"] is False
+    assert response.json()["negotiated_included_sessions"] == 100

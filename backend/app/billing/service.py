@@ -193,8 +193,8 @@ class BillingService:
         if clinic.plan is not None:
             try:
                 plan = Plan(clinic.plan)
-                included = included_sessions(plan)
-                safety_cap = safety_cap_sessions(plan)
+                included = included_sessions(plan, clinic)
+                safety_cap = safety_cap_sessions(plan, clinic)
             except ValueError:
                 pass
 
@@ -526,7 +526,7 @@ class BillingService:
                 plan = Plan(clinic.plan)
             except ValueError:
                 plan = None
-            safety_cap = safety_cap_sessions(plan) if plan is not None else None
+            safety_cap = safety_cap_sessions(plan, clinic) if plan is not None else None
             if safety_cap is not None and clinic.sessions_used_this_period > safety_cap:
                 raise ForbiddenError(
                     "Se ha superado el techo de uso incluido en el nivel contratado. Sube de "
@@ -560,9 +560,17 @@ class BillingService:
         except ValueError:
             return None
 
-        included = included_sessions(plan)
+        if plan is Plan.CADENA_EMPRESA:
+            # Cadena/Empresa nunca reporta overage medido a Stripe, tenga
+            # o no tenga un tope negociado (ampliación 2026-09-21) — ese
+            # tope alimenta solo el gate de acceso en
+            # `check_active_subscription`, nunca un cobro automático:
+            # no hay Price medido por clínica individual, solo por nivel
+            # (ver docstring de `PLAN_INCLUDED_SESSIONS`).
+            return None
+
+        included = included_sessions(plan, clinic)
         if included is None:
-            # Cadena/Empresa — sin tope ni overage definidos (§3.3).
             return None
 
         runs = await self._pipeline_runs.list_completed_since_for_clinic(

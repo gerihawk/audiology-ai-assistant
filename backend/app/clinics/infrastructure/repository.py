@@ -29,6 +29,7 @@ def _to_domain(row: ClinicORM) -> Clinic:
         plan=row.plan,
         sessions_used_this_period=row.sessions_used_this_period,
         current_period_started_at=row.current_period_started_at,
+        negotiated_included_sessions=row.negotiated_included_sessions,
     )
 
 
@@ -64,6 +65,34 @@ class SqlAlchemyClinicRepository:
             update(ClinicORM)
             .where(ClinicORM.id == clinic_id)
             .values(is_active=is_active, updated_at=datetime.now(UTC))
+            .returning(ClinicORM)
+        )
+        row = result.scalar_one_or_none()
+        return _to_domain(row) if row is not None else None
+
+    async def set_negotiated_included_sessions(
+        self,
+        session: AsyncSession,
+        clinic_id: uuid.UUID,
+        *,
+        negotiated_included_sessions: int | None,
+    ) -> Clinic | None:
+        """Ampliación 2026-09-21 (auditoría entre fases) — fija el tope de
+        sesiones negociado individualmente para una Clinic del nivel
+        Cadena/Empresa (docs/fase-13-rfc.md §3.3, ver también
+        `app/billing/domain/plans.py`). Uso exclusivo del panel de
+        operador de la plataforma (`app.platform_admin`), igual que
+        `set_active`. A diferencia de `set_active`, aquí `None` es un
+        valor válido y con efecto propio (quita el tope, vuelve al
+        comportamiento sin techo) — es la única vía del panel para
+        revertir un tope introducido por error."""
+        result = await session.execute(
+            update(ClinicORM)
+            .where(ClinicORM.id == clinic_id)
+            .values(
+                negotiated_included_sessions=negotiated_included_sessions,
+                updated_at=datetime.now(UTC),
+            )
             .returning(ClinicORM)
         )
         row = result.scalar_one_or_none()

@@ -23,6 +23,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Request
 
+from app.clinics.domain.entities import Clinic
 from app.core.rate_limit import limiter
 from app.platform_admin.api.deps import (
     get_current_platform_operator,
@@ -79,5 +80,20 @@ async def update_clinic(
     _operator: PlatformOperator = Depends(get_current_platform_operator),
     service: PlatformAdminService = Depends(get_platform_admin_service),
 ) -> PlatformClinicResponse:
-    clinic = await service.set_clinic_active(clinic_id, is_active=payload.is_active)
+    """Ampliación 2026-09-21: `PlatformClinicUpdateRequest` ahora es una
+    actualización parcial de verdad — cada campo incluido en el payload
+    (`model_fields_set`, nunca solo "no es None") se aplica con su propio
+    método del service, en el orden en que aparecen abajo. Los dos
+    `if` pueden ejecutarse en la misma llamada; el validador del propio
+    payload garantiza que al menos uno se ejecuta siempre."""
+    clinic: Clinic | None = None
+    fields_set = payload.model_fields_set
+    if "is_active" in fields_set:
+        assert payload.is_active is not None  # ya validado por el schema
+        clinic = await service.set_clinic_active(clinic_id, is_active=payload.is_active)
+    if "negotiated_included_sessions" in fields_set:
+        clinic = await service.set_clinic_negotiated_included_sessions(
+            clinic_id, negotiated_included_sessions=payload.negotiated_included_sessions
+        )
+    assert clinic is not None  # garantizado por el validador del payload
     return PlatformClinicResponse.from_domain(clinic)

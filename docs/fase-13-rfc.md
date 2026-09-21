@@ -424,3 +424,38 @@ Stripe como proveedor de Gerard, no del DPA de sus clientes — pendiente,
 se añade cuando se active Stripe de verdad, no antes). El hito 13.1
 (código) puede empezar en cuanto Gerard lo pida — este RFC ya no es un
 bloqueante.
+
+## 10. Ampliación — tope negociado por clínica en Cadena/Empresa (2026-09-21)
+
+La auditoría entre fases del 2026-09-21 (tras el hito 6.4.4) señaló el
+hueco que §3.3 dejaba consciente: Cadena/Empresa no tenía tope de
+sesiones ni techo de seguridad definidos en ningún sitio, así que nunca
+se bloqueaba por uso a ese nivel por mucho que se disparara. Decisión de
+Gerard ese mismo día: el tope **sí existe, pero es distinto para cada
+clínica de la cadena, según lo negociado en el contrato** — no un valor
+global como en el resto de niveles, ni tampoco agregado entre las
+clínicas de una misma cadena (cada `Clinic` sigue midiéndose de forma
+aislada, coherente con el aislamiento ya decidido en §3.3).
+
+Implementado como `Clinic.negotiated_included_sessions` (nullable,
+migración `b7f4a9c1e358`): `None` mientras esa clínica no tenga un tope
+negociado todavía (sin cambio de comportamiento respecto a antes de esta
+ampliación). Se fija a mano desde
+`PATCH /platform/clinics/{clinic_id}` (panel de operador de la
+plataforma, Fase 14) al negociar el contrato — sigue siendo gestión
+semi-manual de Gerard, igual que el alta de la propia cadena (§3.3).
+`app/billing/domain/plans.py::included_sessions`/`safety_cap_sessions`
+resuelven este valor exactamente igual que el resto de niveles
+(`SAFETY_CAP_MULTIPLIER` × tope incluido), así que el gate de acceso
+(`check_active_subscription`) ya bloquea a una clínica Cadena/Empresa
+que supera su propio techo negociado.
+
+**Deliberadamente fuera de esta ampliación**: el overage medido
+automático de Stripe (`report_overage_usage`) sigue sin aplicar nunca a
+este nivel, tenga o no tenga tope negociado — no existe un Price medido
+por clínica individual, solo uno global por nivel (`STRIPE_METERED_
+PRICE_ID_<NIVEL>`), y crear uno por contrato negociado sería una pieza de
+infraestructura de Stripe bastante más grande que un tope de acceso. Si
+Gerard llega a necesitar cobro automático de excesos también para
+Cadena/Empresa, es una decisión de producto nueva, no cerrada aquí.
+
