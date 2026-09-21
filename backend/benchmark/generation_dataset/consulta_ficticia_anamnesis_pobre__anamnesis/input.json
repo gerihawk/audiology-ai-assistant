@@ -1,0 +1,24 @@
+{
+  "id": "consulta_ficticia_anamnesis_pobre__anamnesis",
+  "language": "es",
+  "artifact_type": "anamnesis",
+  "session_type": "INITIAL_ASSESSMENT",
+  "transcript": "AUDIOPROTESISTA: Buenos días. Cuénteme, ¿qué le pasa?\nPACIENTE: Pues nada, que mi hija me ha dicho que venga porque dice que no oigo bien. Yo la verdad es que no le veo tanto problema.\nAUDIOPROTESISTA: Entiendo. ¿Desde cuándo cree usted que oye peor, más o menos?\nPACIENTE: Uy, pues no sabría decirle. Igual desde hace tiempo, no me he fijado mucho.\nAUDIOPROTESISTA: ¿Le pasa más en un oído que en otro, o lo nota igual en los dos?\nPACIENTE: Pues no sé, creo que en los dos más o menos igual.\nAUDIOPROTESISTA: ¿Ha notado pitidos o zumbidos en los oídos?\nPACIENTE: Alguna vez, pero no le doy importancia, la verdad. No sabría decirle si es mucho o poco.\nAUDIOPROTESISTA: De acuerdo. Vamos a hacerle unas pruebas y así vemos cómo está la audición.\nPACIENTE: Vale, vale, lo que usted diga.",
+  "transcript_segments": [
+    {"speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "Buenos días. Cuénteme, ¿qué le pasa?"},
+    {"speaker": "patient", "start_ms": null, "end_ms": null, "text": "Pues nada, que mi hija me ha dicho que venga porque dice que no oigo bien. Yo la verdad es que no le veo tanto problema."},
+    {"speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "Entiendo. ¿Desde cuándo cree usted que oye peor, más o menos?"},
+    {"speaker": "patient", "start_ms": null, "end_ms": null, "text": "Uy, pues no sabría decirle. Igual desde hace tiempo, no me he fijado mucho."},
+    {"speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "¿Le pasa más en un oído que en otro, o lo nota igual en los dos?"},
+    {"speaker": "patient", "start_ms": null, "end_ms": null, "text": "Pues no sé, creo que en los dos más o menos igual."},
+    {"speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "¿Ha notado pitidos o zumbidos en los oídos?"},
+    {"speaker": "patient", "start_ms": null, "end_ms": null, "text": "Alguna vez, pero no le doy importancia, la verdad. No sabría decirle si es mucho o poco."},
+    {"speaker": "audiologist", "start_ms": null, "end_ms": null, "text": "De acuerdo. Vamos a hacerle unas pruebas y así vemos cómo está la audición."},
+    {"speaker": "patient", "start_ms": null, "end_ms": null, "text": "Vale, vale, lo que usted diga."}
+  ],
+  "context": {},
+  "case_metadata": {
+    "source_transcript_id": "consulta_ficticia_anamnesis_pobre",
+    "notes": "Caso 'pobre' del hito 6.4.4 (docs/fase-6-4-4-anamnesis-benchmark-rfc.md §5): paciente que apenas responde, con respuestas vagas ('no sabría decirle', 'no sé') sobre varios de los pocos puntos que sí se le preguntan, y 15 de los 20 campos nunca abordados en absoluto. Diseñado para tentar a un modelo a 'rellenar huecos' fabricando informado/negado_explicitamente donde la referencia dirá no_preguntado/no_determinado — exactamente el riesgo de status_escalation que este hito mide."
+  }
+}

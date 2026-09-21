@@ -1,0 +1,102 @@
+{
+  "motivo_consulta": {
+    "value": "La hija del pacientele dice que no oye bien y le insiste para que venga.",
+    "status": "informado",
+    "source_excerpt": "Pues nada, que mi hija me ha dicho que venga porque dice que no oigo bien. Yo la verdad es que no le veo tanto problema."
+  },
+  "percepcion_subjetiva_perdida_auditiva": {
+    "value": "El paciente relativiza el problema, no lo percibe como grave",
+    "status": "informado",
+    "source_excerpt": "Pues nada, que mi hija me ha dicho que venga porque dice que no oigo bien. Yo la verdad es que no le veo tanto problema."
+  },
+  "inicio_y_evolucion": {
+    "value": "",
+    "status": "no_determinado",
+    "source_excerpt": null
+  },
+  "lateralidad": {
+    "value": "El paciente dice que oye por los dos oídos más o menos igual",
+    "status": "informado",
+    "source_excerpt": "Pues no sé, creo que en los dos más o menos igual."
+  },
+  "antecedentes_familiares": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "antecedentes_otologicos": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "infecciones": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "cirugias": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "exposicion_ruido": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "medicacion_ototoxica_declarada": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "tinnitus": {
+    "value": "El paciente ha experimentado tinnitus alguna vez",
+    "status": "informado",
+    "source_excerpt": "Alguna vez, pero no le doy importancia, la verdad. No sabría decirle si es mucho o poco."
+  },
+  "vertigo_o_inestabilidad": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "otalgia": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "otorrea": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "sensacion_plenitud": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "dificultades_comprension": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "situaciones_auditivas_problematicas": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "uso_previo_audifonos": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "expectativas": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  },
+  "impacto_social_laboral_familiar": {
+    "value": "",
+    "status": "no_preguntado",
+    "source_excerpt": null
+  }
+}

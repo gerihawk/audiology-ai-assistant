@@ -1,0 +1,105 @@
+{
+  "artifact_type": "anamnesis",
+  "content": {
+    "motivo_consulta": {
+      "value": "El paciente nota pérdida auditiva desde hace 1 año, sobre todo en el oído derecho, y dificultad para seguir conversaciones en entornos con varias personas hablando a la vez",
+      "status": "informado",
+      "source_excerpt": "Buenos días. Llevo ya casi un año notando que oigo peor, sobre todo en el oído derecho, y últimamente me cuesta mucho seguir las conversaciones cuando estamos varias personas hablando a la vez."
+    },
+    "percepcion_subjetiva_perdida_auditiva": {
+      "value": "El paciente percibe una pérdida auditiva subjetiva",
+      "status": "informado",
+      "source_excerpt": "Buenos días. Llevo ya casi un año notando que oigo peor, sobre todo en el oído derecho, y últimamente me cuesta mucho seguir las conversaciones cuando estamos varias personas hablando a la vez."
+    },
+    "inicio_y_evolucion": {
+      "value": "El paciente nota pérdida auditiva desde hace unos 11 o 12 meses, con empeoramiento progresivo en los últimos 3-4 meses",
+      "status": "informado",
+      "source_excerpt": "Diría que empezó hace unos once o doce meses, muy poco a poco. Al principio casi no lo notaba, pero en los últimos tres o cuatro meses ha ido a peor de forma bastante clara."
+    },
+    "lateralidad": {
+      "value": "El paciente oye peor en el oído derecho",
+      "status": "informado",
+      "source_excerpt": "Sobre todo al derecho. El izquierdo lo noto bastante bien todavía."
+    },
+    "antecedentes_familiares": {
+      "value": "El paciente tiene antecedentes familiares de sordera",
+      "status": "informado",
+      "source_excerpt": "Sí, mi hermano mayor lleva audífonos desde hace unos años, y creo que mi abuela materna también tuvo bastante sordera de mayor."
+    },
+    "antecedentes_otologicos": {
+      "value": "El paciente tuvo otitis de pequeño y una infección de oído hace unos 8 años, tratada con antibióticos y curada completamente",
+      "status": "informado",
+      "source_excerpt": "De pequeño tuve otitis un par de veces, nada grave. Y hace unos ocho años tuve una infección de oído bastante fuerte que me trataron con antibióticos, pero se curó del todo."
+    },
+    "infecciones": {
+      "value": "El paciente tuvo otitis de pequeño y una infección de oído hace unos 8 años, tratada con antibióticos y curada completamente",
+      "status": "informado",
+      "source_excerpt": "De pequeño tuve otitis un par de veces, nada grave. Y hace unos ocho años tuve una infección de oído bastante fuerte que me trataron con antibióticos, pero se curó del todo."
+    },
+    "cirugias": {
+      "value": "El paciente nunca ha sido operado de los oídos",
+      "status": "negado_explicitamente",
+      "source_excerpt": "No, nunca me han operado."
+    },
+    "exposicion_ruido": {
+      "value": "El paciente trabajó 15 años como operario en una fábrica de metal, con exposición a ruido de máquinas, y no siempre usaba tapones",
+      "status": "informado",
+      "source_excerpt": "Sí, trabajé quince años como operario en una fábrica de metal. Había máquinas muy ruidosas. Nos daban tapones, pero la verdad es que no siempre me los ponía."
+    },
+    "medicacion_ototoxica_declarada": {
+      "value": "El paciente niega tomar medicación ototóxica",
+      "status": "negado_explicitamente",
+      "source_excerpt": "Tomo una pastilla para el colesterol, pero nada más. Y no, que yo sepa, ningún medicamento de esos que pueden afectar al oído."
+    },
+    "tinnitus": {
+      "value": "El paciente tiene un zumbido bastante molesto en el oído derecho",
+      "status": "informado",
+      "source_excerpt": "Sí, tengo un zumbido bastante molesto en el oído derecho, sobre todo cuando hay silencio, como por la noche antes de dormir."
+    },
+    "vertigo_o_inestabilidad": {
+      "value": "El paciente niega tener vértigo o inestabilidad",
+      "status": "negado_explicitamente",
+      "source_excerpt": "No, vértigo no he tenido nunca, la verdad."
+    },
+    "otalgia": {
+      "value": "El paciente niega tener otalgia",
+      "status": "negado_explicitamente",
+      "source_excerpt": "No, nunca."
+    },
+    "otorrea": {
+      "value": "El paciente niega tener otorrea",
+      "status": "negado_explicitamente",
+      "source_excerpt": "No, nunca."
+    },
+    "sensacion_plenitud": {
+      "value": "El paciente tiene sensación de plenitud en el oído derecho",
+      "status": "informado",
+      "source_excerpt": "Sí, a veces sí, sobre todo el derecho, como si estuviera tapado, aunque va y viene."
+    },
+    "dificultades_comprension": {
+      "value": "Al paciente le cuesta seguir conversaciones en entornos con varias personas hablando a la vez",
+      "status": "informado",
+      "source_excerpt": "Buenos días. Llevo ya casi un año notando que oigo peor, sobre todo en el oído derecho, y últimamente me cuesta mucho seguir las conversaciones cuando estamos varias personas hablando a la vez."
+    },
+    "situaciones_auditivas_problematicas": {
+      "value": "El paciente tiene dificultades en situaciones auditivas complejas, como restaurantes o reuniones familiares con varias personas hablando a la vez y ruido de fondo",
+      "status": "informado",
+      "source_excerpt": "Sobre todo en restaurantes o reuniones familiares, con varias personas hablando a la vez y ruido de fondo. En una conversación tranquila, uno a uno, no tengo tanto problema."
+    },
+    "uso_previo_audifonos": {
+      "value": "El paciente niega tener uso previo de audífonos",
+      "status": "negado_explicitamente",
+      "source_excerpt": "No, nunca he usado."
+    },
+    "expectativas": {
+      "value": "El paciente espera poder seguir las conversaciones familiares sin tener que estar pidiendo que le repitan todo el rato, y que su mujer no se enfade tanto con él por eso.",
+      "status": "informado",
+      "source_excerpt": "Pues sobre todo poder seguir las conversaciones familiares sin tener que estar pidiendo que me repitan todo el rato, y que mi mujer no se enfade tanto conmigo por eso."
+    },
+    "impacto_social_laboral_familiar": {
+      "value": "El paciente nota impacto social, laboral y familiar debido a la pérdida auditiva",
+      "status": "informado",
+      "source_excerpt": "En el trabajo no tanto, porque trabajo bastante solo, pero en casa sí: mi mujer se queja de que subo mucho el volumen de la tele y de que parece que no le hago caso cuando me habla desde otra habitación. Con mis nietos también me cuesta cuando están todos jugando y hablando a la vez."
+    }
+  }
+}

@@ -1,15 +1,18 @@
 # RFC — Benchmark de generación para ANAMNESIS y SESSION_NOTES (hito 6.4.4)
 
-**Estado (2026-09-21): decisiones de §7 confirmadas por Gerard sin
-cambios sobre la propuesta.** La infraestructura de medición que
-desbloquean (métrica `evaluate_field_status_match`, GATE 2/GATE 4 en
+**Estado (2026-09-21): decisiones de §7 confirmadas, dataset de 2 casos
+ANAMNESIS completo, benchmark ejecutado contra los 4 candidatos — ver
+§8 para los resultados.** La infraestructura de medición
+(métrica `evaluate_field_status_match`, GATE 2/GATE 4 en
 `gates.py`, clasificación crítico/no-crítico en
-`benchmark/generation/field_criticality.py`) ya está implementada y
+`benchmark/generation/field_criticality.py`) está implementada y
 cubierta por tests (`test_generation_benchmark_metrics.py`,
 `test_generation_benchmark_gates.py`, `test_generation_field_criticality.py`).
-Pendiente: prompts (`PromptCandidateSpec` para ANAMNESIS/SESSION_NOTES,
-§6) y el contenido del dataset de 2 casos (§5) — ninguno de los dos se
-escribe sin ese trabajo de Gerard/clínico primero.
+Prompts candidatos (`anamnesis_es_v1.md`/`session_notes_es_v1.md`) publicados
+en `app/ai_pipeline/prompts/` y sembrados en BD. Pendiente: `SESSION_NOTES`
+sigue sin dataset (alcance de este round fue solo `ANAMNESIS`, §5) y ampliar
+el dataset de `ANAMNESIS` más allá de los 2 casos iniciales si hace falta
+más señal para elegir un ganador definitivo.
 
 Propuesta de diseño para cerrar el hueco que `fase-6-rfc.md` §11.1 dejó
 abierto deliberadamente: `ANAMNESIS`/`SESSION_NOTES` siguen en `Mock`
@@ -203,3 +206,56 @@ arrancó con el dataset mínimo y lo fue ampliando).
 3. ¿Empezamos con 2 casos ficticios (uno rico, uno pobre) como propone
    §5, o prefiere otro número/otro enfoque?
    **Confirmado: 2 casos (2026-09-21).**
+
+## 8. Resultados de la primera ejecución real (2026-09-21)
+
+Ejecutado `benchmark/generation/cli.py` contra los 2 casos de `ANAMNESIS`
+(`consulta_ficticia_anamnesis_rica__anamnesis`,
+`consulta_ficticia_anamnesis_pobre__anamnesis`) y los 4 candidatos de
+`generation-benchmark.md` §8 (Claude Sonnet 5, Claude Opus 5, GPT-5.2,
+Gemini 3.6 Flash). `SESSION_NOTES` queda fuera de este round (§5).
+
+**Infraestructura — `LLM_MAX_OUTPUT_TOKENS_ESTIMATE` insuficiente.** En el
+primer intento, Claude Sonnet 5, Claude Opus 5 y Gemini 3.6 Flash
+truncaban la respuesta del caso rico (`invalid_response_format`).
+Causa: `llm_max_output_tokens_estimate` (`app/core/config.py`) — compartido
+con el pipeline de producción, no solo el benchmark — estaba en 2000 sin
+pasarela `docker-compose`/`.env`, insuficiente para el JSON de 20 campos de
+`ANAMNESIS` (los otros 3 `artifact_type` de 6.3 son más cortos). Se añadió
+la variable a `docker-compose.yml` (commit `65f5ae0`) y se subió a 8000 en
+el `.env` local de Gerard; con eso los 4 modelos completan sin
+truncamiento.
+
+**Hallazgo de diseño — `antecedentes_otologicos` vs `infecciones`/`cirugias`.**
+Con el token cap resuelto, los 4 modelos fallaban el GATE 4 del caso rico
+por el mismo motivo exacto: `status_downgrade` crítico en
+`antecedentes_otologicos` (lo dejaban vacío). Causa raíz: el
+`system_prompt` de `anamnesis_es_v1.md` definía ese campo como "distinto
+de infecciones y cirugías (que se recogen aparte)", mientras que
+`reference.json` lo trata como un campo que SÍ debe incluir esa
+información — contradicción entre el prompt y el criterio clínico de
+referencia, no un fallo de los modelos (los 4 seguían la instrucción del
+prompt correctamente). Corregido el punto 6 del prompt (commit `1477571`)
+para que `antecedentes_otologicos` incluya explícitamente infecciones/
+cirugías previas cuando se mencionen, además de en su campo específico.
+
+**Resultado final** (tras las dos correcciones anteriores):
+
+| Modelo | Caso pobre | Caso rico |
+|---|---|---|
+| Claude Sonnet 5 | limpio (gates OK, 0 findings) | limpio (gates OK, 0 findings) |
+| Claude Opus 5 | limpio | limpio |
+| GPT-5.2 | GATE OK, 1 MAJOR (`status_escalation` no crítico en `inicio_y_evolucion`) | limpio |
+| Gemini 3.6 Flash | GATE OK, mismo MAJOR que GPT-5.2 | limpio |
+
+Ningún modelo se descalifica con el dataset actual. El MAJOR compartido por
+GPT-5.2/Gemini en `inicio_y_evolucion` (fabrican `informado` cuando la
+referencia dice `no_determinado`) confirma que el caso "pobre" detecta lo
+que se diseñó a detectar: la tentación de fabricar contenido sobre una
+respuesta ambigua del paciente ("no sabría decirle, igual desde hace
+tiempo").
+
+Con solo 2 casos la muestra es pequeña para elegir un ganador definitivo
+— ver §5/parte pendiente arriba sobre ampliar el dataset si hace falta más
+señal antes de decidir. Activación en producción sigue fuera de alcance de
+este incremento (§6).
