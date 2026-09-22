@@ -1,0 +1,21 @@
+{
+  "artifact_type": "session_notes",
+  "content": {
+    "changes_since_last_visit": {
+      "text": "",
+      "source_excerpt": null
+    },
+    "device_adjustments": {
+      "text": "Se subió la ganancia del canal de agudos en la revisión técnica del dispositivo.",
+      "source_excerpt": "Le voy a subir un poco la ganancia en el canal de agudos, porque en la comprobación veo que está algo bajo para lo que necesitaría."
+    },
+    "patient_reported_issues": {
+      "text": "",
+      "source_excerpt": null
+    },
+    "next_steps": {
+      "text": "",
+      "source_excerpt": null
+    }
+  }
+}

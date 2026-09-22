@@ -1,18 +1,19 @@
 # RFC — Benchmark de generación para ANAMNESIS y SESSION_NOTES (hito 6.4.4)
 
-**Estado (2026-09-21): decisiones de §7 confirmadas, dataset de 2 casos
-ANAMNESIS completo, benchmark ejecutado contra los 4 candidatos — ver
-§8 para los resultados.** La infraestructura de medición
-(métrica `evaluate_field_status_match`, GATE 2/GATE 4 en
-`gates.py`, clasificación crítico/no-crítico en
+**Estado (2026-09-22): decisiones de §7 confirmadas, dataset de 2 casos
+para ANAMNESIS y 2 casos para SESSION_NOTES completos, benchmark ejecutado
+contra los 4 candidatos para los dos `artifact_type` — ver §8 (ANAMNESIS,
+2026-09-21) y §9 (SESSION_NOTES, 2026-09-22) para los resultados.** La
+infraestructura de medición (métrica `evaluate_field_status_match`,
+GATE 2/GATE 4 en `gates.py`, clasificación crítico/no-crítico en
 `benchmark/generation/field_criticality.py`) está implementada y
 cubierta por tests (`test_generation_benchmark_metrics.py`,
 `test_generation_benchmark_gates.py`, `test_generation_field_criticality.py`).
 Prompts candidatos (`anamnesis_es_v1.md`/`session_notes_es_v1.md`) publicados
-en `app/ai_pipeline/prompts/` y sembrados en BD. Pendiente: `SESSION_NOTES`
-sigue sin dataset (alcance de este round fue solo `ANAMNESIS`, §5) y ampliar
-el dataset de `ANAMNESIS` más allá de los 2 casos iniciales si hace falta
-más señal para elegir un ganador definitivo.
+en `app/ai_pipeline/prompts/` y sembrados en BD. Pendiente: ampliar el
+dataset de ANAMNESIS y/o SESSION_NOTES más allá de los 2 casos iniciales de
+cada uno si hace falta más señal para elegir un ganador definitivo, y la
+activación en producción (§6, hito posterior una vez haya ganador).
 
 Propuesta de diseño para cerrar el hueco que `fase-6-rfc.md` §11.1 dejó
 abierto deliberadamente: `ANAMNESIS`/`SESSION_NOTES` siguen en `Mock`
@@ -259,3 +260,54 @@ Con solo 2 casos la muestra es pequeña para elegir un ganador definitivo
 — ver §5/parte pendiente arriba sobre ampliar el dataset si hace falta más
 señal antes de decidir. Activación en producción sigue fuera de alcance de
 este incremento (§6).
+## 9. Resultados de la ejecución de SESSION_NOTES (2026-09-22)
+
+Ejecutado `benchmark/generation/cli.py` contra los 2 casos nuevos de
+`SESSION_NOTES` (`consulta_ficticia_seguimiento_rica__session_notes`,
+`consulta_ficticia_seguimiento_pobre__session_notes` — continuación
+ficticia de los mismos pacientes de ANAMNESIS, en una sesión de ajuste de
+audífono) y los mismos 4 candidatos de `generation-benchmark.md` §8. Sin
+incidencias de infraestructura esta vez (el `LLM_MAX_OUTPUT_TOKENS_ESTIMATE`
+subido a 8000 en la ronda de ANAMNESIS ya cubre también SESSION_NOTES, 4
+bloques es un JSON más corto que los 20 campos de anamnesis).
+
+**Resultado:**
+
+| Modelo | Caso pobre | Caso rico |
+|---|---|---|
+| Claude Sonnet 5 | GATE OK, 1 MAJOR (`status_escalation` no crítico en `next_steps`) | limpio (gates OK, 0 findings) |
+| Claude Opus 5 | **GATE FALLA** (`status_escalation` crítico en `patient_reported_issues` + 2 MAJOR) | limpio |
+| GPT-5.2 | **GATE FALLA** (mismo patrón exacto que Opus 5) | limpio |
+| Gemini 3.6 Flash | **GATE FALLA** (mismo patrón exacto que Opus 5/GPT-5.2) | limpio |
+
+**Diagnóstico — no es alucinación de hechos, es una interpretación distinta
+de "bloque abordado".** El grounding se mantiene intacto en los 4 modelos
+(`evidence_coverage.coverage = 1.0` en todos los resultados, incluidos los
+3 que fallan el gate): cada `source_excerpt` que citan es una cita literal
+real de la transcripción, nunca inventada. El fallo es semántico: ante una
+respuesta vaga o evasiva del paciente ("No sé, no me fijo mucho en esas
+cosas" para `patient_reported_issues`; "Muy bien, ya nos iremos viendo"
+para `next_steps`), 3 de los 4 modelos redactan un `text` parafraseando esa
+no-respuesta ("el paciente no refiere ninguna molestia...") y lo marcan
+como `reported`, mientras que el criterio de referencia de Gerard es que
+una respuesta sin información real deja el bloque `not_reported` (`text=
+""`) — igual que se dejó `inicio_y_evolucion` en el caso pobre de ANAMNESIS
+(§8) ante una respuesta igual de vaga ("no sabría decirle, igual desde hace
+tiempo"). Claude Sonnet 5 es el único que acierta los dos bloques
+críticos del caso pobre (`device_adjustments`/`patient_reported_issues`);
+falla un único MAJOR no crítico en `next_steps`, no bloqueante.
+
+A diferencia del hallazgo de `antecedentes_otologicos` en la ronda de
+ANAMNESIS, aquí no hay ninguna contradicción de instrucciones entre el
+`system_prompt` de `session_notes_es_v1.md` (ya dice explícitamente "Si la
+transcripción de hoy NO aborda ese bloque, 'text' es ''") y el criterio de
+referencia — es exactamente el comportamiento que el caso "pobre" se
+diseñó para detectar (§5): la tentación de un modelo de fabricar contenido
+a partir de una respuesta ambigua del paciente, en vez de reconocer que no
+hay nada sustantivo que reportar.
+
+**Con solo 2 casos por `artifact_type` la muestra sigue siendo pequeña**
+(mismo comentario que §8 para ANAMNESIS), pero Claude Sonnet 5 es, con los
+datos actuales, el único modelo limpio en los 4 casos combinados
+(2 ANAMNESIS + 2 SESSION_NOTES). Activación en producción sigue fuera de
+alcance de este incremento (§6).

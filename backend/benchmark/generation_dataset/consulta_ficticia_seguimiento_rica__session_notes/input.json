@@ -1,0 +1,88 @@
+{
+  "id": "consulta_ficticia_seguimiento_rica__session_notes",
+  "language": "es",
+  "artifact_type": "session_notes",
+  "session_type": "HEARING_AID_ADJUSTMENT",
+  "transcript": "AUDIOPROTESISTA: Buenos días, soy Marta. ¿Qué tal le ha ido con el audífono desde la última vez que nos vimos?\nPACIENTE: Pues la verdad que bastante mejor en general. En las comidas familiares con mis nietos ahora sigo bastante mejor la conversación, ya no tengo que estar preguntando tanto qué han dicho.\nAUDIOPROTESISTA: Me alegro. ¿Ha notado algo que le moleste o algún problema con el dispositivo?\nPACIENTE: Pues sí, cuando mi nieto pequeño me abraza y me pone la cabeza cerca del oído derecho, el audífono empieza a pitar, un silbido bastante molesto.\nAUDIOPROTESISTA: Eso es el efecto Larsen, pasa cuando algo tapa el micrófono muy cerca. Vamos a intentar reducirlo. Y la pila, ¿le está durando bien?\nPACIENTE: Pues se me gasta bastante rápido, la tengo que cambiar cada tres o cuatro días.\nAUDIOPROTESISTA: Vale. Le voy a bajar un poco la ganancia en el canal de agudos para reducir ese silbido, y también voy a ajustar el consumo para que la pila le dure más.\nPACIENTE: Vale, perfecto, muchas gracias.\nAUDIOPROTESISTA: ¿Y en la calle o en el trabajo, cómo lo nota?\nPACIENTE: En la calle bien. En el trabajo no tengo problema porque trabajo bastante solo, como ya le dije la otra vez.\nAUDIOPROTESISTA: Muy bien. Le voy a citar dentro de un mes para revisar cómo le funciona el ajuste que hemos hecho hoy, y si el silbido persiste probamos otra cosa.\nPACIENTE: De acuerdo, muchas gracias.",
+  "transcript_segments": [
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Buenos días, soy Marta. ¿Qué tal le ha ido con el audífono desde la última vez que nos vimos?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Pues la verdad que bastante mejor en general. En las comidas familiares con mis nietos ahora sigo bastante mejor la conversación, ya no tengo que estar preguntando tanto qué han dicho."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Me alegro. ¿Ha notado algo que le moleste o algún problema con el dispositivo?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Pues sí, cuando mi nieto pequeño me abraza y me pone la cabeza cerca del oído derecho, el audífono empieza a pitar, un silbido bastante molesto."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Eso es el efecto Larsen, pasa cuando algo tapa el micrófono muy cerca. Vamos a intentar reducirlo. Y la pila, ¿le está durando bien?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Pues se me gasta bastante rápido, la tengo que cambiar cada tres o cuatro días."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Vale. Le voy a bajar un poco la ganancia en el canal de agudos para reducir ese silbido, y también voy a ajustar el consumo para que la pila le dure más."
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Vale, perfecto, muchas gracias."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Y en la calle o en el trabajo, cómo lo nota?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "En la calle bien. En el trabajo no tengo problema porque trabajo bastante solo, como ya le dije la otra vez."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Muy bien. Le voy a citar dentro de un mes para revisar cómo le funciona el ajuste que hemos hecho hoy, y si el silbido persiste probamos otra cosa."
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "De acuerdo, muchas gracias."
+    }
+  ],
+  "context": {
+    "previous_anamnesis_context": "Anamnesis previa (aprobada): paciente con pérdida auditiva de aproximadamente un año de evolución, predominante en el oído derecho, con acúfeno y sensación de taponamiento en ese mismo oído. Antecedentes de otitis en la infancia y una infección ótica hace 8 años, resuelta con antibióticos. Exposición laboral a ruido (15 años como operario en una fábrica de metal). Sin antecedentes de cirugía otológica, vértigo, otalgia ni otorrea. No había usado audífonos previamente. Motivo de consulta inicial: dificultad para seguir conversaciones familiares con varias personas hablando a la vez."
+  },
+  "case_metadata": {
+    "source_transcript_id": "consulta_ficticia_seguimiento_rica",
+    "notes": "Caso 'rica' del hito 6.4.4 (docs/fase-6-4-4-anamnesis-benchmark-rfc.md §5) para SESSION_NOTES: continuación ficticia del paciente de consulta_ficticia_anamnesis_rica__anamnesis, en una sesión de ajuste de audífono. El paciente aporta información sobre los 4 bloques (mejora percibida, ajustes realizados, un problema reportado -- efecto Larsen/pila-- y próximos pasos) para que el benchmark tenga variedad real de contenido, no solo bloques vacíos. BORRADOR: transcript redactado por Claude a partir de la continuidad del paciente 'rica' de ANAMNESIS -- pendiente de revisión de Gerard antes de considerarse un caso clínicamente válido (ver reference.template.json)."
+  }
+}

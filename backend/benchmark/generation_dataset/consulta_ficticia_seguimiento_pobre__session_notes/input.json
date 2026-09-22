@@ -1,0 +1,82 @@
+{
+  "id": "consulta_ficticia_seguimiento_pobre__session_notes",
+  "language": "es",
+  "artifact_type": "session_notes",
+  "session_type": "HEARING_AID_ADJUSTMENT",
+  "transcript": "AUDIOPROTESISTA: Buenos días. ¿Qué tal le va con el audífono desde la última vez?\nPACIENTE: Bien, bien, lo que usted diga.\nAUDIOPROTESISTA: ¿Se lo pone todos los días?\nPACIENTE: Pues no sabría decirle, mi hija es la que se ocupa más de eso.\nAUDIOPROTESISTA: ¿Ha notado alguna molestia, algún pitido o algo que le incomode al llevarlo?\nPACIENTE: No sé, no me fijo mucho en esas cosas.\nAUDIOPROTESISTA: De acuerdo, vamos a revisar el ajuste de todas formas con la máquina.\nAUDIOPROTESISTA: Le voy a subir un poco la ganancia en el canal de agudos, porque en la comprobación veo que está algo bajo para lo que necesitaría.\nPACIENTE: Vale, lo que usted vea mejor.\nAUDIOPROTESISTA: Muy bien, ya nos iremos viendo.\nPACIENTE: Vale, gracias.",
+  "transcript_segments": [
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Buenos días. ¿Qué tal le va con el audífono desde la última vez?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Bien, bien, lo que usted diga."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Se lo pone todos los días?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Pues no sabría decirle, mi hija es la que se ocupa más de eso."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "¿Ha notado alguna molestia, algún pitido o algo que le incomode al llevarlo?"
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "No sé, no me fijo mucho en esas cosas."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "De acuerdo, vamos a revisar el ajuste de todas formas con la máquina."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Le voy a subir un poco la ganancia en el canal de agudos, porque en la comprobación veo que está algo bajo para lo que necesitaría."
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Vale, lo que usted vea mejor."
+    },
+    {
+      "speaker": "audiologist",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Muy bien, ya nos iremos viendo."
+    },
+    {
+      "speaker": "patient",
+      "start_ms": null,
+      "end_ms": null,
+      "text": "Vale, gracias."
+    }
+  ],
+  "context": {
+    "previous_anamnesis_context": "Anamnesis previa (aprobada): el paciente acudió inicialmente por indicación de su hija, sin percibir él mismo la pérdida auditiva como un problema relevante. No supo precisar cuándo empezó (no_determinado). Refiere oír igual de ambos oídos. Ha experimentado tinnitus en alguna ocasión, sin darle importancia. El resto de antecedentes (familiares, otológicos, exposición a ruido, medicación, vértigo, otalgia, otorrea, uso previo de audífonos, expectativas, impacto social/laboral/familiar) no llegaron a explorarse en aquella primera consulta."
+  },
+  "case_metadata": {
+    "source_transcript_id": "consulta_ficticia_seguimiento_pobre",
+    "notes": "Caso 'pobre' del hito 6.4.4 (docs/fase-6-4-4-anamnesis-benchmark-rfc.md §5) para SESSION_NOTES: continuación ficticia del paciente de consulta_ficticia_anamnesis_pobre__anamnesis, en una sesión de ajuste de audífono. El paciente vuelve a dar respuestas vagas/evasivas ('bien, bien, lo que usted diga') que no aportan información real sobre la mayoría de los bloques -- deliberadamente pensado, igual que el caso 'pobre' de ANAMNESIS, para comprobar que el modelo no fabrica contenido a partir de respuestas ambiguas. BORRADOR: transcript redactado por Claude -- pendiente de revisión de Gerard antes de considerarse un caso clínicamente válido (ver reference.template.json)."
+  }
+}

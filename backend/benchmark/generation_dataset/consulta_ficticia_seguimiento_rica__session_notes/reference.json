@@ -1,0 +1,21 @@
+{
+  "artifact_type": "session_notes",
+  "content": {
+    "changes_since_last_visit": {
+      "text": "El paciente refiere mejoría general desde el ajuste anterior, sobre todo para seguir conversaciones familiares con varias personas hablando a la vez.",
+      "source_excerpt": "Pues la verdad que bastante mejor en general. En las comidas familiares con mis nietos ahora sigo bastante mejor la conversación, ya no tengo que estar preguntando tanto qué han dicho."
+    },
+    "device_adjustments": {
+      "text": "Se redujo la ganancia del canal de agudos para reducir el efecto Larsen (silbido) y se ajustó el consumo para mejorar la duración de la pila.",
+      "source_excerpt": "Vale. Le voy a bajar un poco la ganancia en el canal de agudos para reducir ese silbido, y también voy a ajustar el consumo para que la pila le dure más."
+    },
+    "patient_reported_issues": {
+      "text": "El paciente refiere un silbido (efecto Larsen) al recibir abrazos que presionan el audífono, y que la pila se agota cada 3-4 días.",
+      "source_excerpt": "Pues sí, cuando mi nieto pequeño me abraza y me pone la cabeza cerca del oído derecho, el audífono empieza a pitar, un silbido bastante molesto."
+    },
+    "next_steps": {
+      "text": "Se cita al paciente dentro de un mes para revisar el ajuste realizado hoy y valorar el silbido si persiste.",
+      "source_excerpt": "Muy bien. Le voy a citar dentro de un mes para revisar cómo le funciona el ajuste que hemos hecho hoy, y si el silbido persiste probamos otra cosa."
+    }
+  }
+}
