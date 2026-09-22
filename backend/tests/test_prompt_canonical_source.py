@@ -34,16 +34,20 @@ def test_benchmark_reexporta_la_misma_funcion_de_seed():
     assert benchmark_prompts.seed_prompt_templates is seed_prompt_templates
 
 
-def test_exactamente_5_fuentes_canonicas_una_por_artifact_type():
+def test_exactamente_6_fuentes_canonicas_una_por_artifact_type():
     # hito 6.4.4: se suman anamnesis_es_v1/session_notes_es_v1 — candidatas
     # de benchmark, ANAMNESIS/SESSION_NOTES siguen en Mock en producción
-    # hasta tener un ganador con datos (ver sus propios .md).
+    # hasta tener un ganador con datos (ver sus propios .md). Ampliación
+    # 2026-09-21 (docs/clinical-safety.md §7): se suma clinical_flags_es_v1
+    # — candidata gated, CLINICAL_FLAGS sigue en Mock por defecto en todos
+    # los entornos, incluida producción.
     assert {spec.artifact_type for spec in PROMPT_SOURCES} == {
         AIArtifactType.SUMMARY,
         AIArtifactType.MISSING_INFORMATION,
         AIArtifactType.PATIENT_SUMMARY,
         AIArtifactType.ANAMNESIS,
         AIArtifactType.SESSION_NOTES,
+        AIArtifactType.CLINICAL_FLAGS,
     }
     assert all(spec.language == "es" for spec in PROMPT_SOURCES)
 
@@ -111,6 +115,18 @@ def test_session_notes_declara_los_4_bloques_como_claves_del_ejemplo_de_salida()
         assert block_name in spec.system_prompt
 
 
+def test_clinical_flags_conserva_el_texto_validado():
+    # Ampliación 2026-09-21 (docs/clinical-safety.md §7) — mismo criterio
+    # que el resto: el prompt debe declarar exactamente "flags" como
+    # clave del JSON de salida y exigir source_excerpt no vacío.
+    spec = next(s for s in PROMPT_SOURCES if s.artifact_type == AIArtifactType.CLINICAL_FLAGS)
+    assert spec.name == "clinical_flags_es_v1"
+    assert "$transcript" in spec.user_prompt_template
+    assert spec.variables_schema == {"required": ["transcript"], "optional": []}
+    assert '"flags"' in spec.system_prompt
+    assert "source_excerpt" in spec.system_prompt
+
+
 def test_ninguna_plantilla_contiene_lenguaje_clinico_prohibido():
     # docs/clinical-safety.md §3, punto 1: "Diseño de las plantillas ...
     # que deben servir de ejemplo correcto desde el primer commit."
@@ -150,7 +166,7 @@ async def test_seed_desde_el_import_de_benchmark_puebla_la_misma_tabla_que_el_de
         db_session, repository, created_by=clinic_with_users.admin.id
     )
     await db_session.commit()
-    assert len(created) == 5
+    assert len(created) == 6
 
     second_run = await seed_prompt_templates(
         db_session, repository, created_by=clinic_with_users.admin.id

@@ -4,8 +4,14 @@ Es la única interfaz de este bloque que implementaría directamente un SDK
 de proveedor real (OpenAI, Anthropic, Gemini, Ollama...). `SummaryGenerator`,
 `MissingInformationGenerator` y `AnamnesisGenerator` la componen, no la
 sustituyen — ver docs/ai-pipeline-architecture.md §6.1 y §7.2.
-`ClinicalFlagsGenerator` es la excepción deliberada (basado en reglas, sin
-LLM) y no depende de esta interfaz.
+`ClinicalFlagsGenerator` es la excepción histórica (implementación de
+referencia `MockClinicalFlagsGenerator`, basado en reglas, sin LLM). Desde
+la ampliación 2026-09-21 (docs/clinical-safety.md §7) existe también
+`RealClinicalFlagsGenerator`, que SÍ compone esta interfaz — gated por
+`Settings.llm_provider_clinical_flags`, "mock" por defecto en todos los
+entornos. `ClinicalFlagsGenerator` (el puerto) nunca dependió de esta
+interfaz por diseño: sigue siendo agnóstico de si su implementación usa
+un LLM o no.
 """
 
 from __future__ import annotations

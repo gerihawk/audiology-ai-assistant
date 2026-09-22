@@ -135,6 +135,18 @@ PROMPT_SOURCES: tuple[PromptSourceSpec, ...] = (
         ),
         variables_schema={"required": ["transcript", "previous_anamnesis_context"], "optional": []},
     ),
+    _load(
+        "clinical_flags_es_v1.md",
+        name="clinical_flags_es_v1",
+        artifact_type=AIArtifactType.CLINICAL_FLAGS,
+        language=_LANGUAGE_ES,
+        description=(
+            "Señales de alerta / motivos de derivación con LLM real — ampliación 2026-09-21 "
+            "de docs/clinical-safety.md §7. CLINICAL_FLAGS sigue en Mock por defecto en TODOS "
+            "los entornos, incluida producción, hasta validación clínica y legal explícita."
+        ),
+        variables_schema={"required": ["transcript"], "optional": []},
+    ),
 )
 
 

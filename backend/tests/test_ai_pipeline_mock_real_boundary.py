@@ -265,8 +265,13 @@ async def test_run_pipeline_configurado_si_usa_los_providers_reales_configurados
     assert runs_by_type["summary"].provider_name == "anthropic"
     assert runs_by_type["patient_summary"].provider_name == "openai"
     assert runs_by_type["missing_information"].provider_name == "google"
-    # ANAMNESIS/CLINICAL_FLAGS siguen sin routing real en esta fase.
+    # ANAMNESIS sigue sin routing real en esta fase. CLINICAL_FLAGS ya
+    # tiene routing real disponible (docs/clinical-safety.md §7,
+    # ampliación 2026-09-21) pero `_real_provider_routing_settings()` no
+    # lo configura, así que sigue en "mock" — el gate por defecto
+    # funciona incluso cuando los otros tres SÍ están en producción real.
     assert runs_by_type["anamnesis"].provider_name == "mock"
+    assert runs_by_type["clinical_flags"].provider_name == "mock"
 
 
 async def test_run_pipeline_configurado_bloquea_sin_consentimiento_antes_de_llamar_al_provider(

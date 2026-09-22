@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_pipeline import service as ai_pipeline_service_module
 from app.ai_pipeline.domain.entities import AIArtifactType
+from app.ai_pipeline.domain.steps.clinical_flags_step import ClinicalFlagsStep
 from app.ai_pipeline.domain.steps.missing_information_step import MissingInformationStep
 from app.ai_pipeline.domain.steps.patient_summary_step import PatientSummaryStep
 from app.ai_pipeline.domain.steps.summary_step import SummaryStep
@@ -30,6 +31,9 @@ from app.integrations.providers.openai_language_model_provider import (
     OpenAILanguageModelProvider,
 )
 from app.integrations.providers.pricing_table_cost_estimator import PricingTableCostEstimator
+from app.integrations.providers.real_clinical_flags_generator import (
+    RealClinicalFlagsGenerator,
+)
 from app.integrations.providers.real_missing_information_generator import (
     RealMissingInformationGenerator,
 )
@@ -134,6 +138,50 @@ async def test_routing_google_construye_real_missing_information_generator(
     assert step._model_name == "gemini-3.6-flash"
 
 
+async def test_routing_anthropic_construye_real_clinical_flags_generator(
+    db_session: AsyncSession, clinic_with_users: ClinicWithUsers, monkeypatch
+):
+    """Ampliación 2026-09-21 (docs/clinical-safety.md §7): CLINICAL_FLAGS
+    ya tiene routing real disponible, mismo patrón que los otros tres —
+    sigue en "mock" salvo que se configure explícitamente lo contrario."""
+    await _seed_templates(db_session, clinic_with_users)
+    _settings(
+        monkeypatch,
+        llm_provider_clinical_flags="anthropic",
+        llm_model_clinical_flags="claude-opus-5",
+        anthropic_api_key="test-key",
+    )
+    service = AIPipelineService(db_session)
+
+    steps = await service._build_steps()
+
+    step = next(s for s in steps if s.artifact_type == AIArtifactType.CLINICAL_FLAGS)
+    assert isinstance(step, ClinicalFlagsStep)
+    assert isinstance(step._generator, RealClinicalFlagsGenerator)
+    assert isinstance(step._generator._provider, AnthropicLanguageModelProvider)
+    assert step._provider_name == "anthropic"
+    assert step._model_name == "claude-opus-5"
+    assert step._prompt_template_id is not None
+    assert step._prompt_template_version == 1
+
+
+async def test_routing_clinical_flags_por_defecto_sigue_en_mock(
+    db_session: AsyncSession,
+):
+    """El caso más importante de todos para este artifact_type: sin
+    configurar nada, `Settings.llm_provider_clinical_flags` es "mock" en
+    todos los entornos (ver app/core/config.py) — ninguna clínica real
+    usa el generador LLM sin un cambio explícito de configuración."""
+    service = AIPipelineService(db_session)
+
+    steps = await service._build_steps()
+
+    step = next(s for s in steps if s.artifact_type == AIArtifactType.CLINICAL_FLAGS)
+    assert isinstance(step, ClinicalFlagsStep)
+    assert step._provider_name == "mock"
+    assert step._model_name is None
+
+
 async def test_routing_por_artifact_type_es_independiente(
     db_session: AsyncSession, clinic_with_users: ClinicWithUsers, monkeypatch
 ):
@@ -170,8 +218,11 @@ async def test_routing_por_artifact_type_es_independiente(
         by_type[AIArtifactType.MISSING_INFORMATION]._generator._provider,
         AnthropicLanguageModelProvider,
     )
-    # ANAMNESIS/CLINICAL_FLAGS/TRANSCRIPT nunca se tocan por este routing.
+    # ANAMNESIS/TRANSCRIPT nunca tienen routing real; CLINICAL_FLAGS ya lo
+    # tiene disponible (test dedicado arriba) pero sigue en "mock" aquí al
+    # no configurarse `llm_provider_clinical_flags` en este test.
     assert by_type[AIArtifactType.ANAMNESIS]._provider_name == "mock"
+    assert by_type[AIArtifactType.CLINICAL_FLAGS]._provider_name == "mock"
 
 
 async def test_sin_modelo_configurado_falla_con_conflicterror_antes_de_construir_provider(

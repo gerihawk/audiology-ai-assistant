@@ -22,6 +22,13 @@ _LLM_ROUTING_FIELDS = (
     "llm_provider_summary",
     "llm_provider_patient_summary",
     "llm_provider_missing_information",
+    # Ampliación 2026-09-21 (docs/clinical-safety.md §7): CLINICAL_FLAGS
+    # reabre la decisión de "sin LLM" con un generador real DISPONIBLE
+    # pero apagado por defecto ("mock") — mismo criterio de production
+    # safety que los tres anteriores en cuanto se active para cualquier
+    # clínica: consentimiento y límite de coste ya activos, y clave de
+    # API del vendor configurada.
+    "llm_provider_clinical_flags",
 )
 #: Vendor -> nombre del campo de `Settings` que guarda su API key — una
 #: sola key por vendor, nunca duplicada por artifact_type.
@@ -199,6 +206,16 @@ class Settings(BaseSettings):
     llm_model_patient_summary: str | None = None
     llm_provider_missing_information: Literal["mock", "anthropic", "openai", "google"] = "mock"
     llm_model_missing_information: str | None = None
+    # Ampliación 2026-09-21 (docs/clinical-safety.md §7, reapertura de la
+    # decisión "sin LLM"): mismo patrón que los tres anteriores, pero
+    # "mock" (el checklist de reglas, MockClinicalFlagsGenerator) sigue
+    # siendo el valor por defecto en TODOS los entornos, incluida
+    # production — activar un valor distinto de "mock" aquí para
+    # cualquier clínica real requiere primero la validación clínica y
+    # legal que ese documento exige, nunca solo un cambio de variable de
+    # entorno sin más.
+    llm_provider_clinical_flags: Literal["mock", "anthropic", "openai", "google"] = "mock"
+    llm_model_clinical_flags: str | None = None
 
     # Una API key por vendor, nunca duplicada por artifact_type — los tres
     # routings de arriba pueden compartir el mismo vendor sin repetir

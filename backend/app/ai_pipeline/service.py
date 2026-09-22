@@ -121,6 +121,9 @@ from app.integrations.mocks.mock_summary_generator import MockSummaryGenerator
 from app.integrations.mocks.mock_token_counter import MockTokenCounter
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
 from app.integrations.providers.pricing_table_cost_estimator import PricingTableCostEstimator
+from app.integrations.providers.real_clinical_flags_generator import (
+    RealClinicalFlagsGenerator,
+)
 from app.integrations.providers.real_missing_information_generator import (
     RealMissingInformationGenerator,
 )
@@ -1289,24 +1292,27 @@ class AIPipelineService:
 
     async def _build_steps(self) -> list[PipelineStep]:
         """Routing estático por `artifact_type` (Fase 6.3.7, RFC §6.1/§11.1
-        decisión 12): `Settings.llm_provider_summary`/
-        `llm_provider_patient_summary`/`llm_provider_missing_information`
-        deciden, cada uno de forma independiente, si ese artifact_type usa
-        su `Mock*Generator` inyectado (comportamiento histórico, "mock" es
-        el valor por defecto en todos los entornos) o un `Real*Generator`
-        con un `LanguageModelProvider` real detrás. Nunca un router
-        dinámico: la decisión es 100% determinista por configuración, sin
-        lectura de sesión/paciente/coste/latencia."""
+        decisión 12; ampliado 2026-09-21 con CLINICAL_FLAGS, ver
+        docs/clinical-safety.md §7): `Settings.llm_provider_summary`/
+        `llm_provider_patient_summary`/`llm_provider_missing_information`/
+        `llm_provider_clinical_flags` deciden, cada uno de forma
+        independiente, si ese artifact_type usa su `Mock*Generator`
+        inyectado (comportamiento histórico, "mock" es el valor por
+        defecto en todos los entornos, incluida producción) o un
+        `Real*Generator` con un `LanguageModelProvider` real detrás. Nunca
+        un router dinámico: la decisión es 100% determinista por
+        configuración, sin lectura de sesión/paciente/coste/latencia."""
         settings = get_settings()
         summary_step = await self._build_summary_step(settings)
         patient_summary_step = await self._build_patient_summary_step(settings)
         missing_information_step = await self._build_missing_information_step(settings)
+        clinical_flags_step = await self._build_clinical_flags_step(settings)
 
         steps_by_type: dict[AIArtifactType, PipelineStep] = {
             AIArtifactType.TRANSCRIPT: self._mock_transcription_step(),
             AIArtifactType.SUMMARY: summary_step,
             AIArtifactType.PATIENT_SUMMARY: patient_summary_step,
-            AIArtifactType.CLINICAL_FLAGS: self._mock_clinical_flags_step(),
+            AIArtifactType.CLINICAL_FLAGS: clinical_flags_step,
             AIArtifactType.MISSING_INFORMATION: missing_information_step,
             AIArtifactType.ANAMNESIS: self._mock_anamnesis_step(),
             AIArtifactType.SESSION_NOTES: self._mock_session_notes_step(),
@@ -1358,8 +1364,15 @@ class AIPipelineService:
         )
 
     def _mock_clinical_flags_step(self) -> ClinicalFlagsStep:
-        """Igual que `_mock_transcription_step`: `CLINICAL_FLAGS` es
-        rule-based, nunca tiene routing LLM — ver docs/fase-6-rfc.md §4.4."""
+        """Construcción Mock de `CLINICAL_FLAGS` — sigue siendo rule-based
+        por defecto en todos los entornos (ver docs/fase-6-rfc.md §4.4).
+        Usada directamente por `_build_mock_steps()` (siempre) y por
+        `_build_clinical_flags_step()` cuando
+        `Settings.llm_provider_clinical_flags == "mock"` (ampliación
+        2026-09-21, docs/clinical-safety.md §7) — a diferencia de
+        `_mock_transcription_step`/`_mock_anamnesis_step`/
+        `_mock_session_notes_step`, CLINICAL_FLAGS SÍ tiene ya un routing
+        LLM real disponible, solo que apagado por defecto."""
         return ClinicalFlagsStep(
             self._clinical_flags_generator, self._token_counter, self._cost_estimator
         )
@@ -1443,6 +1456,35 @@ class AIPipelineService:
         llm_provider = build_language_model_provider(settings, provider_name)
         generator = RealMissingInformationGenerator(llm_provider, template, model=model)
         return MissingInformationStep(
+            generator,
+            self._token_counter,
+            self._llm_cost_estimator,
+            provider_name=provider_name,
+            model_name=model,
+            prompt_template_id=template.id,
+            prompt_template_version=template.version,
+        )
+
+    async def _build_clinical_flags_step(self, settings: Settings) -> ClinicalFlagsStep:
+        """Ampliación 2026-09-21 (docs/clinical-safety.md §7) — mismo
+        patrón que `_build_missing_information_step`. `provider_name`
+        sigue siendo "mock" en todos los entornos salvo que alguien
+        configure explícitamente `LLM_PROVIDER_CLINICAL_FLAGS`, algo que
+        este método no decide ni recomienda: solo respeta lo que diga
+        `Settings`, igual que los otros tres artifact_types con routing."""
+        provider_name = settings.llm_provider_clinical_flags
+        if provider_name == "mock":
+            return self._mock_clinical_flags_step()
+
+        model = self._require_llm_model(
+            settings.llm_model_clinical_flags, AIArtifactType.CLINICAL_FLAGS, provider_name
+        )
+        template = await self._require_prompt_template(
+            AIArtifactType.CLINICAL_FLAGS, _DEFAULT_LANGUAGE
+        )
+        llm_provider = build_language_model_provider(settings, provider_name)
+        generator = RealClinicalFlagsGenerator(llm_provider, template, model=model)
+        return ClinicalFlagsStep(
             generator,
             self._token_counter,
             self._llm_cost_estimator,

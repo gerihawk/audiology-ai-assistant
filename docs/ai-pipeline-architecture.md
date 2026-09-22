@@ -581,9 +581,14 @@ class TokenCounter(Protocol):
 `SummaryGenerator`/`MissingInformationGenerator`/`AnamnesisGenerator`
 **componen** un `LanguageModelProvider` + una `PromptTemplate`; no lo
 sustituyen — ver §9.2. `ClinicalFlagsGenerator` es la excepción
-deliberada: su implementación de referencia en el MVP
+histórica: su implementación de referencia en el MVP
 (`MockClinicalFlagsGenerator`) es un checklist basado en reglas, sin
-`LanguageModelProvider` de por medio — ver la nota en §6.1.
+`LanguageModelProvider` de por medio. Desde la ampliación 2026-09-21 de
+[clinical-safety.md](clinical-safety.md) §7 existe también
+`RealClinicalFlagsGenerator`, que sí compone un `LanguageModelProvider` +
+`PromptTemplate` igual que los otros tres — gated por
+`Settings.llm_provider_clinical_flags`, `"mock"` por defecto en todos los
+entornos.
 
 ### 6.2 Orquestación (`ai_pipeline/domain/`)
 
@@ -685,8 +690,11 @@ un campo de anamnesis como `informado` sin cita de la transcripción.
 reglas (heredero directo de `DemoClinicalFlagRuleset` del diseño
 anterior, ver §6.1) — no invoca `MockLanguageModelProvider`; sigue
 etiquetado explícitamente como "no validado clínicamente, no apto para
-uso con pacientes reales" en cada respuesta, sin cambios respecto a la
-decisión ya cerrada en [clinical-safety.md](clinical-safety.md) §7.
+uso con pacientes reales" en cada respuesta, y sigue siendo el generador
+que usa cualquier clínica por defecto (ver ampliación 2026-09-21 en
+[clinical-safety.md](clinical-safety.md) §7, que documenta también
+`RealClinicalFlagsGenerator` como alternativa gated y todavía no activa
+para ninguna clínica real).
 
 ---
 

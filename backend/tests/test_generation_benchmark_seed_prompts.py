@@ -11,7 +11,7 @@ from benchmark.generation.prompts import PROMPT_CANDIDATES, seed_prompt_template
 from tests.factories import ClinicWithUsers
 
 
-async def test_primera_ejecucion_crea_las_5_plantillas(
+async def test_primera_ejecucion_crea_las_6_plantillas(
     db_session: AsyncSession, clinic_with_users: ClinicWithUsers
 ):
     repository = SqlAlchemyPromptTemplateRepository()
@@ -24,14 +24,18 @@ async def test_primera_ejecucion_crea_las_5_plantillas(
     # hito 6.4.4: anamnesis_es_v1/session_notes_es_v1 se siembran igual que
     # las 3 anteriores — sembrar la plantilla nunca la activa en
     # producción, eso lo decide `service.py` (sigue en Mock hasta tener un
-    # ganador del benchmark con datos).
-    assert len(created) == 5
+    # ganador del benchmark con datos). Ampliación 2026-09-21
+    # (docs/clinical-safety.md §7): se suma clinical_flags_es_v1, mismo
+    # criterio — sembrarla nunca activa el generador real, eso lo decide
+    # `Settings.llm_provider_clinical_flags` ("mock" por defecto).
+    assert len(created) == 6
     assert {t.artifact_type for t in created} == {
         AIArtifactType.SUMMARY,
         AIArtifactType.MISSING_INFORMATION,
         AIArtifactType.PATIENT_SUMMARY,
         AIArtifactType.ANAMNESIS,
         AIArtifactType.SESSION_NOTES,
+        AIArtifactType.CLINICAL_FLAGS,
     }
     assert all(t.is_active for t in created)
     assert all(t.version == 1 for t in created)
@@ -68,7 +72,7 @@ async def test_nunca_sobreescribe_una_plantilla_activa_existente(
     assert active_after.version == 1
 
 
-def test_las_5_plantillas_declaran_sus_variables_correctamente():
+def test_las_6_plantillas_declaran_sus_variables_correctamente():
     # Regresión del bug corregido en runner.py: `missing_information`
     # nunca debe declarar "transcript" (no lo usa su plantilla).
     by_type = {spec.artifact_type: spec for spec in PROMPT_CANDIDATES}
@@ -96,3 +100,8 @@ def test_las_5_plantillas_declaran_sus_variables_correctamente():
     # si el placeholder no está en variables — ver session_notes_es_v1.md.
     session_notes_vars = set(by_type[AIArtifactType.SESSION_NOTES].variables_schema["required"])
     assert session_notes_vars == {"transcript", "previous_anamnesis_context"}
+
+    # Ampliación 2026-09-21 (docs/clinical-safety.md §7) — clinical_flags
+    # solo necesita transcript, mismo criterio que anamnesis.
+    clinical_flags_vars = set(by_type[AIArtifactType.CLINICAL_FLAGS].variables_schema["required"])
+    assert clinical_flags_vars == {"transcript"}

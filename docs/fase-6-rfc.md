@@ -239,10 +239,22 @@ Nuevo `AIArtifactType.PATIENT_SUMMARY`:
 
 ### 4.4 Clinical Flags
 
-Sigue siendo rule-based. Antes de ampliar reglas a visitas de adaptación se
-corrige el `source_excerpt` actual: no puede usar `transcript[:200]`; debe
-capturar la ventana real que contiene la coincidencia que disparó la regla y
-validarla con la misma primitiva de grounding.
+Sigue siendo rule-based **por defecto**. Antes de ampliar reglas a visitas de
+adaptación se corrige el `source_excerpt` actual: no puede usar
+`transcript[:200]`; debe capturar la ventana real que contiene la
+coincidencia que disparó la regla y validarla con la misma primitiva de
+grounding. (Corregido ya en el hito correspondiente — ver
+`MockClinicalFlagsGenerator._build_excerpt`.)
+
+**Ampliación 2026-09-21** (docs/clinical-safety.md §7): la decisión "sin LLM"
+se reabrió deliberadamente. Existe ahora `RealClinicalFlagsGenerator`,
+mismo patrón de composición `LanguageModelProvider` + `PromptTemplate` que
+Summary/Patient Summary/Missing Information, con la misma cadena de
+guardarraíles de §5 (grounding obligatorio de cada `source_excerpt`,
+SafetyValidator). Gated por `Settings.llm_provider_clinical_flags` ("mock"
+por defecto en todos los entornos) — ninguna clínica real lo usa todavía;
+activarlo exige la validación clínica y legal de la que habla
+clinical-safety.md §7, no solo el cambio de configuración.
 
 ### 4.5 Missing Information
 

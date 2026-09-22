@@ -95,8 +95,9 @@ respalde. Ante la duda, el estado correcto es `no_determinado`.
 
 ## 7. Señales de alerta / motivos de derivación — checklist de demostración
 
-**Decisión cerrada**: el MVP usa un checklist genérico de demostración
-(`MockClinicalFlagsGenerator`, ver
+**Decisión original (cerrada en el diseño del MVP, reabierta el
+2026-09-21 — ver "Ampliación" al final de esta sección)**: el MVP usa un
+checklist genérico de demostración (`MockClinicalFlagsGenerator`, ver
 [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1 y §6.4)
 para generar `clinical_flags` (p. ej. pérdida asimétrica, otalgia,
 otorrea). Este checklist:
@@ -124,10 +125,58 @@ ver [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.1;
 sustituye a la antigua interfaz `ClinicalFlagRuleset`, misma lógica y
 mismas salvaguardas, nombre unificado con el resto del AI Pipeline).
 Ningún otro módulo (API, `ai_pipeline`) contiene reglas de detección
-embebidas. Esto permite sustituir `MockClinicalFlagsGenerator` por un
-protocolo clínico validado en el futuro sin tocar el resto del sistema —
-sustitución que, en todo caso, requerirá validación clínica y legal
-previa, fuera del alcance de este MVP.
+embebidas. Esto permite sustituir `MockClinicalFlagsGenerator` por otra
+implementación sin tocar el resto del sistema.
+
+### Ampliación 2026-09-21 — generador real disponible, apagado por defecto
+
+La frase original de este documento ("sustitución que, en todo caso,
+requerirá validación clínica y legal previa, fuera del alcance de este
+MVP") sigue siendo la posición del proyecto sobre **usar** un generador
+real con pacientes de una clínica real. Lo que cambia con esta ampliación
+es que esa sustitución técnica ya existe en el código, para poder
+probarla (benchmark, staging con datos ficticios, iteración de prompt)
+sin esperar a esa validación:
+
+- `RealClinicalFlagsGenerator`
+  (`app/integrations/providers/real_clinical_flags_generator.py`) compone
+  `LanguageModelProvider` + la plantilla `clinical_flags_es_v1`
+  (`app/ai_pipeline/prompts/clinical_flags_es_v1.md`), con el mismo
+  contrato de salida `{"flags": [{"category", "description",
+  "source_excerpt", "ruleset_name"}]}` que el checklist. `ruleset_name`
+  pasa a ser `clinical_flags_llm_es_v1` (nunca lo decide el LLM) para
+  distinguir en auditoría qué generador produjo cada señal.
+- A diferencia del schema general (`source_excerpt` nullable, pensado
+  para el checklist), este generador exige `source_excerpt` como cita
+  textual no vacía en cada señal que reporte — nunca acepta "sin
+  evidencia todavía" para una señal que sí decide mostrar.
+- Cada señal generada pasa, sin excepción, por la misma cadena de
+  guardarraíles que ya protege a `SUMMARY`/`PATIENT_SUMMARY`/
+  `MISSING_INFORMATION` (`validate_generated_content`,
+  [ai-pipeline-architecture.md](ai-pipeline-architecture.md) §6.2/§7.4 y
+  [fase-6-rfc.md](fase-6-rfc.md) §5): schema cerrado, detección de
+  respuesta evasiva, **grounding obligatorio** de cada `source_excerpt`
+  contra la transcripción real de la sesión (`GroundingValidator`) y
+  `SafetyValidator` contra el lenguaje prohibido de §3. Una señal cuyo
+  `source_excerpt` no sea una cita real de la transcripción hace fallar
+  el step entero (`grounding_failed`), nunca se descarta en silencio esa
+  única señal manteniendo el resto.
+- **Gate de activación**: `Settings.llm_provider_clinical_flags` decide
+  cuál de los dos generadores usa `AIPipelineService`, y su valor por
+  defecto es `"mock"` en TODOS los entornos, incluida producción (ver
+  `app/core/config.py`) — ninguna clínica usa el generador real salvo que
+  alguien cambie explícitamente esa variable de entorno para ella.
+  Activarlo también exige, igual que los otros tres artifact_types con
+  routing real, `AI_PROCESSING_CONSENT_ENFORCED`/`LLM_COST_LIMIT_ENFORCED`
+  activos y la clave de API del vendor configurada
+  (`_validate_production_safety`).
+- **Esto no cierra la validación clínica/legal pendiente**: seguir
+  usando `MockClinicalFlagsGenerator` con cualquier clínica real, y
+  activar el generador real para una clínica concreta, sigue exigiendo
+  la validación clínica y legal previa de la que habla el párrafo
+  original de esta sección — la ampliación solo adelanta el trabajo de
+  ingeniería para que esa validación, cuando llegue, tenga algo real que
+  evaluar.
 
 ## 8. Límites explícitos de la IA en este producto
 
