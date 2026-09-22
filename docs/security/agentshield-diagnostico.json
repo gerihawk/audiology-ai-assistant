@@ -1,0 +1,1316 @@
+{
+  "timestamp": "2026-09-22T16:12:44.048Z",
+  "targetPath": "/Users/Gerard1/Desktop/ProyectosConquerBlocks/audiology-ai-assistant",
+  "findings": [
+    {
+      "id": "prompt-defense-missing-instruction-override-CLAUDE.md",
+      "severity": "critical",
+      "category": "injection",
+      "title": "Missing prompt defense: Instruction boundary defense",
+      "description": "Prompt should state that user content cannot override, ignore, or modify higher-priority instructions. (OWASP LLM Top 10: LLM01 Prompt Injection)",
+      "file": "CLAUDE.md",
+      "evidence": "Missing instruction-override defense in CLAUDE.md"
+    },
+    {
+      "id": "secrets-azure-key-361",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 14,
+      "evidence": "XExcO+dv...mQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-825",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 30,
+      "evidence": "kXXoiPVV...qg==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "kXXoiPVVGQcnIYGOeaovwOURpniDBpSq4A03qkQ+BMQqtGG6HYap3xne9C1O1yo4TR3qxlCX5IqqmX6fFo2Lqg==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-1297",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 46,
+      "evidence": "5YfKeeI8...5A==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "5YfKeeI8qWfBZIX+u2xZC3Zlb3Os/gLS2sbEKM+I4ZOcsWmHS2WLysCcQZDAFRslDUU5Oiq44gf6PYN1vGwG5A==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-1765",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 62,
+      "evidence": "O387ite7...1Q==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "O387ite7SzUyCcy3JQX4P4bLtEA7bLLkx+esve5JHnyYfNTxcVpXZo9jhdB0lTKN44gztELTdU7nS8Nr16Fs1Q==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-2234",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 78,
+      "evidence": "n4KqkOQr...kw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "n4KqkOQrraxHJcgjM1RvwbigfQKIKJVpM7xp+KsxiyUSrRdIXnt73VhrPAx0fV44hgfmIVKjxMN9J1t5jySVkw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-2698",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 94,
+      "evidence": "uq6suIWY...zw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "uq6suIWYP37qzGddBKPw5QEQPi6HiLGsO7UmkpfyaYNQ3D+rN6w6WfwH+nuqcGXWvawGwxOEroO4YGnFh95azw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-3169",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 110,
+      "evidence": "n+I0BTSR...Xw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "n+I0BTSRIoy+d6RPKnEVwql5UwBJolytvY4mAOIEJorKlqgPII8ix6slVVrfZ5Tnj7glIZvloylbB/EJPMWEXw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-3637",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 126,
+      "evidence": "78XJTJkv...mg==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "78XJTJkvPs0kz2w61301PJjXl4g7q3JqiYMZ/M/yVI73EHBrCRTgkhu9oqG7vPqq+a/yadEW8aD+agKlk5xrmg==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-4097",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 142,
+      "evidence": "XlDnu2q5...8w==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "XlDnu2q5yoqems+xay6wSAcg9DDD7K9RLKZEBOMZm3ckNpJBvOX20tSfby8KfrrhINDyv9V2YVZKY/SpoGJI8w==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-4561",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 158,
+      "evidence": "pW4AC0P3...Ug==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "pW4AC0P3it8c7do9MVM4p51FzHzdM/TZrerurgRcHJ2WTa1VQ1CIq18xncfpBJw4ojkiZZrKW2yIBWBP92j6Ug==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-5024",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 174,
+      "evidence": "CYbnj78H...UQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "CYbnj78HsIeA+DhgUKgFCfvNsTHFhMMrinUrMZpDXJXKN8T3XViTZ/+wtHeVxEWY8ewSzTFN+nRmSwO2tZaLUQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-5495",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 190,
+      "evidence": "buwkd8ns...fQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "buwkd8nsph4R+ajRvw0qM5Hja/TXQow3ptzWO2EbG/cqcIkHloRrdlBtQlshyYGTNFvfkfJ5tpPLVkY4DtsPfQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-5972",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 206,
+      "evidence": "ZVykbDyk...JA==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "ZVykbDyk7519VwiNb9Lcj9m8XM6v5V9uKPvrEMkkEedVewf+0itkhahp4HDpgERXhwLRpWFypsGbG/J8s0QjJA==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-6441",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 222,
+      "evidence": "CAXl+Dtd...NQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "CAXl+Dtd9UUuJd8pKKdwh6MLm3MUMiqMPmhZ3tTSXPqfyQ3vDl6R5hZdZ/kYojK4ofXtdfSv1tFq8XzWx3heNQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-6913",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 238,
+      "evidence": "GeXCej4I...uA==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "GeXCej4IQtU1B+QlDV8W/RRvbzI3O/Stss+/bCXv4lZls5WGRtu2a+3JkA3i4qIUlMXpcHebWpF8AkJhATowuA==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-7381",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 254,
+      "evidence": "3H1weTYZ...Dg==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "3H1weTYZPxt/WOhByszQZybS9w5lKzUn1FDMsgEChbHWQwHYQQRfBxgCcZvPhjHfKyJjIievvMmEUawJrdY9Dg==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-7841",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 270,
+      "evidence": "4xTZr1FU...HQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-8308",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 286,
+      "evidence": "sSATRjPe...nw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "sSATRjPeDBg3pdgHoQfoYBob11Kk1FGa9lui5RIHZCoCkJa9QKlvl3/vKz2usCmYYjs7ymJR/2Nnsqe+Hjt5nw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-8772",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 302,
+      "evidence": "lqnzCV+m...yw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "lqnzCV+mM0gIADaKihiCg6ifgfU2L3h5E33rNQBN1Y4MaVGnzryzmvvf7UHxprpQdE8hpqLolJ9Rl+SkIRDpyw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-9243",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 318,
+      "evidence": "AL2qJILH...oQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "AL2qJILH7lNjrDmCQDvdxMfAUIv8KMNZOvrwAQ8i8//ntL9FflhOyMJ8OZSMBb8/AWXe3/5v5S20y3zCoZWKoQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-9711",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 334,
+      "evidence": "QtiuPytc...Ew==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "QtiuPytchRyC4rwUKhexJdQKvDuZ6hWloi3igqPQNUJCS1/v9EiO3UTOXR6A3FoMo4fnAKbWJdqaIwhOzh8qEw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-10195",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 350,
+      "evidence": "WkhYDmpT...7Q==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "WkhYDmpTjLvGlScA1rwjRUmhl4k8oXR3cIbtqWmELgU/dFeHHlEllxDvdWcNJV9rbzCexB5vz8gtNewWLgCT7Q==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-10661",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 366,
+      "evidence": "GPMSkTOt...7g==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "GPMSkTOtMnv2U2F8gxe4Io6qmVs+YKyp832Etqqxr0hFngmXQ3rzwytelm3GIn7T4VviRUlf3sOgBOiTdvaf7g==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-11125",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 382,
+      "evidence": "PIhhEkE9...WQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "PIhhEkE9uPBleRBrQEJpUn7MBnibZzbGzYWPmY3x+YoVg/95zbjB4CxPPOQ8l5tYYM4mMaCthF8/1DIfBQQyWQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-11588",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 398,
+      "evidence": "YmJbfTlv...YA==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "YmJbfTlvU7Sdn9BB+4PRES4oB6pxgS37MAONj+hBr/cpXS1aBPKXxNnDbu+QCWPj0o9dgyxeq79g6c5P8KeuYA==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-12047",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 414,
+      "evidence": "5ebpxr3n...5g==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "5ebpxr3nWMzrL/rnUI755Jkuee0bHL/Gq0WTF9lvcpv73wAp5eu8MfBUgWK9bhWvZjj7yX8etf/8tI8Ney695g==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-12528",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 430,
+      "evidence": "mB9oAsNC...FQ==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "mB9oAsNCm9aM3/SOv4YtBMqZbYj10R7dkq8byBqxGY/ncFwhf2oQzMV+LCRlWoDSEBJ3COiR1yeDvMtsoOsuFQ==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-12973",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 439,
+      "evidence": "HKVLS8dv...IA==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-14535",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 480,
+      "evidence": "5xoDfX+f...Qw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-14992",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 494,
+      "evidence": "Chq1s4CY...bA==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-15364",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 503,
+      "evidence": "ehLFHCxV...mw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "ehLFHCxV+gITWeBlIVaXulXaVRg4LCxqm0bq64iXSwYL1DESd0pUeLYMP/BMBhnZWeFFBYyJCREaq+Nka7Wgmw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-azure-key-15899",
+      "severity": "critical",
+      "category": "secrets",
+      "title": "Hardcoded Azure storage account key",
+      "description": "Found Azure storage account key in package-lock.json. Secrets must never be hardcoded in configuration files.",
+      "file": "package-lock.json",
+      "line": 520,
+      "evidence": "BL5MGkRl...Dw==",
+      "fix": {
+        "description": "Replace with environment variable reference",
+        "before": "BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==",
+        "after": "${AZURE_KEY}",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-claude-md-env-4321",
+      "severity": "high",
+      "category": "secrets",
+      "title": "Sensitive env var in CLAUDE.md: GOOGLE_API_KEY",
+      "description": "CLAUDE.md contains an assignment for \"GOOGLE_API_KEY\". CLAUDE.md files are typically committed to version control, exposing secrets to anyone who clones the repository.",
+      "file": "CLAUDE.md",
+      "line": 106,
+      "evidence": "GOOGLE_API_KEY=<redacted>",
+      "fix": {
+        "description": "Move to .env file and reference via environment variable",
+        "before": "GOOGLE_API_KEY: configured",
+        "after": "# Set GOOGLE_API_KEY in your .env file",
+        "auto": false
+      }
+    },
+    {
+      "id": "secrets-claude-md-env-4350",
+      "severity": "high",
+      "category": "secrets",
+      "title": "Sensitive env var in CLAUDE.md: OPENAI_API_KEY",
+      "description": "CLAUDE.md contains an assignment for \"OPENAI_API_KEY\". CLAUDE.md files are typically committed to version control, exposing secrets to anyone who clones the repository.",
+      "file": "CLAUDE.md",
+      "line": 107,
+      "evidence": "OPENAI_API_KEY=<redacted>",
+      "fix": {
+        "description": "Move to .env file and reference via environment variable",
+        "before": "OPENAI_API_KEY: missing",
+        "after": "# Set OPENAI_API_KEY in your .env file",
+        "auto": false
+      }
+    },
+    {
+      "id": "prompt-defense-missing-role-escape-CLAUDE.md",
+      "severity": "high",
+      "category": "injection",
+      "title": "Missing prompt defense: Role boundary defense",
+      "description": "Prompt should explicitly reject unauthorized role or persona changes requested by users. (OWASP LLM Top 10: LLM01 Prompt Injection)",
+      "file": "CLAUDE.md",
+      "evidence": "Missing role-escape defense in CLAUDE.md"
+    },
+    {
+      "id": "prompt-defense-missing-indirect-injection-CLAUDE.md",
+      "severity": "high",
+      "category": "injection",
+      "title": "Missing prompt defense: Indirect injection defense",
+      "description": "Prompt should treat external or fetched content as untrusted and warn about embedded instructions in tool/document output. (OWASP LLM Top 10: LLM01 Prompt Injection)",
+      "file": "CLAUDE.md",
+      "evidence": "Missing indirect-injection defense in CLAUDE.md"
+    },
+    {
+      "id": "prompt-defense-missing-output-weaponization-CLAUDE.md",
+      "severity": "high",
+      "category": "injection",
+      "title": "Missing prompt defense: Harmful content defense",
+      "description": "Prompt should block dangerous, weaponizable, exploitative, or illegal output. (OWASP LLM Top 10: LLM09 Overreliance)",
+      "file": "CLAUDE.md",
+      "evidence": "Missing output-weaponization defense in CLAUDE.md"
+    },
+    {
+      "id": "permissions-permissive-Bash(docker compose *)",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(docker compose *)",
+      "description": "Docker access — containers can escape to host, mount filesystems, and access host network",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(docker compose *)",
+      "fix": {
+        "description": "Restrict to specific commands: Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "before": "Bash(docker compose *)",
+        "after": "Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-permissive-Bash(docker volume rm *)",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(docker volume rm *)",
+      "description": "Docker access — containers can escape to host, mount filesystems, and access host network",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(docker volume rm *)",
+      "fix": {
+        "description": "Restrict to specific commands: Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "before": "Bash(docker volume rm *)",
+        "after": "Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-permissive-Bash(docker volume *)",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(docker volume *)",
+      "description": "Docker access — containers can escape to host, mount filesystems, and access host network",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(docker volume *)",
+      "fix": {
+        "description": "Restrict to specific commands: Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "before": "Bash(docker volume *)",
+        "after": "Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-permissive-Bash(python3 -m json.tool)",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(python3 -m json.tool)",
+      "description": "Interpreter access — agent can run arbitrary code via scripting language",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(python3 -m json.tool)",
+      "fix": {
+        "description": "Restrict to specific commands: Restrict to specific scripts: Bash(node scripts/build.js)",
+        "before": "Bash(python3 -m json.tool)",
+        "after": "Restrict to specific scripts: Bash(node scripts/build.js)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-permissive-Bash(python3 -c ' *)",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(python3 -c ' *)",
+      "description": "Interpreter access — agent can run arbitrary code via scripting language",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(python3 -c ' *)",
+      "fix": {
+        "description": "Restrict to specific commands: Restrict to specific scripts: Bash(node scripts/build.js)",
+        "before": "Bash(python3 -c ' *)",
+        "after": "Restrict to specific scripts: Bash(node scripts/build.js)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-permissive-Bash(python3 -)",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(python3 -)",
+      "description": "Interpreter access — agent can run arbitrary code via scripting language",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(python3 -)",
+      "fix": {
+        "description": "Restrict to specific commands: Restrict to specific scripts: Bash(node scripts/build.js)",
+        "before": "Bash(python3 -)",
+        "after": "Restrict to specific scripts: Bash(node scripts/build.js)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-permissive-Bash(docker info *)",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(docker info *)",
+      "description": "Docker access — containers can escape to host, mount filesystems, and access host network",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(docker info *)",
+      "fix": {
+        "description": "Restrict to specific commands: Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "before": "Bash(docker info *)",
+        "after": "Remove docker permissions or restrict to read-only: Bash(docker ps)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-no-deny-list",
+      "severity": "high",
+      "category": "permissions",
+      "title": "No deny list configured",
+      "description": "settings.json has no deny list. Without explicit denials, the agent may run dangerous operations if the allow list is too broad.",
+      "file": ".claude/settings.local.json",
+      "fix": {
+        "description": "Add a deny list for dangerous operations",
+        "before": "\"permissions\": { \"allow\": [...] }",
+        "after": "\"permissions\": { \"allow\": [...], \"deny\": [\"Bash(rm -rf *)\", \"Bash(sudo *)\", \"Bash(chmod 777 *)\"] }",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-sensitive-path-0",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Allow rule grants access to system configuration directory: Read(//etc/claude-code/**)",
+      "description": "The allow entry \"Read(//etc/claude-code/**)\" grants tool access to a sensitive directory (system configuration directory). This could expose credentials, keys, or system configuration.",
+      "file": ".claude/settings.local.json",
+      "evidence": "Read(//etc/claude-code/**)",
+      "fix": {
+        "description": "Restrict to project directories only",
+        "before": "Read(//etc/claude-code/**)",
+        "after": "Read(/src/*",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-env-access-0",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Allow rule grants env access: Bash(poetry env *)",
+      "description": "The allow entry \"Bash(poetry env *)\" Grants access to dump environment variables. Environment variables often contain API keys, tokens, and other secrets.",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(poetry env *)",
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-unrestricted-network-0",
+      "severity": "high",
+      "category": "permissions",
+      "title": "Allow rule grants unrestricted network access: Bash(curl *)",
+      "description": "The allow entry \"Bash(curl *)\" Allows unrestricted curl — can exfiltrate data to any URL. Network tools should be restricted to specific hosts or purposes.",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(curl *)",
+      "fix": {
+        "description": "Restrict to specific hosts or use explicit URLs",
+        "before": "Bash(curl *)",
+        "after": "Bash(curl https://specific-host.com/*)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "prompt-defense-missing-output-manipulation-CLAUDE.md",
+      "severity": "medium",
+      "category": "injection",
+      "title": "Missing prompt defense: Output control defense",
+      "description": "Prompt should constrain risky output forms such as executable code, HTML, links, or scripts. (OWASP LLM Top 10: LLM02 Insecure Output Handling)",
+      "file": "CLAUDE.md",
+      "evidence": "Missing output-manipulation defense in CLAUDE.md"
+    },
+    {
+      "id": "prompt-defense-missing-multilang-bypass-CLAUDE.md",
+      "severity": "medium",
+      "category": "injection",
+      "title": "Missing prompt defense: Multi-language bypass defense",
+      "description": "Prompt should address attempts to evade safeguards by switching languages or translating unsafe requests.",
+      "file": "CLAUDE.md",
+      "evidence": "Missing multilang-bypass defense in CLAUDE.md"
+    },
+    {
+      "id": "prompt-defense-missing-unicode-attack-CLAUDE.md",
+      "severity": "medium",
+      "category": "injection",
+      "title": "Missing prompt defense: Unicode and encoding defense",
+      "description": "Prompt should mention unicode, invisible characters, homoglyphs, or encoding tricks as suspicious input.",
+      "file": "CLAUDE.md",
+      "evidence": "Missing unicode-attack defense in CLAUDE.md"
+    },
+    {
+      "id": "prompt-defense-missing-context-overflow-CLAUDE.md",
+      "severity": "medium",
+      "category": "injection",
+      "title": "Missing prompt defense: Context overflow defense",
+      "description": "Prompt should acknowledge input-length or token-window limits and reject attempts to push safeguards out of context.",
+      "file": "CLAUDE.md",
+      "evidence": "Missing context-overflow defense in CLAUDE.md"
+    },
+    {
+      "id": "prompt-defense-missing-social-engineering-CLAUDE.md",
+      "severity": "medium",
+      "category": "injection",
+      "title": "Missing prompt defense: Social engineering defense",
+      "description": "Prompt should account for urgency, emotional manipulation, or fake authority claims used to bypass safeguards.",
+      "file": "CLAUDE.md",
+      "evidence": "Missing social-engineering defense in CLAUDE.md"
+    },
+    {
+      "id": "prompt-defense-missing-input-validation-missing-CLAUDE.md",
+      "severity": "medium",
+      "category": "injection",
+      "title": "Missing prompt defense: Input validation defense",
+      "description": "Prompt should instruct the agent to validate, sanitize, inspect, or reject suspicious input. (OWASP LLM Top 10: LLM01 Prompt Injection)",
+      "file": "CLAUDE.md",
+      "evidence": "Missing input-validation-missing defense in CLAUDE.md"
+    },
+    {
+      "id": "permissions-permissive-Bash(curl -s -X POST -H 'X-Dev-User-Id: __TRACKED_VAR__' -F 'file=@backend/benchmark/audio/consulta_ficticia_01.mp3;type=audio/mpeg;filename=consulta_ficticia_01.mp3' -F duration_seconds=242 http://localhost:8000/api/v1/clinical-sessions/__TRACKED_VAR__/audio-recordings)",
+      "severity": "medium",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(curl -s -X POST -H 'X-Dev-User-Id: __TRACKED_VAR__' -F 'file=@backend/benchmark/audio/consulta_ficticia_01.mp3;type=audio/mpeg;filename=consulta_ficticia_01.mp3' -F duration_seconds=242 http://localhost:8000/api/v1/clinical-sessions/__TRACKED_VAR__/audio-recordings)",
+      "description": "Unrestricted curl access — agent can make arbitrary HTTP requests",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(curl -s -X POST -H 'X-Dev-User-Id: __TRACKED_VAR__' -F 'file=@backend/benchmark/audio/consulta_ficticia_01.mp3;type=audio/mpeg;filename=consulta_ficticia_01.mp3' -F duration_seconds=242 http://localhost:8000/api/v1/clinical-sessions/__TRACKED_VAR__/audio-recordings)",
+      "fix": {
+        "description": "Restrict to specific commands: Restrict to specific domains or move to deny list",
+        "before": "Bash(curl -s -X POST -H 'X-Dev-User-Id: __TRACKED_VAR__' -F 'file=@backend/benchmark/audio/consulta_ficticia_01.mp3;type=audio/mpeg;filename=consulta_ficticia_01.mp3' -F duration_seconds=242 http://localhost:8000/api/v1/clinical-sessions/__TRACKED_VAR__/audio-recordings)",
+        "after": "Restrict to specific domains or move to deny list",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-permissive-Bash(curl *)",
+      "severity": "medium",
+      "category": "permissions",
+      "title": "Overly permissive allow rule: Bash(curl *)",
+      "description": "Unrestricted curl access — agent can make arbitrary HTTP requests",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(curl *)",
+      "fix": {
+        "description": "Restrict to specific commands: Restrict to specific domains or move to deny list",
+        "before": "Bash(curl *)",
+        "after": "Restrict to specific domains or move to deny list",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-shadowed-allow-Bash(curl *)",
+      "severity": "medium",
+      "category": "permissions",
+      "title": "Broad allow rule shadows 36 narrower rule(s): Bash(curl *)",
+      "description": "\"Bash(curl *)\" is a prefix rule that already grants everything \"Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:8000/health)\", \"Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:8000/api/v1/dev/users)\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/me -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\",\"display_name\":\"Prueba Manual\",\"sex\":\"other\"}')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/patients?limit=5 -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 9ef56bad-c24e-4c3a-9954-8823f4a09ee4' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9002\"}')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\"}')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: __TRACKED_VAR__' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\",\"display_name\":\"Prueba Manual\",\"sex\":\"other\"}')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: __TRACKED_VAR__' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\"}')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X PATCH http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052 -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63' -H 'Content-Type: application/json' -d '{\"notes\":\"Nota administrativa de prueba\"}')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052/archive -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X PATCH http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052 -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63' -H 'Content-Type: application/json' -d '{\"notes\":\"otra\"}')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052/restore -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052/restore -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052 -H 'X-Dev-User-Id: 22222222-2222-2222-2222-222222222222')\", \"Bash(curl -s http://localhost:8000/api/v1/patients?include_archived=true -H 'X-Dev-User-Id: 22222222-2222-2222-2222-222222222222')\", \"Bash(curl -s -w \" HTTP %{http_code}\\\\n\" http://localhost:8000/health)\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/clinical-sessions?include_archived=true -H 'X-Dev-User-Id: __TRACKED_VAR__')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/clinical-sessions/c500f658-daa1-45ac-9205-1526ea3c5859/start -H 'X-Dev-User-Id: 2910d5ad-4a40-4335-a280-f1eedc3a1913')\", \"Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/clinical-sessions/c500f658-daa1-45ac-9205-1526ea3c5859/start -H 'X-Dev-User-Id: 19ac24f4-b077-4c8d-be3e-aa67232d91ee')\", \"Bash(curl -s -X POST http://localhost:8000/api/v1/clinical-sessions/c500f658-daa1-45ac-9205-1526ea3c5859/start -H 'X-Dev-User-Id: 19ac24f4-b077-4c8d-be3e-aa67232d91ee')\", \"Bash(curl -s -w \" HTTP %{http_code}\\\\n\" http://localhost:8000/ready)\", \"Bash(curl -s -o /dev/null -w \"frontend HTTP %{http_code}\\\\n\" http://localhost:5173/)\", \"Bash(curl -s http://localhost:8000/health)\", \"Bash(curl -s http://localhost:8000/ready)\", \"Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/)\", \"Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)\", \"Bash(curl -s http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002')\", \"Bash(curl -s http://localhost:5173/)\", \"Bash(curl -s http://localhost:8000/api/v1/dev/users)\", \"Bash(curl -s -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/patients?limit=5)\", \"Bash(curl -s -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/clinical-sessions/0a3c61c8-46b1-4856-ba99-fc6390cb5c70/artifacts)\", \"Bash(curl -s -X POST -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/clinical-sessions/0a3c61c8-46b1-4856-ba99-fc6390cb5c70/run-mock-pipeline)\", \"Bash(curl -s -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/clinical-sessions/0a3c61c8-46b1-4856-ba99-fc6390cb5c70/audio-recordings)\", \"Bash(curl -s -X DELETE -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/audio-recordings/72b94df0-8c4c-4aea-9241-72aad6d79584)\", \"Bash(curl -s -X POST -H 'X-Dev-User-Id: __TRACKED_VAR__' -F 'file=@backend/benchmark/audio/consulta_ficticia_01.mp3;type=audio/mpeg;filename=consulta_ficticia_01.mp3' -F duration_seconds=242 http://localhost:8000/api/v1/clinical-sessions/__TRACKED_VAR__/audio-recordings)\" grant(s). Tightening or removing the narrower entries does not reduce what the agent can run while \"Bash(curl *)\" remains. Narrow the broad rule to the specific subcommands you need.",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(curl *)",
+      "fix": {
+        "description": "Replace the broad prefix rule with the specific narrower rules it shadows",
+        "before": "Bash(curl *)",
+        "after": "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:8000/health), Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:8000/api/v1/dev/users), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/me -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\",\"display_name\":\"Prueba Manual\",\"sex\":\"other\"}'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/patients?limit=5 -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 9ef56bad-c24e-4c3a-9954-8823f4a09ee4' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9002\"}'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\"}'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: __TRACKED_VAR__' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\",\"display_name\":\"Prueba Manual\",\"sex\":\"other\"}'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: __TRACKED_VAR__' -H 'Content-Type: application/json' -d '{\"internal_code\":\"PAT-9001\"}'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X PATCH http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052 -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63' -H 'Content-Type: application/json' -d '{\"notes\":\"Nota administrativa de prueba\"}'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052/archive -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X PATCH http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052 -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63' -H 'Content-Type: application/json' -d '{\"notes\":\"otra\"}'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052/restore -H 'X-Dev-User-Id: 7ee9b15f-8743-4fa4-9aa4-7de1ec714b63'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052/restore -H 'X-Dev-User-Id: 9ed104c4-5f3c-4ef4-9ca7-165f818c9f2e'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/patients/54ad94bd-ae20-49b9-8bb9-a2657f4d0052 -H 'X-Dev-User-Id: 22222222-2222-2222-2222-222222222222'), Bash(curl -s http://localhost:8000/api/v1/patients?include_archived=true -H 'X-Dev-User-Id: 22222222-2222-2222-2222-222222222222'), Bash(curl -s -w \" HTTP %{http_code}\\\\n\" http://localhost:8000/health), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8000/api/v1/clinical-sessions?include_archived=true -H 'X-Dev-User-Id: __TRACKED_VAR__'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/clinical-sessions/c500f658-daa1-45ac-9205-1526ea3c5859/start -H 'X-Dev-User-Id: 2910d5ad-4a40-4335-a280-f1eedc3a1913'), Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:8000/api/v1/clinical-sessions/c500f658-daa1-45ac-9205-1526ea3c5859/start -H 'X-Dev-User-Id: 19ac24f4-b077-4c8d-be3e-aa67232d91ee'), Bash(curl -s -X POST http://localhost:8000/api/v1/clinical-sessions/c500f658-daa1-45ac-9205-1526ea3c5859/start -H 'X-Dev-User-Id: 19ac24f4-b077-4c8d-be3e-aa67232d91ee'), Bash(curl -s -w \" HTTP %{http_code}\\\\n\" http://localhost:8000/ready), Bash(curl -s -o /dev/null -w \"frontend HTTP %{http_code}\\\\n\" http://localhost:5173/), Bash(curl -s http://localhost:8000/health), Bash(curl -s http://localhost:8000/ready), Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/), Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/), Bash(curl -s http://localhost:8000/api/v1/patients -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002'), Bash(curl -s http://localhost:5173/), Bash(curl -s http://localhost:8000/api/v1/dev/users), Bash(curl -s -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/patients?limit=5), Bash(curl -s -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/clinical-sessions/0a3c61c8-46b1-4856-ba99-fc6390cb5c70/artifacts), Bash(curl -s -X POST -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/clinical-sessions/0a3c61c8-46b1-4856-ba99-fc6390cb5c70/run-mock-pipeline), Bash(curl -s -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/clinical-sessions/0a3c61c8-46b1-4856-ba99-fc6390cb5c70/audio-recordings), Bash(curl -s -X DELETE -H 'X-Dev-User-Id: 2902abdc-2ca4-4dcc-86a5-044cd3396002' http://localhost:8000/api/v1/audio-recordings/72b94df0-8c4c-4aea-9241-72aad6d79584), Bash(curl -s -X POST -H 'X-Dev-User-Id: __TRACKED_VAR__' -F 'file=@backend/benchmark/audio/consulta_ficticia_01.mp3;type=audio/mpeg;filename=consulta_ficticia_01.mp3' -F duration_seconds=242 http://localhost:8000/api/v1/clinical-sessions/__TRACKED_VAR__/audio-recordings)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "permissions-shadowed-allow-Bash(docker volume *)",
+      "severity": "medium",
+      "category": "permissions",
+      "title": "Broad allow rule shadows 1 narrower rule(s): Bash(docker volume *)",
+      "description": "\"Bash(docker volume *)\" is a prefix rule that already grants everything \"Bash(docker volume rm *)\" grant(s). Tightening or removing the narrower entries does not reduce what the agent can run while \"Bash(docker volume *)\" remains. Narrow the broad rule to the specific subcommands you need.",
+      "file": ".claude/settings.local.json",
+      "evidence": "Bash(docker volume *)",
+      "fix": {
+        "description": "Replace the broad prefix rule with the specific narrower rules it shadows",
+        "before": "Bash(docker volume *)",
+        "after": "Bash(docker volume rm *)",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "hooks-no-pretooluse",
+      "severity": "medium",
+      "category": "misconfiguration",
+      "title": "No PreToolUse security hooks configured",
+      "description": "No PreToolUse hooks are defined. These hooks can catch dangerous operations before they run, providing an essential security layer.",
+      "file": ".claude/settings.local.json",
+      "fix": {
+        "description": "Add PreToolUse hooks for security-sensitive operations",
+        "before": "\"hooks\": {}",
+        "after": "\"hooks\": { \"PreToolUse\": [{ \"matcher\": \"Bash && command matches 'rm -rf'\", \"hook\": \"echo 'Blocked' >&2 && exit 1\" }] }",
+        "auto": false
+      },
+      "runtimeConfidence": "project-local-optional"
+    },
+    {
+      "id": "prompt-defense-missing-abuse-prevention-CLAUDE.md",
+      "severity": "low",
+      "category": "injection",
+      "title": "Missing prompt defense: Abuse prevention defense",
+      "description": "Prompt should mention repeated abuse, rate limiting, or session/isolation boundaries.",
+      "file": "CLAUDE.md",
+      "evidence": "Missing abuse-prevention defense in CLAUDE.md"
+    }
+  ],
+  "score": {
+    "grade": "D",
+    "numericScore": 40,
+    "breakdown": {
+      "secrets": 0,
+      "permissions": 0,
+      "hooks": 100,
+      "mcp": 100,
+      "agents": 0
+    }
+  },
+  "summary": {
+    "totalFindings": 61,
+    "critical": 33,
+    "high": 16,
+    "medium": 11,
+    "low": 1,
+    "info": 0,
+    "filesScanned": 4,
+    "autoFixable": 0,
+    "defenses": 0
+  },
+  "defenses": [],
+  "harnessAdapters": {
+    "totalRegistered": 9,
+    "totalMatched": 1,
+    "matched": [
+      {
+        "id": "claude-code",
+        "name": "Claude Code",
+        "description": "Claude Code project rules, permissions, MCP, hooks, agents, skills, and command surfaces.",
+        "configPaths": [
+          "CLAUDE.md",
+          ".claude/CLAUDE.md",
+          "settings.json",
+          ".claude/settings.json",
+          "mcp.json",
+          ".mcp.json",
+          ".claude/mcp.json",
+          ".claude/agents",
+          ".claude/skills",
+          ".claude/hooks"
+        ],
+        "permissionConcepts": [
+          "allow/deny permissions",
+          "dangerous shell commands",
+          "project-local overrides"
+        ],
+        "pluginSurfaces": [
+          "Claude plugins",
+          "hooks manifests",
+          "skills",
+          "slash commands"
+        ],
+        "mcpConventions": [
+          "mcpServers",
+          ".claude.json",
+          "mcp.json",
+          ".mcp.json"
+        ],
+        "historySurfaces": [
+          "Claude transcripts",
+          "session hooks",
+          "tool usage logs"
+        ],
+        "ciEvidence": [
+          "AgentShield scan",
+          "policy evaluation",
+          "SARIF upload",
+          "evidence pack"
+        ],
+        "matched": true,
+        "confidence": "strong",
+        "evidence": [
+          "CLAUDE.md"
+        ]
+      }
+    ],
+    "registered": [
+      {
+        "id": "claude-code",
+        "name": "Claude Code",
+        "description": "Claude Code project rules, permissions, MCP, hooks, agents, skills, and command surfaces.",
+        "configPaths": [
+          "CLAUDE.md",
+          ".claude/CLAUDE.md",
+          "settings.json",
+          ".claude/settings.json",
+          "mcp.json",
+          ".mcp.json",
+          ".claude/mcp.json",
+          ".claude/agents",
+          ".claude/skills",
+          ".claude/hooks"
+        ],
+        "permissionConcepts": [
+          "allow/deny permissions",
+          "dangerous shell commands",
+          "project-local overrides"
+        ],
+        "pluginSurfaces": [
+          "Claude plugins",
+          "hooks manifests",
+          "skills",
+          "slash commands"
+        ],
+        "mcpConventions": [
+          "mcpServers",
+          ".claude.json",
+          "mcp.json",
+          ".mcp.json"
+        ],
+        "historySurfaces": [
+          "Claude transcripts",
+          "session hooks",
+          "tool usage logs"
+        ],
+        "ciEvidence": [
+          "AgentShield scan",
+          "policy evaluation",
+          "SARIF upload",
+          "evidence pack"
+        ]
+      },
+      {
+        "id": "opencode",
+        "name": "OpenCode",
+        "description": "OpenCode agent, command, provider, plugin, and project configuration surfaces.",
+        "configPaths": [
+          "opencode.json",
+          "opencode.jsonc",
+          ".opencode.json",
+          ".opencode/config.json",
+          ".opencode/agents",
+          ".opencode/commands",
+          ".opencode/plugins"
+        ],
+        "permissionConcepts": [
+          "provider permissions",
+          "agent modes",
+          "tool scopes"
+        ],
+        "pluginSurfaces": [
+          "OpenCode plugins",
+          "agents",
+          "commands"
+        ],
+        "mcpConventions": [
+          "provider/tool configuration",
+          "project-local tool adapters"
+        ],
+        "historySurfaces": [
+          "sessions",
+          "client/server state",
+          "tool traces"
+        ],
+        "ciEvidence": [
+          "scan report",
+          "package-surface checks",
+          "policy gate"
+        ]
+      },
+      {
+        "id": "codex",
+        "name": "Codex",
+        "description": "Codex AGENTS instructions, project config, prompts, and local memory/tooling surfaces.",
+        "configPaths": [
+          "AGENTS.md",
+          ".codex/config.toml",
+          ".codex/agents",
+          ".codex/prompts",
+          ".codex/skills"
+        ],
+        "permissionConcepts": [
+          "sandbox policy",
+          "approval policy",
+          "agent instructions"
+        ],
+        "pluginSurfaces": [
+          "skills",
+          "MCP servers",
+          "project AGENTS.md"
+        ],
+        "mcpConventions": [
+          ".codex/config.toml",
+          "MCP server entries"
+        ],
+        "historySurfaces": [
+          "Codex session logs",
+          "rollout summaries",
+          "local memories"
+        ],
+        "ciEvidence": [
+          "scan report",
+          "rules conformance",
+          "policy gate"
+        ]
+      },
+      {
+        "id": "gemini",
+        "name": "Gemini CLI",
+        "description": "Gemini project instructions, commands, extensions, and MCP configuration surfaces.",
+        "configPaths": [
+          "GEMINI.md",
+          ".gemini/settings.json",
+          ".gemini/commands",
+          ".gemini/extensions",
+          ".gemini/mcp.json"
+        ],
+        "permissionConcepts": [
+          "tool permissions",
+          "extension scopes",
+          "project rules"
+        ],
+        "pluginSurfaces": [
+          "commands",
+          "extensions",
+          "MCP adapters"
+        ],
+        "mcpConventions": [
+          ".gemini/mcp.json",
+          "settings tool entries"
+        ],
+        "historySurfaces": [
+          "terminal transcripts",
+          "command history",
+          "tool traces"
+        ],
+        "ciEvidence": [
+          "scan report",
+          "policy gate",
+          "extension review"
+        ]
+      },
+      {
+        "id": "zed",
+        "name": "Zed",
+        "description": "Zed project agent settings, MCP context servers, tool permissions, tasks, and external-agent handoff surfaces.",
+        "configPaths": [
+          ".zed/settings.json",
+          ".zed/tasks.json"
+        ],
+        "permissionConcepts": [
+          "agent tool permissions",
+          "task command review",
+          "worktree trust"
+        ],
+        "pluginSurfaces": [
+          "MCP server extensions",
+          "custom context servers",
+          "external agents"
+        ],
+        "mcpConventions": [
+          "context_servers",
+          "mcp:<server>:<tool_name>",
+          "Agent Panel settings"
+        ],
+        "historySurfaces": [
+          "agent threads",
+          "project context",
+          "worktree-local settings"
+        ],
+        "ciEvidence": [
+          "scan report",
+          "task automation review",
+          "policy gate"
+        ]
+      },
+      {
+        "id": "vscode",
+        "name": "VS Code",
+        "description": "VS Code workspace settings, tasks, extension recommendations, and editor-launched automation surfaces.",
+        "configPaths": [
+          ".vscode/settings.json",
+          ".vscode/tasks.json",
+          ".vscode/extensions.json",
+          ".vscode/launch.json"
+        ],
+        "permissionConcepts": [
+          "workspace trust",
+          "folder-open task automation",
+          "extension recommendations"
+        ],
+        "pluginSurfaces": [
+          "extensions",
+          "tasks",
+          "launch configurations"
+        ],
+        "mcpConventions": [
+          "extension-provided MCP/tool configuration",
+          "workspace settings"
+        ],
+        "historySurfaces": [
+          "workspace storage",
+          "task output",
+          "extension logs"
+        ],
+        "ciEvidence": [
+          "scan report",
+          "task automation review",
+          "extension policy gate"
+        ]
+      },
+      {
+        "id": "dmux",
+        "name": "dmux",
+        "description": "dmux multi-agent pane, worktree, launch, and lifecycle hook surfaces.",
+        "configPaths": [
+          "dmux.yaml",
+          "dmux.yml",
+          "dmux.json",
+          ".dmux/config.yaml",
+          ".dmux/config.json",
+          ".dmux"
+        ],
+        "permissionConcepts": [
+          "pane launch commands",
+          "worktree lifecycle hooks",
+          "merge workflows"
+        ],
+        "pluginSurfaces": [
+          "launch recipes",
+          "hooks",
+          "agent templates"
+        ],
+        "mcpConventions": [
+          "per-agent MCP environment",
+          "launch-time tool config"
+        ],
+        "historySurfaces": [
+          "tmux pane logs",
+          "worktree state",
+          "handoff files"
+        ],
+        "ciEvidence": [
+          "scan report",
+          "worktree safety review",
+          "merge gate"
+        ]
+      },
+      {
+        "id": "generic-terminal",
+        "name": "Generic Terminal Agent",
+        "description": "Terminal-agent launch scripts, command wrappers, and shell-based orchestration surfaces.",
+        "configPaths": [
+          "agent.yaml",
+          "agent.yml",
+          ".agents",
+          "agents.yaml",
+          "scripts/agents",
+          "terminal-agents"
+        ],
+        "permissionConcepts": [
+          "shell command allowlists",
+          "environment exposure",
+          "working-directory scope"
+        ],
+        "pluginSurfaces": [
+          "shell wrappers",
+          "agent launch manifests",
+          "local command packs"
+        ],
+        "mcpConventions": [
+          "environment-provided MCP endpoints",
+          "wrapper-managed tools"
+        ],
+        "historySurfaces": [
+          "terminal logs",
+          "agent run directories",
+          "handoff files"
+        ],
+        "ciEvidence": [
+          "scan report",
+          "script review",
+          "policy gate"
+        ]
+      },
+      {
+        "id": "project-local-template",
+        "name": "Project-local Templates",
+        "description": "Repository-local skills, commands, rules, prompts, and reusable agent templates.",
+        "configPaths": [
+          "skills",
+          "commands",
+          "rules",
+          "contexts",
+          "prompts",
+          ".claude/commands",
+          ".claude/skills"
+        ],
+        "permissionConcepts": [
+          "template guidance",
+          "default tool scopes",
+          "copy-forward examples"
+        ],
+        "pluginSurfaces": [
+          "skills",
+          "commands",
+          "rules",
+          "contexts",
+          "prompts"
+        ],
+        "mcpConventions": [
+          "template MCP examples",
+          "copy-forward config snippets"
+        ],
+        "historySurfaces": [
+          "template changelogs",
+          "skill health history",
+          "example traces"
+        ],
+        "ciEvidence": [
+          "template scan",
+          "docs-example downgrade evidence",
+          "corpus fixture coverage"
+        ]
+      }
+    ]
+  }
+}
