@@ -12,6 +12,8 @@ updates:
     labels:
       - "dependencies"
       - "backend"
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: "npm"
     directory: "/frontend"
@@ -21,6 +23,8 @@ updates:
     labels:
       - "dependencies"
       - "frontend"
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -29,3 +33,5 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    cooldown:
+      default-days: 7
