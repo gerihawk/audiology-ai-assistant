@@ -127,15 +127,27 @@ de IA sin un consentimiento de `procesamiento_ia` vigente devuelve `409`
   tratamiento frente al paciente), que edita los datos en la plataforma.
 - **Supresión (art. 17 RGPD)**: hasta el 2026-09-18 no existía ningún
   camino técnico para borrar físicamente el contenido clínico de un
-  paciente — solo borrado lógico indefinido. Cerrado con
-  `purge_patient_clinical_data()` (ver
-  [privacy-and-security.md](privacy-and-security.md) §8.2): purga
-  atómica, admin-only, con doble confirmación y entrada de auditoría que
-  sobrevive al borrado. **Importante**: la decisión de *cuándo* procede
-  legalmente borrar (p. ej. tras el plazo mínimo de conservación de la
-  historia clínica en España — 5 años desde el alta, art. 17 Ley
-  41/2002) es un juicio de la clínica caso por caso, no un temporizador
-  automático del sistema.
+  paciente — solo borrado lógico indefinido. `purge_patient_clinical_data()`
+  cerró esa parte ese día, pero **no** la identidad del paciente
+  (`patients.display_name`/`birth_year`/`notes`/`internal_code`), que
+  siguió intacta hasta el 2026-09-23 — una versión anterior de esta
+  sección y el riesgo R6 de §5/§6 daban por cerrado el derecho de
+  supresión completo citando solo la purga clínica, lo cual era
+  impreciso: el art. 17 cubre todos los datos personales, no solo el
+  contenido clínico. Desde 2026-09-23, la misma operación también
+  anonimiza in-place la identidad (ver
+  [privacy-and-security.md](privacy-and-security.md) §8.2) — ahora sí es
+  una purga atómica, admin-only, con doble confirmación y entrada de
+  auditoría que sobrevive al borrado, cubriendo identidad y contenido
+  clínico en la misma transacción. **Importante**: la decisión de
+  *cuándo* procede legalmente borrar (p. ej. tras el plazo mínimo de
+  conservación de la historia clínica en España — 5 años desde el alta,
+  art. 17 Ley 41/2002) es un juicio de la clínica caso por caso, no un
+  temporizador automático del sistema. **Límite que sigue sin cubrir**:
+  ni los backups ya tomados (§8.1/§8.2 de
+  [privacy-and-security.md](privacy-and-security.md)) ni los
+  subencargados externos (Deepgram, OpenAI, Anthropic — §2.2 más abajo)
+  purgan retroactivamente los datos de un paciente ya anonimizado.
 - **Portabilidad/oposición**: sin mecanismo dedicado todavía — pendiente
   de valorar junto con el DPA/ToS propio de Audiology AI Assistant.
 
@@ -170,6 +182,43 @@ Anthropic, OpenAI, Railway, Cloudflare) tenían su DPA resuelto a fecha
 alta el primer paciente real. **Pendiente de esta EIPD**: cerrar el
 estado de Sentry y confirmar la jurisdicción del DPA de Brevo (filas
 sombreadas arriba).
+
+**Propagación de borrado hacia estos subencargados — investigado
+2026-09-23, alimenta la TIA pendiente (ver
+[antes-del-primer-cliente]).** Cuando `purge_patient_clinical_data()`
+anonimiza a un paciente (§1.7), el audio/transcripción que ya se envió a
+estos proveedores para procesarlo **no se borra retroactivamente en su
+lado** — la plataforma no reenvía ninguna solicitud de supresión aguas
+abajo hoy. Estado confirmado por proveedor contra fuente oficial:
+
+- **Anthropic**: confirmado explícitamente que **no** ofrece borrado bajo
+  demanda a clientes de pago de la API — "For paid API customers, we do
+  not support ad hoc deletion" ([Anthropic Privacy Center — Can you
+  delete data that I sent via
+  API?](https://privacy.claude.com/en/articles/7996875-can-you-delete-data-that-i-sent-via-api)).
+  Los datos expiran según su política de retención estándar, no por
+  solicitud individual.
+- **OpenAI**: los logs de monitorización de abuso se retienen hasta 30
+  días por defecto; existe un control de "Zero Data Retention" pero
+  requiere aprobación previa de OpenAI y es prospectivo (se aplica a
+  peticiones futuras, no borra retroactivamente lo ya enviado); algunos
+  endpoints quedan excluidos de ZDR ([OpenAI — Data controls in the
+  OpenAI platform](https://developers.openai.com/api/docs/guides/your-data)).
+  No se documenta un procedimiento de borrado retroactivo a petición.
+- **Deepgram**: no se pudo confirmar con una fuente oficial el plazo de
+  retención de audio ni un mecanismo de borrado a petición — su propia
+  documentación remite a una sección "Your Data at Deepgram" no accesible
+  públicamente; pendiente de pedirlo directamente al equipo de cuenta de
+  Deepgram (tienen DPA firmado, es el canal natural para preguntarlo).
+
+**Conclusión para la TIA y el DPA/RAT/ToS con la clínica**: el
+compromiso de "eliminamos tus datos cuando lo pidas" que la plataforma
+le pueda hacer a una clínica solo puede cubrir, hoy, lo que vive en la
+infraestructura propia (Railway) — no lo ya enviado a Anthropic/OpenAI
+para generación de contenido. Esto debe quedar explícito en el DPA (plazo
+de devolución/eliminación de datos, uno de los `[PLACEHOLDER]`
+pendientes) en vez de prometer un borrado total que hoy no es técnicamente
+posible.
 
 ### 2.3 Política de no entrenamiento de modelos
 
@@ -266,7 +315,7 @@ gestión del riesgo (véase §0).
 | R3 | Hasta la Fase 10, únicamente implementaciones `Mock*` disponibles para LLM — activar un proveedor real requiere cambio explícito de configuración; los cinco proveedores con acceso a datos clínicos reales tenían DPA resuelto antes de la primera activación en producción (2026-09-14/15) | Bajo |
 | R4 | `mip_opt_out=true` incondicional en toda petición a Deepgram, verificado con tests de compliance dedicados; Anthropic/OpenAI no usan datos de API para entrenamiento por defecto, sin opt-in activado | Bajo |
 | R5 | Tres capas de backup (snapshots de volumen, PITR ~4 semanas, `pg_dump` cifrado externo a bucket UE que sobrevive a la pérdida total de Railway); clave de cifrado `age` custodiada offline por Gerard, nunca en Railway; runbook de restore verificado dos veces contra dumps reales (2026-09-14 y 2026-09-18) — **corregido 2026-09-18**: una versión anterior de esta EIPD lo daba por pendiente citando `privacy-and-security.md` §8.1, que a su vez remitía a `development-plan.md`, donde ya constaba cerrado desde el 2026-09-14; no verificado contra el documento correcto antes de escribirlo | Bajo |
-| R6 | `purge_patient_clinical_data()` (2026-09-18): purga física atómica, admin-only, doble confirmación, con entrada de auditoría que sobrevive al borrado | Bajo |
+| R6 | `purge_patient_clinical_data()` (2026-09-18, ampliado 2026-09-23): purga física atómica, admin-only, doble confirmación, con entrada de auditoría que sobrevive al borrado — cubre contenido clínico **y**, desde el 2026-09-23, anonimización in-place de la identidad del paciente (`display_name`/`birth_year`/`notes`/`internal_code`); antes de esa fecha esta fila calificaba el riesgo de "Bajo" citando solo la purga clínica, lo cual era optimista frente al alcance real del art. 17 — ver §1.7 | Bajo — residual: backups ya tomados y subencargados externos (Deepgram/OpenAI/Anthropic) no purgan retroactivamente, ver §1.7 |
 | R7 | Lenguaje no diagnóstico obligatorio y validado por tests; aviso obligatorio en toda respuesta de API y exportación; aprobación humana explícita antes de exportar o considerar un artefacto parte del expediente; ninguna transición a `approved` puede depender de `confidence` | Medio — depende en última instancia de que el profesional respete el flujo de revisión; no hay control técnico que impida a un usuario ignorar el aviso |
 | R8 | Autenticación real por JWT + `bcrypt` obligatoria en producción (`RealCurrentUserProvider`), rate limiting en login (5/min), pantalla de login real en el frontend (`LoginForm.tsx`/`AuthContext.tsx`, hito 9.2) que bloquea todas las rutas sin token válido — **corregido 2026-09-18**: una versión anterior de esta EIPD daba esto por pendiente basándose en `privacy-and-security.md` §12, que estaba desactualizado; verificado directamente contra `frontend/src/App.tsx` (función `RealAuthApp`), el hito ya estaba implementado y mergeado | Medio — sin MFA, sin lista de revocación de tokens (logout solo del lado cliente), tokens de 8h de vida; pendiente confirmar que `VITE_AUTH_MODE` de producción esté en `real` en la configuración real de Railway (no verificable desde el código) — aunque la barrera real está en el backend, no en el frontend |
 | R9 | Cifrado a nivel de aplicación (columna) implementado — **corregido 2026-09-18**: AES-256-GCM (autenticado) sobre `patients.display_name`/`birth_year`, `ai_artifact_versions.content` y `ai_generation_runs.rendered_system_prompt`/`rendered_user_prompt`/`raw_response`, con claves versionadas/rotables desde el diseño inicial (`app/core/field_encryption.py`, `docs/privacy-and-security.md` §4) | Bajo — el contenido clínico más sensible ya no depende únicamente del cifrado en reposo del proveedor de infraestructura; residual: las claves viven como variables de entorno en Railway, no en un HSM/KMS gestionado, lo cual es proporcional a la escala actual (un proveedor, sin equipo de seguridad dedicado) pero debería revisarse si el volumen de clínicas crece significativamente |

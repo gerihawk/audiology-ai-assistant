@@ -21,8 +21,17 @@ class ConsentORM(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     clinic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clinics.id"), nullable=False)
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id"), nullable=False)
+    # `ondelete="SET NULL"` añadido 2026-09-23 (hallazgo medio red team,
+    # docs/security/red-team-app-2026-09-22.md): sin esto, un DELETE físico
+    # de `clinical_sessions` desde
+    # RetentionCleanupService.purge_patient_clinical_data() fallaba por
+    # violación de FK si el paciente tenía algún consentimiento asociado a
+    # esa sesión — capturado como rollback silencioso por el
+    # `except Exception` genérico del servicio. `consents` nunca se purga
+    # (es la prueba legal de que se otorgó/revocó un consentimiento); solo
+    # pierde la referencia a la sesión ya borrada.
     clinical_session_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("clinical_sessions.id"), nullable=True
+        ForeignKey("clinical_sessions.id", ondelete="SET NULL"), nullable=True
     )
     consent_type: Mapped[str] = mapped_column(String(32), nullable=False)
     granted: Mapped[bool] = mapped_column(Boolean, nullable=False)

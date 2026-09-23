@@ -30,6 +30,7 @@ def _to_domain(row: PatientORM) -> Patient:
         updated_at=row.updated_at,
         archived_at=row.archived_at,
         schema_version=row.schema_version,
+        identity_purged_at=row.identity_purged_at,
     )
 
 

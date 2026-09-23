@@ -26,14 +26,17 @@ from app.audio.infrastructure.orm import AudioRecordingORM
 from app.audit_log.infrastructure.orm import AuditLogORM
 from app.clinical_sessions.domain.entities import ClinicalSession
 from app.clinical_sessions.infrastructure.orm import ClinicalSessionORM
+from app.consents.infrastructure.orm import ConsentORM
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.patients.domain.entities import Patient
+from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
 from app.retention.service import RetentionCleanupService
 from tests.factories import (
     ClinicWithUsers,
     create_ai_artifact_with_version,
     create_audio_recording,
     create_clinical_session,
+    create_consent,
     create_patient,
     current_user_from,
 )
@@ -121,6 +124,18 @@ async def test_purge_deletes_everything_across_all_tables(
     after = await _counts(db_session, clinical_session.id)
     assert all(count == 0 for count in after.values()), after
 
+    purged_patient = await SqlAlchemyPatientRepository().get_by_id(
+        db_session, clinic_with_users.clinic.id, patient.id
+    )
+    assert purged_patient is not None
+    assert purged_patient.display_name == "[Paciente eliminado]"
+    assert purged_patient.birth_year is None
+    assert purged_patient.notes is None
+    assert purged_patient.internal_code == f"eliminado-{patient.id}"
+    assert purged_patient.is_archived is True
+    assert purged_patient.archived_at is not None
+    assert purged_patient.identity_purged_at is not None
+
 
 async def test_purge_writes_audit_log_entry(
     db_session: AsyncSession,
@@ -148,6 +163,7 @@ async def test_purge_writes_audit_log_entry(
     assert entry.audit_metadata["clinical_sessions_purged"] == 1
     assert entry.audit_metadata["ai_artifacts_purged"] == 1
     assert entry.audit_metadata["audio_recordings_purged"] == 1
+    assert entry.audit_metadata["identity_anonymized"] is True
 
 
 async def test_purge_does_not_touch_other_patients_data(
@@ -198,6 +214,13 @@ async def test_purge_without_confirm_raises_conflict_and_deletes_nothing(
     after = await _counts(db_session, clinical_session.id)
     assert all(count > 0 for count in after.values()), after
 
+    untouched_patient = await SqlAlchemyPatientRepository().get_by_id(
+        db_session, clinic_with_users.clinic.id, patient.id
+    )
+    assert untouched_patient is not None
+    assert untouched_patient.identity_purged_at is None
+    assert untouched_patient.display_name == patient.display_name
+
 
 @pytest.mark.parametrize("role_attr", ["audiologist", "viewer"])
 async def test_purge_forbidden_for_non_admin(
@@ -224,9 +247,13 @@ async def test_purge_unknown_patient_raises_not_found(
         )
 
 
-async def test_purge_patient_without_sessions_is_a_no_op(
+async def test_purge_patient_without_sessions_still_anonymizes_identity(
     db_session: AsyncSession, clinic_with_users: ClinicWithUsers, patient: Patient
 ):
+    """Un paciente sin ninguna sesión clínica también puede ejercer su
+    derecho de supresión — la ausencia de contenido clínico que borrar no
+    debe bloquear la anonimización de su identidad (ver docstring de
+    `purge_patient_clinical_data`)."""
     service = RetentionCleanupService(db_session)
     summary = await service.purge_patient_clinical_data(
         current_user_from(clinic_with_users.admin), patient.id, "req-empty", confirm=True
@@ -235,3 +262,42 @@ async def test_purge_patient_without_sessions_is_a_no_op(
     assert summary.clinical_sessions_purged == 0
     assert summary.ai_artifacts_purged == 0
     assert summary.audio_recordings_purged == 0
+
+    purged_patient = await SqlAlchemyPatientRepository().get_by_id(
+        db_session, clinic_with_users.clinic.id, patient.id
+    )
+    assert purged_patient is not None
+    assert purged_patient.display_name == "[Paciente eliminado]"
+    assert purged_patient.identity_purged_at is not None
+
+
+async def test_purge_preserves_consent_with_session_set_to_null(
+    db_session: AsyncSession,
+    clinic_with_users: ClinicWithUsers,
+    patient: Patient,
+    clinical_session: ClinicalSession,
+):
+    """`consents` nunca se purga (prueba legal de consentimiento) pero
+    referenciaba la sesión clínica que sí se borra físicamente — sin el
+    `ondelete="SET NULL"` del FK, esto hacía fallar el DELETE de
+    `clinical_sessions` por violación de integridad referencial y la
+    purga entera revertía en silencio (capturada por el `except Exception`
+    genérico del servicio)."""
+    consent = await create_consent(
+        db_session,
+        clinic_with_users.clinic.id,
+        patient.id,
+        clinic_with_users.admin.id,
+        clinical_session_id=clinical_session.id,
+    )
+
+    service = RetentionCleanupService(db_session)
+    summary = await service.purge_patient_clinical_data(
+        current_user_from(clinic_with_users.admin), patient.id, "req-consent", confirm=True
+    )
+
+    assert summary.clinical_sessions_purged == 1
+
+    result = await db_session.execute(select(ConsentORM).where(ConsentORM.id == consent.id))
+    row = result.scalar_one()
+    assert row.clinical_session_id is None

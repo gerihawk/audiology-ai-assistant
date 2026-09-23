@@ -61,6 +61,18 @@ class PatientORM(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Distinta de `archived_at`: un paciente puede archivarse (reversible,
+    # oculto de listados) sin que nadie haya ejercido el derecho de
+    # supresión. `identity_purged_at` solo se rellena desde
+    # `RetentionCleanupService.purge_patient_clinical_data()` (hallazgo
+    # medio red team, docs/security/red-team-app-2026-09-22.md — cierre
+    # 2026-09-23) al anonimizar `display_name`/`birth_year`/`notes`/
+    # `internal_code` in-place; es irreversible y es la única forma de
+    # distinguir auditablemente "archivado" de "identidad anonimizada por
+    # RGPD" (ver docs/privacy-and-security.md §8.2).
+    identity_purged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     schema_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )

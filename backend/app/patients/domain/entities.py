@@ -36,3 +36,7 @@ class Patient:
     updated_at: datetime
     archived_at: datetime | None
     schema_version: int
+    # Default `None` a propósito: campo añadido al final para no romper
+    # ninguna construcción posicional/keyword existente de `Patient(...)`.
+    # Ver PatientORM.identity_purged_at.
+    identity_purged_at: datetime | None = None

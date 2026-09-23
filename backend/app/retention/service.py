@@ -13,7 +13,16 @@ físico TODO — audio, `ai_artifacts`/`ai_artifact_versions`,
 paciente concreto, a petición explícita (nunca automática, nunca por
 cron), y SÍ es atómica (una única transacción: o se borra todo, o no se
 borra nada) porque una purga parcial dejaría referencias huérfanas entre
-tablas."""
+tablas.
+
+Desde 2026-09-23 (cierre del hallazgo medio del red team,
+docs/security/red-team-app-2026-09-22.md: "sin borrado RGPD real de
+identidad de paciente") esta misma operación también anonimiza in-place
+la fila `patients`: hasta esa fecha, el borrado físico de arriba dejaba
+intacta la identidad (`display_name`/`birth_year`/`notes`/
+`internal_code`), que solo se archivaba (`is_archived`, reversible), no
+se anonimizaba. Ver `PatientORM.identity_purged_at` y
+docs/privacy-and-security.md §8.2."""
 
 from __future__ import annotations
 
@@ -47,6 +56,14 @@ from app.core.current_user import CurrentUser
 from app.core.exceptions import ConflictError, NotFoundError
 from app.patients.domain.repository import PatientRepository
 from app.patients.infrastructure.repository import SqlAlchemyPatientRepository
+
+#: Marcador fijo para `display_name` tras la purga — igual para todo
+#: paciente anonimizado, nunca reversible a partir de este valor.
+_IDENTITY_ANONYMIZED_DISPLAY_NAME = "[Paciente eliminado]"
+#: `internal_code` es NOT NULL (ver docstring de
+#: `purge_patient_clinical_data`) — se sustituye por este prefijo + el
+#: `patient_id` (único por definición), nunca por `NULL`.
+_IDENTITY_ANONYMIZED_INTERNAL_CODE_PREFIX = "eliminado-"
 
 
 @dataclass(slots=True, frozen=True)
@@ -163,10 +180,23 @@ class RetentionCleanupService:
         1) audio (blob + fila), 2) versiones de artefactos + rotura de
         las referencias circulares de `ai_artifacts`, 3) generation runs,
         4) los propios `ai_artifacts`, 5) pipeline runs, 6) las
-        `clinical_sessions`. El `audit_log` se escribe en la misma
+        `clinical_sessions`, 7) anonimización in-place de la identidad del
+        paciente (`patients`). El `audit_log` se escribe en la misma
         transacción y sobrevive a la purga (`entity_id` sin FK — ver
         `app/audit_log/infrastructure/orm.py`): es la única prueba de que
-        estos datos existieron y de quién pidió borrarlos."""
+        estos datos existieron y de quién pidió borrarlos.
+
+        La anonimización de identidad (paso 7) ocurre siempre que se
+        confirma la purga, incluso si el paciente no tiene ninguna sesión
+        clínica todavía — un paciente puede ejercer su derecho de
+        supresión sin haber llegado a tener una consulta, y no hay razón
+        para bloquear eso. `patients.internal_code` es `NOT NULL` (a
+        diferencia de `display_name`/`birth_year`/`notes`) y se usa como
+        `str` no-opcional en la exportación de expedientes
+        (`app/export/service.py`, `app/clinical_record/service.py`) y en
+        `PatientResponse` (`app/patients/api/schemas.py`): por eso se
+        sustituye por un marcador anonimizado único derivado del
+        `patient_id`, nunca por `NULL`."""
         authorize_retention_action(current_user, RetentionAction.PURGE_PATIENT_DATA)
 
         if not confirm:
@@ -185,33 +215,53 @@ class RetentionCleanupService:
         )
         session_ids = [clinical_session.id for clinical_session in sessions]
 
-        if not session_ids:
-            return PatientDataPurgeSummary(
-                clinical_sessions_purged=0, ai_artifacts_purged=0, audio_recordings_purged=0
-            )
+        audio_count = 0
+        artifact_count = 0
+        session_count = 0
 
         try:
-            audio_recordings: list[AudioRecording] = await self._audio_recordings.list_for_sessions(
-                self._session, current_user.clinic_id, session_ids
-            )
-            for audio_recording in audio_recordings:
-                if audio_recording.storage_reference is not None:
-                    await self._audio_storage.delete(
-                        StorageReference(audio_recording.storage_reference)
+            if session_ids:
+                audio_recordings: list[AudioRecording] = (
+                    await self._audio_recordings.list_for_sessions(
+                        self._session, current_user.clinic_id, session_ids
                     )
-            audio_count = await self._audio_recordings.delete_all_for_sessions(
-                self._session, session_ids
-            )
+                )
+                for audio_recording in audio_recordings:
+                    if audio_recording.storage_reference is not None:
+                        await self._audio_storage.delete(
+                            StorageReference(audio_recording.storage_reference)
+                        )
+                audio_count = await self._audio_recordings.delete_all_for_sessions(
+                    self._session, session_ids
+                )
 
-            artifact_ids = await self._artifacts.prepare_purge_for_sessions(
-                self._session, current_user.clinic_id, session_ids
-            )
-            await self._generation_runs.delete_for_sessions(self._session, session_ids)
-            artifact_count = await self._artifacts.finish_purge(self._session, artifact_ids)
-            await self._pipeline_runs.delete_for_sessions(self._session, session_ids)
+                artifact_ids = await self._artifacts.prepare_purge_for_sessions(
+                    self._session, current_user.clinic_id, session_ids
+                )
+                await self._generation_runs.delete_for_sessions(self._session, session_ids)
+                artifact_count = await self._artifacts.finish_purge(self._session, artifact_ids)
+                await self._pipeline_runs.delete_for_sessions(self._session, session_ids)
 
-            session_count = await self._clinical_sessions.delete_all(
-                self._session, current_user.clinic_id, session_ids
+                session_count = await self._clinical_sessions.delete_all(
+                    self._session, current_user.clinic_id, session_ids
+                )
+
+            now = datetime.now(UTC)
+            await self._patients.update_fields(
+                self._session,
+                current_user.clinic_id,
+                patient_id,
+                {
+                    "display_name": _IDENTITY_ANONYMIZED_DISPLAY_NAME,
+                    "birth_year": None,
+                    "notes": None,
+                    "internal_code": f"{_IDENTITY_ANONYMIZED_INTERNAL_CODE_PREFIX}{patient_id}",
+                    "is_archived": True,
+                    "archived_at": patient.archived_at if patient.is_archived else now,
+                    "identity_purged_at": now,
+                    "updated_by": current_user.id,
+                    "updated_at": now,
+                },
             )
 
             await self._audit.add(
@@ -228,6 +278,7 @@ class RetentionCleanupService:
                         "clinical_sessions_purged": session_count,
                         "ai_artifacts_purged": artifact_count,
                         "audio_recordings_purged": audio_count,
+                        "identity_anonymized": True,
                     },
                 ),
             )

@@ -394,9 +394,9 @@ ejecutarse de verdad al menos una vez contra un dump real de production,
 con constancia en [development-plan.md](development-plan.md) §Fase 11
 (fecha + resultado).
 
-### 8.2 Purga definitiva de datos clínicos de un paciente (Fase 12) — añadido 2026-09-18
+### 8.2 Purga definitiva de datos clínicos de un paciente (Fase 12) — añadido 2026-09-18, ampliado 2026-09-23
 
-Hasta esta fecha, **ningún** camino del sistema podía borrar físicamente
+Hasta 2026-09-18, **ningún** camino del sistema podía borrar físicamente
 `ai_artifacts`/`clinical_sessions`: el criterio de §8 (arriba) era
 correcto para la operación normal — evitar que retención automática por
 antigüedad destruyera trazabilidad clínica — pero como efecto colateral
@@ -405,16 +405,47 @@ superado* el plazo mínimo legal de conservación de la clínica (en España,
 5 años desde el alta, art. 17 Ley 41/2002). Un paciente podía solicitar
 legítimamente la eliminación de sus datos y la plataforma no tenía forma
 de cumplirla. `RetentionCleanupService.purge_patient_clinical_data()`
-cierra ese hueco.
+cerró ese hueco — pero solo para el **contenido clínico**: hasta
+2026-09-23 la fila `patients` en sí (nombre, año de nacimiento, notas,
+código interno) nunca se tocaba, así que un paciente que ejerciera el
+derecho de supresión completo seguía teniendo su identidad en la base de
+datos indefinidamente (hallazgo medio del red team,
+[red-team-app-2026-09-22.md](security/red-team-app-2026-09-22.md)).
+Desde 2026-09-23, la misma operación **también anonimiza in-place** la
+identidad del paciente: `display_name` → marcador fijo,
+`birth_year`/`notes` → `NULL`, `internal_code` → marcador único derivado
+del `patient_id` (es `NOT NULL` en el esquema, no puede vaciarse), y
+queda registrado en el nuevo campo `patients.identity_purged_at` —
+distinto de `archived_at` (reversible, no implica supresión RGPD) y,
+a diferencia de él, irreversible. Esta anonimización ocurre siempre que
+se confirma la purga, incluso si el paciente no tiene ninguna sesión
+clínica todavía (antes, ese caso retornaba en seco sin tocar identidad).
+`consents` **nunca** se purga ni se anonimiza — es la prueba legal de que
+se otorgó o revocó un consentimiento y debe sobrevivir a la purga; solo
+pierde la referencia a la sesión clínica ya borrada
+(`clinical_session_id` → `NULL` vía `ondelete="SET NULL"`, corregido el
+mismo día tras detectar que la ausencia de esa regla causaba un rollback
+silencioso de toda la purga si el paciente tenía algún consentimiento
+ligado a la sesión eliminada).
 
 Diferencias deliberadas frente a `purge()` (audio por antigüedad, arriba):
 
 | | `purge()` (§8) | `purge_patient_clinical_data()` (§8.2) |
 |---|---|---|
-| Alcance | Solo audio expirado por `RETENTION_DAYS_DEFAULT` | Todo el contenido clínico de **un paciente**: audio, `ai_artifacts`/`ai_artifact_versions`, `ai_generation_runs`, `ai_pipeline_runs`, `clinical_sessions` |
+| Alcance | Solo audio expirado por `RETENTION_DAYS_DEFAULT` | Todo el contenido clínico de **un paciente** (audio, `ai_artifacts`/`ai_artifact_versions`, `ai_generation_runs`, `ai_pipeline_runs`, `clinical_sessions`) **y** anonimización in-place de su identidad en `patients` |
 | Disparo | Manual (endpoint admin) o automatizado (cron externo, hito 8.2 de arriba) | **Solo manual**, nunca cron ni automático — "cuándo procede legalmente borrar" es un juicio de la clínica, no un valor por defecto del sistema |
-| Atomicidad | No — cada `AudioRecordingService.delete()` confirma de forma independiente | **Sí** — una única transacción; cualquier fallo revierte todo el borrado |
+| Atomicidad | No — cada `AudioRecordingService.delete()` confirma de forma independiente | **Sí** — una única transacción; cualquier fallo revierte todo el borrado, identidad incluida |
 | Confirmación | Ninguna adicional (ya requiere admin) | Doble barrera: `confirm: Literal[True]` en el schema Pydantic (rechaza `false`/ausente con 422 antes de tocar dominio) + comprobación `if not confirm` en el servicio (defensa en profundidad para otros llamadores, p. ej. tests/CLI) |
+
+**Límite conocido, no cubierto por este cambio**: backups (§8, capas
+Volume/PITR/pg_dump cifrado) no purgan retroactivamente un paciente ya
+anonimizado — sus datos originales siguen "vivos" en cualquier snapshot
+tomado antes de la purga hasta que ese snapshot expire por antigüedad
+(hasta 30 días en la capa cifrada, más en PITR). Tampoco existe hoy un
+mecanismo de propagación de la solicitud de borrado hacia subencargados
+externos (Deepgram, OpenAI, Anthropic) que hayan procesado audio o
+transcripción del paciente. Ambos quedan pendientes de la revisión legal
+del DPA/RAT/ToS antes de firmar el primer cliente real.
 
 **Autorización**: acción dedicada `RetentionAction.PURGE_PATIENT_DATA` en
 `app/core/authorization.py`, admin-only (igual criterio que el resto de
@@ -448,8 +479,12 @@ Endpoint: `POST /api/v1/retention/patients/{patient_id}/purge` (ver
 [api-specification.md](api-specification.md) §Retention). Cobertura de
 test: `tests/test_retention_service.py` (capa de servicio: cascada
 completa, atomicidad, permisos, auditoría, aislamiento, caso sin
-sesiones) y `tests/test_retention_api.py` (capa HTTP: validación 422 de
-`confirm`, 403 no-admin, 200 con recuento exacto).
+sesiones, anonimización de identidad en los cuatro campos, identidad
+intacta si `confirm` falla, `consents` sobrevive con
+`clinical_session_id=NULL`) y `tests/test_retention_api.py` (capa HTTP:
+validación 422 de `confirm`, 403 no-admin, 200 con recuento exacto, y que
+el paciente anonimizado sigue siendo servible por `GET
+/api/v1/patients/{id}` pese a que `internal_code` es `NOT NULL`).
 
 ## 9. Proveedores externos y envío de datos
 

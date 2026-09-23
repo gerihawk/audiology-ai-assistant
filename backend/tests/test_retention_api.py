@@ -341,3 +341,18 @@ async def test_purge_patient_data_deletes_everything_and_returns_counts(
         select(AuditLogORM).where(AuditLogORM.action == "retention.patient_data_purged")
     )
     assert len(audit_result.scalars().all()) == 1
+
+    # La identidad anonimizada sigue siendo servible por la API (regresión
+    # directa del riesgo identificado al implementar esto: `internal_code`
+    # es NOT NULL/`str` no-opcional en `PatientResponse` — ver
+    # app/retention/service.py, docstring de purge_patient_clinical_data).
+    get_response = await api_client.get(
+        f"/api/v1/patients/{patient.id}", headers=dev_headers(clinic_with_users.admin)
+    )
+    assert get_response.status_code == 200, get_response.text
+    purged_body = get_response.json()
+    assert purged_body["display_name"] == "[Paciente eliminado]"
+    assert purged_body["birth_year"] is None
+    assert purged_body["notes"] is None
+    assert purged_body["internal_code"] == f"eliminado-{patient.id}"
+    assert purged_body["is_archived"] is True

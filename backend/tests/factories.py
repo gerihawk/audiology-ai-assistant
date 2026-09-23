@@ -36,6 +36,8 @@ from app.clinical_sessions.infrastructure.repository import SqlAlchemyClinicalSe
 from app.clinics.domain.entities import Clinic
 from app.clinics.infrastructure.orm import ClinicORM
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
+from app.consents.domain.entities import Consent, ConsentType
+from app.consents.infrastructure.repository import SqlAlchemyConsentRepository
 from app.core.current_user import CurrentUser
 from app.core.processing_status import ProcessingStatus
 from app.integrations.domain.integration_config import IntegrationConfig, IntegrationName
@@ -167,6 +169,33 @@ async def create_patient(
     await SqlAlchemyPatientRepository().add(session, patient)
     await session.commit()
     return patient
+
+
+async def create_consent(
+    session: AsyncSession,
+    clinic_id: uuid.UUID,
+    patient_id: uuid.UUID,
+    granted_by: uuid.UUID,
+    *,
+    clinical_session_id: uuid.UUID | None = None,
+    consent_type: ConsentType = ConsentType.PROCESAMIENTO_IA,
+    granted: bool = True,
+) -> Consent:
+    consent = Consent(
+        id=uuid.uuid4(),
+        clinic_id=clinic_id,
+        patient_id=patient_id,
+        clinical_session_id=clinical_session_id,
+        consent_type=consent_type,
+        granted=granted,
+        consent_version=None,
+        granted_by=granted_by,
+        recorded_at=None,
+        notes=None,
+    )
+    persisted = await SqlAlchemyConsentRepository().add(session, consent)
+    await session.commit()
+    return persisted
 
 
 async def create_clinical_session(
