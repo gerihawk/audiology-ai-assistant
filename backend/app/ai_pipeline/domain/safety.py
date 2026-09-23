@@ -132,7 +132,7 @@ _FORBIDDEN_PATTERNS: tuple[_ForbiddenPattern, ...] = (
     # proximidad de palabras, ver docstring del módulo.
     _ForbiddenPattern(
         rule=_TRATAMIENTO_VARIANTE,
-        regex=re.compile(rf"\btratamiento\w*\b(?:\s+\S+){{0,8}}\s+\bautomatic\w*\b"),
+        regex=re.compile(r"\btratamiento\w*\b(?:\s+\S+){0,8}\s+\bautomatic\w*\b"),
     ),
     # equivalentes en inglés
     _ForbiddenPattern(

@@ -27,6 +27,7 @@ from app.ai_pipeline.infrastructure.orm import (
     AIArtifactVersionORM,
     AIGenerationRunORM,
     AIPipelineRunORM,
+    AISafetyAuditFlagORM,
     PromptTemplateORM,
 )
 
@@ -628,4 +629,36 @@ class SqlAlchemyPromptTemplateRepository:
         if row is None:
             return
         row.is_active = False
+        await session.flush()
+
+
+class SqlAlchemyAISafetyAuditFlagRepository:
+    """Paso 2 del cierre del hallazgo bloqueante del red team
+    (docs/security/red-team-app-2026-09-22.md §A1). Solo escritura —
+    deliberadamente no expone ningún método de lectura por contenido: la
+    revisión humana pasa por consultas ad hoc de `platform_admin` sobre
+    `llm_flagged`/`llm_reasoning`/`model_used`, nunca por un endpoint que
+    devuelva el texto marcado (que no se guarda aquí)."""
+
+    async def add(
+        self,
+        session: AsyncSession,
+        *,
+        ai_artifact_version_id: uuid.UUID,
+        clinic_id: uuid.UUID,
+        llm_flagged: bool,
+        llm_reasoning: str,
+        model_used: str,
+        prompt_version: str,
+    ) -> None:
+        session.add(
+            AISafetyAuditFlagORM(
+                ai_artifact_version_id=ai_artifact_version_id,
+                clinic_id=clinic_id,
+                llm_flagged=llm_flagged,
+                llm_reasoning=llm_reasoning,
+                model_used=model_used,
+                prompt_version=prompt_version,
+            )
+        )
         await session.flush()

@@ -25,6 +25,7 @@ from app.integrations.mocks.mock_audio_cost_estimator import MockAudioCostEstima
 from app.integrations.mocks.mock_email_sender import ConsoleEmailSender
 from app.integrations.mocks.mock_language_model_provider import MockLanguageModelProvider
 from app.integrations.mocks.mock_payment_gateway import MockPaymentGateway
+from app.integrations.mocks.mock_safety_audit_provider import MockSafetyAuditProvider
 from app.integrations.mocks.mock_transcription_provider import MockTranscriptionProvider
 from app.integrations.mocks.mock_turnstile_verifier import MockTurnstileVerifier
 from app.integrations.providers.anthropic_language_model_provider import (
@@ -321,6 +322,24 @@ def build_payment_gateway(settings: Settings, provider_name: str | None = None) 
             f"{', '.join(sorted(PAYMENT_GATEWAY_FACTORIES))}."
         ) from exc
     return factory(settings)
+
+
+#: Paso 2 del cierre del hallazgo bloqueante del red team
+#: (docs/security/red-team-app-2026-09-22.md §A1, 2026-09-23): a
+#: diferencia de `build_language_model_provider`, "off"
+#: (`Settings.llm_provider_safety_audit`, valor por defecto en todos los
+#: entornos) devuelve `None` — el llamador (`app/ai_pipeline/safety_audit_task.py`)
+#: ni construye el proveedor mock ni hace ninguna llamada. "mock" no
+#: reutiliza `MockLanguageModelProvider` (su salida no es un veredicto
+#: parseable) — usa `MockSafetyAuditProvider`, pensado para esta forma de
+#: respuesta.
+def build_safety_audit_provider(settings: Settings) -> LanguageModelProvider | None:
+    name = settings.llm_provider_safety_audit
+    if name == "off":
+        return None
+    if name == "mock":
+        return MockSafetyAuditProvider()
+    return build_language_model_provider(settings, name)
 
 
 def build_language_model_provider(settings: Settings, provider_name: str) -> LanguageModelProvider:

@@ -19,9 +19,10 @@ Anthropic/OpenAI/Google si así está configurado."""
 
 from __future__ import annotations
 
+import json
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 
 from app.ai_pipeline.api.schemas import (
     AIArtifactListResponse,
@@ -33,6 +34,7 @@ from app.ai_pipeline.api.schemas import (
     ArtifactRejectRequest,
     RunPipelineResponse,
 )
+from app.ai_pipeline.safety_audit_task import run_safety_audit
 from app.ai_pipeline.service import AIPipelineService
 from app.core.context import get_request_id
 from app.core.current_user import CurrentUser
@@ -66,6 +68,7 @@ async def run_mock_pipeline(
 )
 async def run_pipeline(
     session_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     current_user: CurrentUser = Depends(get_current_user),
     service: AIPipelineService = Depends(get_ai_pipeline_service),
     request_id: str = Depends(get_request_id),
@@ -75,8 +78,26 @@ async def run_pipeline(
     indica (ver `AIPipelineService.run_pipeline`). Único endpoint con el
     gate de suscripción (Fase 13, hito 13.2,
     `require_active_subscription`) — `run-mock-pipeline` nunca lo lleva,
-    ver docstring del módulo."""
+    ver docstring del módulo.
+
+    Tras construir la respuesta, programa la auditoría de seguridad no
+    bloqueante (Paso 2 del cierre del hallazgo bloqueante del red team,
+    docs/security/red-team-app-2026-09-22.md §A1) como `BackgroundTasks` —
+    corre DESPUÉS de que esta respuesta ya se envió al cliente, nunca en
+    este camino crítico. Deliberadamente ausente de `run_mock_pipeline`:
+    ese endpoint es estructuralmente incapaz de gastar dinero o contactar
+    a un proveedor real, sin importar `Settings` — añadir esto ahí
+    rompería esa garantía."""
     outcome = await service.run_pipeline(current_user, session_id, request_id)
+    artifact_versions = {
+        detail.artifact.artifact_type.value: (
+            detail.current_version.id,
+            json.dumps(detail.current_version.content, ensure_ascii=False),
+        )
+        for detail in outcome.artifacts
+        if detail.current_version is not None
+    }
+    background_tasks.add_task(run_safety_audit, current_user.clinic_id, artifact_versions)
     return RunPipelineResponse.from_outcome(outcome)
 
 

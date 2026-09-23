@@ -209,3 +209,32 @@ class PromptTemplateORM(Base):
     )
     artifact_type: Mapped[str] = mapped_column(String(32), nullable=False)
     language: Mapped[str] = mapped_column(String(8), nullable=False)
+
+
+class AISafetyAuditFlagORM(Base):
+    """Paso 2 del cierre del hallazgo bloqueante del red team
+    (docs/security/red-team-app-2026-09-22.md §A1). Tabla dedicada, no
+    `audit_logs` (esa exige `actor_user_id` humano; esta es una señal del
+    propio sistema). Deliberadamente SIN columna de contenido/texto
+    completo — solo `llm_reasoning`, corto, nunca el texto marcado
+    completo (restricción explícita del usuario, ver el módulo de
+    orquestación `app/ai_pipeline/safety_audit_task.py`)."""
+
+    __tablename__ = "ai_safety_audit_flags"
+    __table_args__ = (
+        Index("ix_ai_safety_audit_flags_clinic_created", "clinic_id", "created_at"),
+        Index("ix_ai_safety_audit_flags_version", "ai_artifact_version_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ai_artifact_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ai_artifact_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    clinic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clinics.id"), nullable=False)
+    llm_flagged: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    llm_reasoning: Mapped[str] = mapped_column(String(500), nullable=False)
+    model_used: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

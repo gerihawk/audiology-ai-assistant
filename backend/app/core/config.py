@@ -29,6 +29,13 @@ _LLM_ROUTING_FIELDS = (
     # clínica: consentimiento y límite de coste ya activos, y clave de
     # API del vendor configurada.
     "llm_provider_clinical_flags",
+    # Paso 2 del cierre del hallazgo bloqueante del red team
+    # (docs/security/red-team-app-2026-09-22.md §A1, 2026-09-23): capa de
+    # auditoría LLM NO bloqueante. A diferencia de los cuatro campos
+    # anteriores, su valor "apagado" es "off" (completamente inactivo, ni
+    # siquiera llama al proveedor mock), no "mock" — ver el filtro de
+    # `active_vendors` más abajo, que excluye ambos valores por igual.
+    "llm_provider_safety_audit",
 )
 #: Vendor -> nombre del campo de `Settings` que guarda su API key — una
 #: sola key por vendor, nunca duplicada por artifact_type.
@@ -216,6 +223,20 @@ class Settings(BaseSettings):
     # entorno sin más.
     llm_provider_clinical_flags: Literal["mock", "anthropic", "openai", "google"] = "mock"
     llm_model_clinical_flags: str | None = None
+    # Paso 2 del cierre del hallazgo bloqueante del red team
+    # (docs/security/red-team-app-2026-09-22.md §A1, 2026-09-23): segunda
+    # capa de auditoría LLM sobre contenido que YA pasó el
+    # `SafetyValidator` determinista (Paso 1) — nunca bloquea la
+    # generación, solo señala para revisión humana (ver
+    # `app/ai_pipeline/domain/safety_audit.py`). "off" (no "mock") es el
+    # valor por defecto en TODOS los entornos: a diferencia de los cuatro
+    # campos anteriores, aquí "apagado" significa que la llamada ni
+    # siquiera se intenta (ni con el proveedor mock) — es una herramienta
+    # de monitorización interna, no una feature por clínica; no tiene
+    # sentido "escuchar" en silencio antes de que alguien decida
+    # explícitamente empezar a recoger datos.
+    llm_provider_safety_audit: Literal["off", "mock", "anthropic", "openai", "google"] = "off"
+    llm_model_safety_audit: str | None = None
 
     # Una API key por vendor, nunca duplicada por artifact_type — los tres
     # routings de arriba pueden compartir el mismo vendor sin repetir
@@ -521,7 +542,12 @@ class Settings(BaseSettings):
             )
 
         active_vendors = {
-            getattr(self, field) for field in _LLM_ROUTING_FIELDS if getattr(self, field) != "mock"
+            getattr(self, field)
+            for field in _LLM_ROUTING_FIELDS
+            # "off" solo es un valor válido de `llm_provider_safety_audit`
+            # (ver su definición) — nunca de los otros campos de este
+            # tuple, así que excluirlo aquí no cambia su comportamiento.
+            if getattr(self, field) not in ("mock", "off")
         }
         if active_vendors:
             # Fase 6.3, encargo §7: production con cualquier artifact_type
