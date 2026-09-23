@@ -16,6 +16,28 @@ def test_security_headers_present_on_any_response(client: TestClient) -> None:
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    # ENVIRONMENT=test (conftest.py) → is_production=False → docs activos
+    # (ver _docs_kwargs_for/main.py) → variante permisiva de Swagger UI.
+    assert "cdn.jsdelivr.net" in response.headers["content-security-policy"]
+
+
+def test_csp_bloquea_todo_cuando_docs_desactivados() -> None:
+    # Mismo patrón que test_hsts_activo_en_staging: app mínima con
+    # docs_enabled=False, reproduciendo la condición real de production
+    # (_docs_kwargs_for/main.py) sin depender de ENVIRONMENT=test.
+    app = FastAPI()
+    app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=True, docs_enabled=False)
+
+    @app.get("/probe")
+    def probe() -> dict[str, str]:
+        return {"ok": "true"}
+
+    client = TestClient(app)
+    response = client.get("/probe")
+
+    assert (
+        response.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+    )
 
 
 def test_hsts_absent_outside_production(client: TestClient) -> None:
@@ -45,7 +67,9 @@ def test_hsts_activo_en_staging() -> None:
 
     app = FastAPI()
     app.add_middleware(
-        SecurityHeadersMiddleware, hsts_enabled=settings.is_production or settings.is_staging
+        SecurityHeadersMiddleware,
+        hsts_enabled=settings.is_production or settings.is_staging,
+        docs_enabled=not settings.is_production,
     )
 
     @app.get("/probe")

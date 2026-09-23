@@ -4,10 +4,27 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Cabeceras de seguridad HTTP (Fase 10.5). Sin Content-Security-Policy:
-    # exige conocer a fondo qué scripts/estilos inline usa el build de
-    # Vite — una CSP mal calibrada rompe la SPA entera, queda fuera de
-    # esta ronda.
+    # Cabeceras de seguridad HTTP (Fase 10.5; Content-Security-Policy
+    # añadida al cerrar el hallazgo medio del red team,
+    # docs/security/red-team-app-2026-09-22.md §C2 — investigado qué carga
+    # realmente el build antes de escribirla, no supuesto):
+    #   - script-src: 'self' (bundle de Vite) + challenges.cloudflare.com
+    #     (Turnstile, src/features/onboarding/TurnstileWidget.tsx, único
+    #     script externo real cargado por la app).
+    #   - style-src 'unsafe-inline': un único style={{}} en runtime
+    #     (ConfidenceIndicator.tsx, ancho de una barra de confianza) — no
+    #     hay forma práctica de evitarlo sin generar cientos de clases CSS
+    #     discretas; no afecta a script-src, que sigue sin 'unsafe-inline'.
+    #   - connect-src: ${API_ORIGIN} (el frontend llama a la API en un
+    #     origen distinto, confirmado en src/shared/api/client.ts — por
+    #     eso existe CORS en el backend) + *.sentry.io (solo si
+    #     VITE_SENTRY_DSN está configurada; el DSN real vive en el bundle,
+    #     no aquí).
+    #   - frame-src: challenges.cloudflare.com (el challenge de Turnstile
+    #     puede renderizarse en un iframe).
+    # Verificada en vivo contra el build de producción real (no solo
+    # supuesta) antes de fijarla.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${API_ORIGIN} https://*.sentry.io; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options DENY always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;

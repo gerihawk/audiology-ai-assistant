@@ -106,7 +106,12 @@ app.add_middleware(SlowAPIMiddleware)
 # respuestas 429/413 generadas por los middlewares anteriores, no solo a
 # las respuestas normales de los endpoints.
 app.add_middleware(
-    SecurityHeadersMiddleware, hsts_enabled=settings.is_production or settings.is_staging
+    SecurityHeadersMiddleware,
+    hsts_enabled=settings.is_production or settings.is_staging,
+    # Misma condición exacta que `_docs_kwargs_for` de arriba — la CSP
+    # permisiva para Swagger UI (cdn.jsdelivr.net) solo tiene sentido
+    # cuando /docs/redoc realmente están activos.
+    docs_enabled=not settings.is_production,
 )
 
 register_exception_handlers(app)
