@@ -36,6 +36,7 @@ _INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos."
 # tardaría el tiempo de bcrypt — el mensaje de error ya es idéntico en
 # ambos casos, pero ese canal lateral de tiempo permitiría enumerar
 # emails válidos midiendo latencia.
+# nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash -- decoy de timing-attack (ver comentario de arriba), no es una credencial real; verificado que no está asignado a ningún usuario (docs/security/red-team-app-2026-09-22.md §F)
 _DUMMY_PASSWORD_HASH = "$2b$12$reGYj6MH34Vqzv/tteadR.rlnCNHI9BnZUOmuQBXbyFJAhMO8bcni"
 
 
