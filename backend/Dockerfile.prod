@@ -7,6 +7,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
+# Sin `USER app` aquí a propósito (hallazgo de hardening del red team,
+# docs/security/red-team-app-2026-09-22.md — revisado y descartado, no
+# aplicar): el contenedor debe arrancar como root para que entrypoint.sh
+# pueda `chown -R app:app /app/storage` (permisos de un volumen montado en
+# runtime, cuyo propietario no se conoce hasta el arranque) antes de bajar
+# privilegios con `gosu app "$@"` — mismo patrón que las imágenes oficiales
+# de Postgres/MySQL. Un `USER app` estático aquí rompería ese mecanismo: el
+# `if [ "$(id -u)" = "0" ]` de entrypoint.sh nunca sería cierto, el chown
+# nunca se ejecutaría, y un volumen montado con otro propietario fallaría
+# al escribir.
 RUN groupadd --system app && useradd --system --gid app --home /app app
 
 WORKDIR /app

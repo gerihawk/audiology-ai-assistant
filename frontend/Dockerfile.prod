@@ -43,4 +43,26 @@ COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 ENV PORT=8080
 EXPOSE 8080
 
+# Hardening del red team (docs/security/red-team-app-2026-09-22.md):
+# reutiliza el usuario "nginx" ya creado por la imagen base nginx:alpine.
+# El nginx.conf de base sigue teniendo `user nginx;` (no hay directiva
+# `user` propia en nginx.conf.template, que solo sobreescribe el server
+# block) — con el proceso maestro ya no-root, nginx solo emite un warning
+# de arranque ("the 'user' directive makes sense only if... ignored"),
+# inofensivo, no falla. Puerto 8080 (no privilegiado), no necesita root
+# para hacer bind.
+#
+# Verificado en vivo (docker run) que un chown solo de /usr/share/nginx/html
+# NO basta: el propio docker-entrypoint.sh de la imagen base escribe la
+# config final en /etc/nginx/conf.d (envsubst de nginx.conf.template) y
+# nginx crea sus directorios de buffer bajo /var/cache/nginx y su pidfile
+# bajo /run en el primer arranque — los 4 tienen que ser escribibles por
+# "nginx" o el contenedor falla con "Permission denied"/mkdir() emerg.
+RUN chown -R nginx:nginx \
+    /usr/share/nginx/html \
+    /etc/nginx/conf.d \
+    /var/cache/nginx \
+    /run
+USER nginx
+
 CMD ["nginx", "-g", "daemon off;"]
