@@ -32,6 +32,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
 ## A. Bloqueante — antes de dar de alta al primer cliente real
 
 ### A1. `SafetyValidator` usa solo 3 frases fijas — evadible con cualquier reformulación
+- **Estado (2026-09-23): mitigado.** Paso 1: patrones deterministas ampliados en `safety.py` (variantes, sinónimos, inglés), verificado sin falsos positivos contra fixtures/benchmark reales. Paso 2: capa LLM de auditoría **no bloqueante** (`LLM_PROVIDER_SAFETY_AUDIT`, apagada por defecto). `test_ai_pipeline_safety_validator` sigue en rojo a propósito, documentando el caso que solo cubriría una capa semántica activa. Activarla con proveedor real exige antes anotarlo en la EIPD (`docs/eipd-dpia.md`).
 - **Dónde:** `backend/app/ai_pipeline/domain/safety.py:23-27` —
   `FORBIDDEN_CLINICAL_LANGUAGE = ("el paciente tiene", "diagnóstico confirmado", "tratamiento recomendado automáticamente")`.
   La normalización (líneas 55-61) solo tolera mayúsculas/tildes/puntuación.
@@ -54,6 +55,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
 ## B. Alto
 
 ### B1. `patients.notes` almacenado en texto plano, sin cifrado de campo
+- **Estado (2026-09-23): cerrado.** `notes` migrado a `EncryptedString` (migración `a7c3e59f1b02`, con guardarraíl que aborta si hay datos reales sin backfill; confirmado 0 pacientes con `notes` en staging/producción antes de aplicar). Pusheado a `main` el 2026-09-23 — se aplica sola en el deploy vía `alembic upgrade head`.
 - **Dónde:** `backend/app/patients/infrastructure/orm.py:43` —
   `notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)`.
   A diferencia de `display_name`/`birth_year` (líneas 37-38), que sí usan
@@ -73,6 +75,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
 ## C. Medio
 
 ### C1. Sin borrado/anonimización real de la identidad del paciente (RGPD Art. 17)
+- **Estado (2026-09-23): cerrado.** Se decidió **no** separarlo del purge clínico: `purge_patient_clinical_data()` anonimiza ahora in-place la identidad en la misma transacción (`display_name`/`internal_code` a marcadores, `birth_year`/`notes` a `NULL`, nueva columna `identity_purged_at`, migración `b58d1a4f0c93`), también sin sesiones previas. De paso se corrigió `consents.clinical_session_id` a `ondelete="SET NULL"` (sin ello la purga revertía en silencio si había consentimientos ligados). Límite que sigue abierto: backups ya tomados y subencargados (Anthropic no ofrece borrado ad hoc en API de pago) — ver `docs/eipd-dpia.md` §1.7 y §2.2.
 - **Dónde:** `backend/app/patients/service.py` — solo existe `archive()`
   (línea 206), que marca `is_archived=True` sin tocar
   `display_name`/`birth_year`/`notes`. `retention/service.py::purge_patient_clinical_data`
@@ -87,6 +90,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
   purge clínico ya existente.
 
 ### C2. Falta cabecera `Content-Security-Policy`
+- **Estado (2026-09-23): cerrado.** CSP en backend (`security_headers.py`), nginx de producción y servidor de desarrollo de Vite, verificada contra violaciones reales en la consola del navegador (no solo presencia de cabecera), incluidas las de `/redoc` y el preámbulo de React Fast Refresh.
 - **Dónde:** `backend/app/core/security_headers.py` (`SecurityHeadersMiddleware.dispatch`)
   — aplica `X-Content-Type-Options`, `X-Frame-Options: DENY`,
   `Referrer-Policy` y `Strict-Transport-Security` (condicional a producción),
@@ -99,6 +103,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
   (o política equivalente) en el mismo middleware.
 
 ### C3. `@vitest/mocker` sigue vulnerable tras el bump de esta sesión — el fix real exige `vitest@5.x`
+- **Estado (2026-09-23): cerrado.** `vitest` 3.2.7→5.0.1 (sin cambios de configuración; `npm audit`: 0 vulnerabilidades; 285/285 tests de frontend en verde).
 - **Dónde:** `frontend/package-lock.json`, confirmado con `npm audit` tras el
   bump de dependencias de hoy (`vitest` 2.1.9→3.2.7).
 - **Detalle:** GHSA-82fw-gwwq-j7x9 (path traversal / lectura arbitraria vía
@@ -116,6 +121,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
 ## D. Bajo
 
 ### D1. JWT sin logout/blacklist explícito — mitigado por chequeo de `is_active` por request
+- **Estado (2026-09-23): abierto, con implementación decidida.** Se opta por un contador `token_version` por usuario (claim en el JWT) en lugar del `token_valid_after` contra `iat` recomendado abajo: evita el caso límite de un token emitido en el mismo segundo que el logout o el reset de contraseña (`iat` tiene resolución de segundos). Hueco adicional que cierra: hoy un reset de contraseña **no** invalida los tokens ya emitidos.
 - **Dónde:** `backend/app/auth/service.py:22` (TTL 8h clínica),
   `backend/app/platform_admin/service.py:40` (TTL 2h operador), verificación
   en `backend/app/core/current_user.py:105-133`.
@@ -232,3 +238,7 @@ verificada, incluyendo prueba activa de IDOR, no solo lectura de código.
 
 Ningún fix se ha aplicado en esta fase. Nada de git tocado (commit/push
 pendiente de que lo pidas explícitamente).
+
+**Actualización 2026-09-23:** cerrados A1 (mitigado, ver su estado), B1,
+C1, C2 y C3. Solo queda abierto D1 (bajo), con implementación ya decidida.
+Detalle en la línea de **Estado** de cada hallazgo.
