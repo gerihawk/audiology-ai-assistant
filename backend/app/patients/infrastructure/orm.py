@@ -40,7 +40,15 @@ class PatientORM(Base):
     preferred_language: Mapped[str] = mapped_column(
         String(5), nullable=False, default="es", server_default="es"
     )
-    notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # Cifrado desde 2026-09-23 (hallazgo del red team, docs/security/
+    # red-team-app-2026-09-22.md §B1 — antes String(2000) en claro, a
+    # diferencia de display_name/birth_year de arriba). Mismo tipo, mismo
+    # criterio: el límite real de longitud vive en
+    # app/patients/api/schemas.py (_NOTES_MAX_LENGTH = 2000), nunca en esta
+    # columna. `notes` no se usa en ningún filtro/ilike de SQL (verificado
+    # en SqlAlchemyPatientRepository), así que no hereda la limitación de
+    # no-determinismo de forma distinta a display_name.
+    notes: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
