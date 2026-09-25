@@ -149,8 +149,10 @@ class TestDatasetLoader:
         assert case.reference is not None
         assert case.reference.content is not None
 
-    def test_los_5_casos_reales_listados(self):
-        # Hito 6.4.4 añadió los 2 casos ANAMNESIS (rica/pobre) al mismo
+    def test_los_7_casos_reales_listados(self):
+        # Hito 6.4.4 añadió los 2 casos ANAMNESIS (rica/pobre) y, después,
+        # los 2 casos SESSION_NOTES (seguimiento rica/pobre, ver
+        # docs/fase-6-4-4-anamnesis-benchmark-rfc.md §9) al mismo
         # directorio de dataset — este test verifica el listado completo,
         # no solo los 3 casos originales de la Fase 6.2.
         ids = list_generation_case_ids(_REAL_DATASET_DIR)
@@ -160,4 +162,6 @@ class TestDatasetLoader:
             "consulta_ficticia_01__patient_summary",
             "consulta_ficticia_anamnesis_rica__anamnesis",
             "consulta_ficticia_anamnesis_pobre__anamnesis",
+            "consulta_ficticia_seguimiento_rica__session_notes",
+            "consulta_ficticia_seguimiento_pobre__session_notes",
         }

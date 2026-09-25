@@ -101,9 +101,10 @@ def test_violacion_no_incluye_el_texto_completo_del_campo():
 # tildes retiradas e inglés — ninguno reutiliza literalmente ninguna de las
 # 3 frases de FORBIDDEN_CLINICAL_LANGUAGE tal cual.
 #
-# Se espera que ESTE TEST FALLE contra la implementación actual (confirma
-# el hallazgo). Debe pasar íntegro una vez se implemente el arreglo
-# acordado — no se ha tocado safety.py todavía.
+# Tras el Paso 1 de A1 (patrones deterministas ampliados en safety.py),
+# 14 de los 15 casos ya se detectan. El que no, se marca xfail estricto:
+# documenta lo que solo cubriría la capa semántica (Paso 2), y strict=True
+# hace que CI falle el día que pase, para quitar la marca.
 @pytest.mark.parametrize(
     "descripcion,texto",
     [
@@ -151,9 +152,17 @@ def test_violacion_no_incluye_el_texto_completo_del_campo():
             "palabras insertadas rompen el substring de 'tratamiento recomendado automáticamente'",
             "Tratamiento recomendado por el sistema de forma totalmente automática.",
         ),
-        (
+        pytest.param(
             "hecho clínico presentado como establecido, sin usar ninguna de las 3 frases",
             "Hipoacusia neurosensorial bilateral confirmada mediante audiometría.",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "Red team A1: solo lo cubriría la capa semántica "
+                    "(LLM_PROVIDER_SAFETY_AUDIT, no bloqueante y apagada por "
+                    "defecto), no los patrones deterministas de safety.py."
+                ),
+            ),
         ),
         (
             "catch-all de §3: inferencia de la IA presentada como hecho clínico",
