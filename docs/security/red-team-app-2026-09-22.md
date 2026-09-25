@@ -32,7 +32,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
 ## A. Bloqueante — antes de dar de alta al primer cliente real
 
 ### A1. `SafetyValidator` usa solo 3 frases fijas — evadible con cualquier reformulación
-- **Estado (2026-09-23): mitigado.** Paso 1: patrones deterministas ampliados en `safety.py` (variantes, sinónimos, inglés), verificado sin falsos positivos contra fixtures/benchmark reales. Paso 2: capa LLM de auditoría **no bloqueante** (`LLM_PROVIDER_SAFETY_AUDIT`, apagada por defecto). `test_ai_pipeline_safety_validator` sigue en rojo a propósito, documentando el caso que solo cubriría una capa semántica activa. Activarla con proveedor real exige antes anotarlo en la EIPD (`docs/eipd-dpia.md`).
+- **Estado (2026-09-23): mitigado.** Paso 1: patrones deterministas ampliados en `safety.py` (variantes, sinónimos, inglés), verificado sin falsos positivos contra fixtures/benchmark reales. Paso 2: capa LLM de auditoría **no bloqueante** (`LLM_PROVIDER_SAFETY_AUDIT`, apagada por defecto). `test_ai_pipeline_safety_validator::test_bypass_reformulaciones_no_detectadas_por_lista_literal` tiene los casos que solo cubriría una capa semántica activa marcados xfail estricto (2026-09-25): «hecho clínico presentado como establecido, sin usar ninguna de las 3 frases» (*"Hipoacusia neurosensorial bilateral confirmada mediante audiometría."*). Los otros 14 casos pasan. Activarla con proveedor real exige antes anotarlo en la EIPD (`docs/eipd-dpia.md`).
 - **Dónde:** `backend/app/ai_pipeline/domain/safety.py:23-27` —
   `FORBIDDEN_CLINICAL_LANGUAGE = ("el paciente tiene", "diagnóstico confirmado", "tratamiento recomendado automáticamente")`.
   La normalización (líneas 55-61) solo tolera mayúsculas/tildes/puntuación.

@@ -115,7 +115,7 @@ def build_comparison(case_id: str, results_by_profile: dict[str, dict[str, Any]]
 
 
 def select_winner_per_artifact_type(
-    comparisons_by_artifact_type: dict[str, dict[str, Any]]
+    comparisons_by_artifact_type: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     winners_by_artifact_type = {
         artifact_type: comparison["winner"]

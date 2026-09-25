@@ -21,7 +21,8 @@ declara ninguna variable de esquema/target, y esta fase no improvisa una
 plantilla nueva. Opción B del RFC técnico: interfaz preparada, routing
 productivo sin cambios de comportamiento hasta una plantilla
 `missing_information_es_v2` que sí lo exprese — ver
-`test_real_missing_information_generator.py::test_target_no_altera_el_prompt_renderizado_en_6_4_4`."""
+`test_real_missing_information_generator.py::test_target_no_altera_el_prompt_renderizado_en_6_4_4`.
+"""
 
 from __future__ import annotations
 

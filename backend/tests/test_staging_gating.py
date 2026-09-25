@@ -1,4 +1,4 @@
-""""staging" tratado igual que "production" para gating de herramientas de
+""" "staging" tratado igual que "production" para gating de herramientas de
 desarrollo (Fase 10.7), salvo dos excepciones deliberadas y sin tocar:
 `app/seed.py` (el seed de desarrollo sigue permitido en staging) y
 `app/main.py::_docs_kwargs_for` (los docs interactivos siguen visibles

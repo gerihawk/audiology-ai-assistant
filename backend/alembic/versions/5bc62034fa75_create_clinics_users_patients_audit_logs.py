@@ -1,7 +1,7 @@
 """create clinics users patients audit_logs
 
 Revision ID: 5bc62034fa75
-Revises: 
+Revises:
 Create Date: 2026-08-05 09:33:59.540932
 
 """
