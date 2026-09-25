@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { logout } from '../api/auth'
 import { apiRequest } from '../api/client'
 import type { CurrentUser } from '../api/types'
 import { clearToken, getToken, setToken, subscribe } from './tokenStore'
@@ -73,11 +74,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loadCurrentUser],
   )
 
+  // Revoca el token en el servidor ANTES de olvidarlo (hallazgo D1) — si
+  // no, un token copiado seguiría valiendo hasta expirar. Si la llamada
+  // falla (red caída, 401 de un token ya caducado…), se limpia igual: el
+  // usuario pidió salir y nunca debe quedarse con la sesión local abierta.
   const signOut = useCallback(() => {
-    clearToken()
-    setCurrentUser(null)
-    setErrorMessage(null)
-    setStatus('unauthenticated')
+    void logout()
+      .catch(() => undefined)
+      .finally(() => {
+        clearToken()
+        setCurrentUser(null)
+        setErrorMessage(null)
+        setStatus('unauthenticated')
+      })
   }, [])
 
   const value = useMemo<AuthContextValue>(

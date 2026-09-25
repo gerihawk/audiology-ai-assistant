@@ -854,9 +854,18 @@ no tiene, todavía, un modo de funcionamiento válido en producción"):
   <token>`, firmado por `AuthService.login`
   (`POST /api/v1/auth/login`, `app/auth/`) — email + contraseña
   verificada con `bcrypt` contra `users.password_hash`.
-- Token de vida media (8h), sin refresh tokens ni blacklist de
-  revocación en esta ronda — logout es solo del lado cliente (descarta
-  el token). MFA queda fuera de esta ronda; rate limiting del endpoint de
+- Token de vida media (8h), sin refresh tokens. **Revocación en
+  servidor desde 2026-09-24** (hallazgo D1 del red team): cada usuario
+  (y cada operador de plataforma) tiene un contador `token_version`, que
+  viaja en el JWT como claim `tv`. `POST /api/v1/auth/logout` (y
+  `POST /api/v1/platform/auth/logout`) lo incrementa, cerrando todas las
+  sesiones del usuario, no solo la actual; el reset de contraseña también
+  lo incrementa, en la misma transacción. Un `tv` que no coincide se
+  rechaza con el mismo 401 que un token expirado. Un token sin `tv`
+  (emitido antes de este cambio) cuenta como `tv=0`. No añade consultas:
+  el usuario ya se carga en cada petición. El `signOut` del frontend
+  llama al endpoint antes de descartar el token local y lo descarta
+  igual si la llamada falla. MFA queda fuera de esta ronda; rate limiting del endpoint de
   login conecta con la deuda ya documentada en el hito 8.4 (5/minute,
   cerrado en la Fase 10.5).
 - Mismo criterio de validación de usuario que `FakeCurrentUserProvider`:

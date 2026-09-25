@@ -68,6 +68,12 @@ export function platformLogin(email: string, password: string): Promise<Platform
   })
 }
 
+/** `POST /api/v1/platform/auth/logout` (hallazgo D1) — revoca en el
+ * servidor todos los tokens del operador (204, sin cuerpo). */
+export function platformLogout(): Promise<void> {
+  return platformApiRequest('/api/v1/platform/auth/logout', { method: 'POST' })
+}
+
 /** `GET /api/v1/platform/me` — valida un token persistido en un refresh
  * de página, mismo papel que `GET /api/v1/me` en `AuthContext.tsx`. */
 export function getPlatformMe(): Promise<PlatformOperator> {

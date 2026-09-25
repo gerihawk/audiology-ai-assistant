@@ -121,7 +121,7 @@ local (`REDTEAM Clinica B`) — ya limpiados (verificado, 0 filas).
 ## D. Bajo
 
 ### D1. JWT sin logout/blacklist explícito — mitigado por chequeo de `is_active` por request
-- **Estado (2026-09-23): abierto, con implementación decidida.** Se opta por un contador `token_version` por usuario (claim en el JWT) en lugar del `token_valid_after` contra `iat` recomendado abajo: evita el caso límite de un token emitido en el mismo segundo que el logout o el reset de contraseña (`iat` tiene resolución de segundos). Hueco adicional que cierra: hoy un reset de contraseña **no** invalida los tokens ya emitidos.
+- **Estado (2026-09-24): cerrado.** Contador `token_version` en `users` y `platform_operators` (migración `c91e4d7a2b60`), enviado como claim `tv` del JWT, en lugar del `token_valid_after` contra `iat` recomendado abajo: evita el caso límite de un token emitido en el mismo segundo que el logout o el reset de contraseña (`iat` tiene resolución de segundos). `POST /api/v1/auth/logout` y `POST /api/v1/platform/auth/logout` (204, 5/minute) lo incrementan y cierran todas las sesiones del usuario; también el reset de contraseña (`OnboardingService.confirm_password_reset` y `app.platform_admin.cli reset-password`), en la misma transacción. Un `tv` que no coincide responde el mismo 401 que un token expirado; un token sin `tv` (emitido antes del deploy) cuenta como `tv=0`. El frontend (`signOut` de `AuthContext`/`PlatformAuthContext`) llama al endpoint antes de limpiar el token local y lo limpia igual si falla. Tests: `backend/tests/test_token_revocation.py`. Sigue sin cubrir, fuera de alcance: la filtración de `JWT_SECRET_KEY` (exige rotarla).
 - **Dónde:** `backend/app/auth/service.py:22` (TTL 8h clínica),
   `backend/app/platform_admin/service.py:40` (TTL 2h operador), verificación
   en `backend/app/core/current_user.py:105-133`.
@@ -240,5 +240,6 @@ Ningún fix se ha aplicado en esta fase. Nada de git tocado (commit/push
 pendiente de que lo pidas explícitamente).
 
 **Actualización 2026-09-23:** cerrados A1 (mitigado, ver su estado), B1,
-C1, C2 y C3. Solo queda abierto D1 (bajo), con implementación ya decidida.
+C1, C2 y C3. **Actualización 2026-09-24:** cerrado D1 — no queda ningún
+hallazgo abierto.
 Detalle en la línea de **Estado** de cada hallazgo.

@@ -8,14 +8,17 @@ corta (8h). Sin domain/infraestructura propios: mismo patrón ligero que
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit_log.domain.entities import AuditLogEntry
+from app.audit_log.infrastructure.repository import SqlAlchemyAuditLogRepository
 from app.core.config import Settings, get_settings
-from app.core.current_user import JWT_ALGORITHM
+from app.core.current_user import JWT_ALGORITHM, TOKEN_VERSION_CLAIM, CurrentUser
 from app.core.exceptions import UnauthenticatedError
 from app.users.infrastructure.repository import SqlAlchemyUserRepository
 
@@ -47,10 +50,12 @@ class AuthService:
         *,
         settings: Settings | None = None,
         user_repository: SqlAlchemyUserRepository | None = None,
+        audit_repository: SqlAlchemyAuditLogRepository | None = None,
     ) -> None:
         self._session = session
         self._settings = settings or get_settings()
         self._users = user_repository or SqlAlchemyUserRepository()
+        self._audit = audit_repository or SqlAlchemyAuditLogRepository()
 
     async def login(self, email: str, password: str) -> str:
         user = await self._users.get_by_email(self._session, email)
@@ -65,7 +70,31 @@ class AuthService:
 
         now = datetime.now(UTC)
         return jwt.encode(
-            {"sub": str(user.id), "iat": now, "exp": now + ACCESS_TOKEN_TTL},
+            {
+                "sub": str(user.id),
+                TOKEN_VERSION_CLAIM: user.token_version,
+                "iat": now,
+                "exp": now + ACCESS_TOKEN_TTL,
+            },
             self._settings.jwt_secret_key,
             algorithm=JWT_ALGORITHM,
         )
+
+    async def logout(self, current_user: CurrentUser, request_id: str | None) -> None:
+        """Hallazgo D1: revoca TODOS los JWT del usuario (todas sus
+        sesiones, no solo la del token presentado) incrementando
+        `token_version`. Auditoría sin metadatos: el propio evento basta."""
+        await self._users.increment_token_version(self._session, current_user.id)
+        await self._audit.add(
+            self._session,
+            AuditLogEntry(
+                id=uuid.uuid4(),
+                clinic_id=current_user.clinic_id,
+                actor_user_id=current_user.id,
+                action="auth.logout",
+                entity_type="user",
+                entity_id=current_user.id,
+                request_id=request_id,
+            ),
+        )
+        await self._session.commit()

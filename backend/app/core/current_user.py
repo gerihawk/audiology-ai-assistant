@@ -28,6 +28,20 @@ DEV_USER_HEADER = "X-Dev-User-Id"
 # este módulo verifica — misma clave y algoritmo en ambos extremos.
 JWT_ALGORITHM = "HS256"
 
+# Claim con el `token_version` vigente al emitir el token (hallazgo D1 del
+# red team) — compartido con `AuthService`/`PlatformAdminAuthService`, que
+# lo firman, y `get_current_platform_operator`, que también lo verifica.
+# Un token sin este claim (emitido antes del deploy) cuenta como versión 0.
+TOKEN_VERSION_CLAIM = "tv"
+
+# Un token revocado (logout/reset) responde exactamente igual que uno
+# expirado: nunca se revela al portador que la sesión se cerró a propósito.
+EXPIRED_TOKEN_MESSAGE = "El token ha expirado."
+
+
+def is_token_revoked(payload: dict, current_version: int) -> bool:
+    return payload.get(TOKEN_VERSION_CLAIM, 0) != current_version
+
 
 @dataclass(frozen=True, slots=True)
 class CurrentUser:
@@ -111,7 +125,7 @@ class RealCurrentUserProvider:
         try:
             payload = jwt.decode(token, self._settings.jwt_secret_key, algorithms=[JWT_ALGORITHM])
         except jwt.ExpiredSignatureError as exc:
-            raise UnauthenticatedError("El token ha expirado.") from exc
+            raise UnauthenticatedError(EXPIRED_TOKEN_MESSAGE) from exc
         except jwt.InvalidTokenError as exc:
             raise UnauthenticatedError("Token inválido.") from exc
 
@@ -123,6 +137,8 @@ class RealCurrentUserProvider:
         user = await self._user_repository.get_active_by_id(session, user_id)
         if user is None:
             raise UnauthenticatedError("Usuario no encontrado o inactivo.")
+        if is_token_revoked(payload, user.token_version):
+            raise UnauthenticatedError(EXPIRED_TOKEN_MESSAGE)
 
         return CurrentUser(
             id=user.id,

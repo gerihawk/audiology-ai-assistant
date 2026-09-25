@@ -29,3 +29,7 @@ class User:
     # actualicen) — un usuario sin `password_hash` nunca autentica con
     # éxito, ver `AuthService.login`.
     password_hash: str | None = None
+    # Revocación de JWT (hallazgo D1 del red team): se incrementa en cada
+    # logout/reset de contraseña; un token cuyo claim `tv` no coincida con
+    # este valor se rechaza (ver `RealCurrentUserProvider`).
+    token_version: int = 0

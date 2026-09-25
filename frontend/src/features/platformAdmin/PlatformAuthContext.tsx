@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PlatformOperator } from '../../shared/api/types'
-import { getPlatformMe } from './api'
+import { getPlatformMe, platformLogout } from './api'
 import { clearPlatformToken, getPlatformToken, setPlatformToken, subscribe } from './tokenStore'
 
 /** Mismo patrón que `shared/auth/AuthContext.tsx`, pero para el operador
@@ -71,11 +71,17 @@ export function PlatformAuthProvider({ children }: { children: ReactNode }) {
     [loadOperator],
   )
 
+  // Mismo criterio que `AuthContext.signOut` (hallazgo D1): revocar en el
+  // servidor primero, limpiar el token local siempre, falle o no.
   const signOut = useCallback(() => {
-    clearPlatformToken()
-    setOperator(null)
-    setErrorMessage(null)
-    setStatus('unauthenticated')
+    void platformLogout()
+      .catch(() => undefined)
+      .finally(() => {
+        clearPlatformToken()
+        setOperator(null)
+        setErrorMessage(null)
+        setStatus('unauthenticated')
+      })
   }, [])
 
   const value = useMemo<PlatformAuthContextValue>(

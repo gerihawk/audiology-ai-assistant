@@ -7,6 +7,9 @@ mecanismo de identidad. Ver docstring de `app/platform_admin/service.py`.
 `POST /platform/auth/login`: público, mismo límite de 5/minute que
 `POST /auth/login` (misma razón: frenar fuerza bruta de contraseñas).
 
+`POST /platform/auth/logout`: equivalente de `POST /auth/logout` (hallazgo
+D1) — revoca todos los tokens del operador autenticado, mismo límite.
+
 `GET /platform/clinics` / `PATCH /platform/clinics/{clinic_id}`:
 protegidos por `get_current_platform_operator` — nunca por
 `get_current_user`/`authorize_*`, que no tienen ningún concepto aplicable
@@ -21,7 +24,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from app.clinics.domain.entities import Clinic
 from app.core.rate_limit import limiter
@@ -53,6 +56,17 @@ async def platform_login(
 ) -> PlatformLoginResponse:
     token = await service.login(payload.email, payload.password)
     return PlatformLoginResponse(access_token=token)
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
+async def platform_logout(
+    request: Request,
+    operator: PlatformOperator = Depends(get_current_platform_operator),
+    service: PlatformAdminAuthService = Depends(get_platform_admin_auth_service),
+) -> Response:
+    await service.logout(operator.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me", response_model=PlatformOperatorResponse)
