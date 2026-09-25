@@ -2,7 +2,10 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    UV_NO_CACHE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    PATH="/app/.venv/bin:$PATH"
 
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
@@ -21,12 +24,22 @@ RUN groupadd --system app && useradd --system --gid app --home /app app
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 
-RUN pip install --upgrade pip && pip install .
+# Se instala exactamente lo fijado en uv.lock, nunca "lo último que encaje en
+# el rango" de pyproject.toml (causa raíz del incidente de SQLAlchemy 2.1 sin
+# greenlet en el pre-deploy de Railway, 2026-09-24). uv fijado (0.12.3, la
+# versión local con la que se verificó este uv.lock; misma en Dockerfile y
+# ci.yml — súbelas juntas). `--locked` (no `--frozen`):
+# `--frozen` ignora un pyproject.toml desincronizado del lock y construye
+# igual; `--locked` hace fallar el build. Sin `--extra dev` (solo
+# dependencias de runtime) y `--no-editable` (sin edición en caliente en
+# producción, como el `pip install .` anterior). Venv en /app/.venv, cubierto
+# por el `chown -R app:app /app` de abajo y en PATH para uvicorn/alembic.
+RUN pip install uv==0.12.3 && uv sync --locked --no-editable
 
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh && chown -R app:app /app

@@ -2,17 +2,26 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    UV_NO_CACHE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY tests ./tests
 
-RUN pip install --upgrade pip && pip install -e ".[dev]"
+# Mismo criterio que Dockerfile.prod (uv.lock manda, `--locked` falla si
+# está desincronizado), más los extras de dev (pytest, ruff, black,
+# pip-audit). Venv en /opt/venv (UV_PROJECT_ENVIRONMENT) y no en /app/.venv:
+# el volumen `./backend:/app` de docker-compose.yml lo taparía al arrancar.
+# Instalación editable del proyecto, que apunta a /app — el código montado.
+RUN pip install uv==0.12.3 && uv sync --locked --extra dev
 
 # Hardening del red team (docs/security/red-team-app-2026-09-22.md, hallazgo
 # de dependencias/infra pendiente): sin USER, uvicorn/pytest corrían como

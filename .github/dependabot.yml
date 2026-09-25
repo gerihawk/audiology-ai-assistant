@@ -4,7 +4,9 @@
 # publicada; Dependabot además propone ir actualizando antes de llegar a eso.
 version: 2
 updates:
-  - package-ecosystem: "pip"
+  # "uv" (no "pip"): lee y actualiza backend/uv.lock, que es lo que instalan
+  # de verdad los Dockerfiles y CI (`uv sync --locked`).
+  - package-ecosystem: "uv"
     directory: "/backend"
     schedule:
       interval: "weekly"
