@@ -10,3 +10,9 @@ export function login(email: string, password: string): Promise<LoginResponse> {
     body: { email, password },
   })
 }
+
+/** `POST /api/v1/auth/logout` (hallazgo D1 del red team) — revoca en el
+ * servidor todos los tokens del usuario (204, sin cuerpo). */
+export function logout(): Promise<void> {
+  return apiRequest<void>('/api/v1/auth/logout', { method: 'POST' })
+}

@@ -22,6 +22,7 @@ def _to_domain(row: PlatformOperatorORM) -> PlatformOperator:
         created_at=row.created_at,
         updated_at=row.updated_at,
         password_hash=row.password_hash,
+        token_version=row.token_version,
     )
 
 
@@ -66,4 +67,12 @@ class SqlAlchemyPlatformOperatorRepository:
             update(PlatformOperatorORM)
             .where(PlatformOperatorORM.id == operator_id)
             .values(password_hash=password_hash)
+        )
+
+    async def increment_token_version(self, session: AsyncSession, operator_id: uuid.UUID) -> None:
+        """Mismo criterio que `SqlAlchemyUserRepository.increment_token_version`."""
+        await session.execute(
+            update(PlatformOperatorORM)
+            .where(PlatformOperatorORM.id == operator_id)
+            .values(token_version=PlatformOperatorORM.token_version + 1)
         )

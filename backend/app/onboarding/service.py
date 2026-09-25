@@ -252,6 +252,8 @@ class OnboardingService:
             raise NotFoundError("El usuario asociado a este enlace ya no existe.")
 
         await self._users.set_password_hash(self._session, user.id, _hash_password(new_password))
+        # Hallazgo D1: un JWT robado antes del reset deja de valer.
+        await self._users.increment_token_version(self._session, user.id)
         await self._tokens.mark_used(self._session, token.id)
         # Cualquier otro enlace de reseteo pendiente para este usuario deja
         # de ser válido tras un cambio de contraseña efectivo.

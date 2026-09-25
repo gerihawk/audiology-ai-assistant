@@ -29,6 +29,7 @@ def _to_domain(row: UserORM) -> User:
         created_at=row.created_at,
         updated_at=row.updated_at,
         password_hash=row.password_hash,
+        token_version=row.token_version,
     )
 
 
@@ -99,6 +100,16 @@ class SqlAlchemyUserRepository:
         lógica de creación de `add()`."""
         await session.execute(
             update(UserORM).where(UserORM.id == user_id).values(password_hash=password_hash)
+        )
+
+    async def increment_token_version(self, session: AsyncSession, user_id: uuid.UUID) -> None:
+        """Revoca todos los JWT emitidos hasta ahora para este usuario
+        (hallazgo D1) — incremento atómico en SQL, nunca leer-sumar-escribir
+        en Python. No comete: lo hace el servicio llamador."""
+        await session.execute(
+            update(UserORM)
+            .where(UserORM.id == user_id)
+            .values(token_version=UserORM.token_version + 1)
         )
 
     async def set_active(

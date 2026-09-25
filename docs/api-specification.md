@@ -51,12 +51,25 @@ sin autenticación real. Estas rutas **no se registran** cuando
 
 ## Auth
 
-Implementado en la Fase 9, hito 9.1. Público (sin `CurrentUser` previo) —
-es el propio punto de entrada de autenticación.
+Implementado en la Fase 9, hito 9.1. `/auth/login` es público (sin
+`CurrentUser` previo) — es el propio punto de entrada de autenticación.
+`/auth/logout` (hallazgo D1 del red team, 2026-09-24) exige estar
+autenticado.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/auth/login` | Autentica con `email`/`password`; devuelve `{"access_token": string, "token_type": "bearer"}` (JWT firmado HS256, verificado por `RealCurrentUserProvider`) |
+| POST | `/auth/login` | Autentica con `email`/`password`; devuelve `{"access_token": string, "token_type": "bearer"}` (JWT firmado HS256 con claim `tv` = `token_version` vigente, verificado por `RealCurrentUserProvider`) |
+| POST | `/auth/logout` | Sin cuerpo. `204`. Incrementa `token_version` del usuario: revoca todos sus tokens (todas sus sesiones). Registra `auth.logout` en `audit_logs` sin metadatos. Mismo límite de `5/minute` |
+
+- Un token revocado (su `tv` ya no coincide con `token_version`) recibe el
+  mismo `401` que un token expirado. Un token sin `tv` (emitido antes de
+  la revocación) cuenta como `tv=0`. El reset de contraseña también
+  incrementa `token_version`.
+- Equivalente para el operador de plataforma: `POST
+  /platform/auth/logout` (`204`, mismo límite), sobre
+  `platform_operators.token_version`. Sin entrada en `audit_logs` (la
+  tabla exige `clinic_id` y un `actor_user_id` de `users`): se registra en
+  el log estructurado `app.platform_admin` con el id del operador.
 
 - Límite propio de `5/minute` (frente al general de `120/minute`), para
   frenar fuerza bruta de contraseñas.

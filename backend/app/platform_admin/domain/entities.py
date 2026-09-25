@@ -23,3 +23,5 @@ class PlatformOperator:
     # Igual que `User.password_hash`: `None` = sin contraseña asignada
     # todavía, nunca autentica con éxito (ver PlatformAdminAuthService.login).
     password_hash: str | None = None
+    # Mismo mecanismo que `User.token_version` (hallazgo D1).
+    token_version: int = 0

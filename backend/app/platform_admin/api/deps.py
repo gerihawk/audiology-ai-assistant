@@ -14,7 +14,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.current_user import JWT_ALGORITHM
+from app.core.current_user import EXPIRED_TOKEN_MESSAGE, JWT_ALGORITHM, is_token_revoked
 from app.core.db import get_db_session
 from app.core.exceptions import UnauthenticatedError
 from app.platform_admin.domain.entities import PlatformOperator
@@ -59,7 +59,7 @@ async def get_current_platform_operator(
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError as exc:
-        raise UnauthenticatedError("El token ha expirado.") from exc
+        raise UnauthenticatedError(EXPIRED_TOKEN_MESSAGE) from exc
     except jwt.InvalidTokenError as exc:
         raise UnauthenticatedError("Token inválido.") from exc
 
@@ -74,4 +74,6 @@ async def get_current_platform_operator(
     operator = await SqlAlchemyPlatformOperatorRepository().get_active_by_id(session, operator_id)
     if operator is None:
         raise UnauthenticatedError("Operador no encontrado o inactivo.")
+    if is_token_revoked(payload, operator.token_version):
+        raise UnauthenticatedError(EXPIRED_TOKEN_MESSAGE)
     return operator

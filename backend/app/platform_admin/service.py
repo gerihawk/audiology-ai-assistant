@@ -20,6 +20,7 @@ la plataforma):
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -30,9 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clinics.domain.entities import Clinic
 from app.clinics.infrastructure.repository import SqlAlchemyClinicRepository
 from app.core.config import Settings, get_settings
-from app.core.current_user import JWT_ALGORITHM
+from app.core.current_user import JWT_ALGORITHM, TOKEN_VERSION_CLAIM
 from app.core.exceptions import NotFoundError, UnauthenticatedError
 from app.platform_admin.infrastructure.repository import SqlAlchemyPlatformOperatorRepository
+
+logger = logging.getLogger("app.platform_admin")
 
 #: Más corto que `ACCESS_TOKEN_TTL` de `AuthService` (8h): un token de
 #: operador de plataforma es de alto privilegio (ve/gestiona TODAS las
@@ -83,11 +86,23 @@ class PlatformAdminAuthService:
             {
                 "sub": str(operator.id),
                 "typ": PLATFORM_TOKEN_TYPE,
+                TOKEN_VERSION_CLAIM: operator.token_version,
                 "iat": now,
                 "exp": now + PLATFORM_ACCESS_TOKEN_TTL,
             },
             self._settings.jwt_secret_key,
             algorithm=JWT_ALGORITHM,
+        )
+
+    async def logout(self, operator_id: uuid.UUID) -> None:
+        """Hallazgo D1 — mismo criterio que `AuthService.logout`. Sin
+        entrada en `audit_logs`: esa tabla exige `clinic_id` y un
+        `actor_user_id` con FK a `users`, y un operador no tiene ninguno de
+        los dos. Queda en el log estructurado (solo el id opaco)."""
+        await self._operators.increment_token_version(self._session, operator_id)
+        await self._session.commit()
+        logger.info(
+            "platform_operator.logout", extra={"context": {"operator_id": str(operator_id)}}
         )
 
 

@@ -72,6 +72,8 @@ async def reset_password(email: str, password: str) -> None:
         if operator is None:
             raise SystemExit(f"No existe ningún operador con el email {email!r}.")
         await repository.set_password_hash(session, operator.id, password_hash)
+        # Hallazgo D1: revoca los JWT emitidos con la contraseña anterior.
+        await repository.increment_token_version(session, operator.id)
         await session.commit()
     print(f"Contraseña actualizada: {email}")
 
